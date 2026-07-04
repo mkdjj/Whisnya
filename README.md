@@ -42,13 +42,7 @@ For public distribution, configure your own Android signing key first.
 
 ## Other Platforms
 
-Flutter can generate the missing platform folders when you need them:
-
-```powershell
-flutter create --platforms=windows,macos,ios .
-```
-
-Build Windows on Windows:
+Windows platform files are included. Build Windows on Windows:
 
 ```powershell
 flutter build windows --release
@@ -62,9 +56,10 @@ build/windows/x64/runner/Release/
 
 Ship the whole `Release` folder, not only the `.exe`.
 
-Build iOS or macOS on macOS with Xcode installed:
+Generate iOS or macOS platform files, then build on macOS with Xcode installed:
 
 ```bash
+flutter create --platforms=ios,macos .
 flutter build ipa --release
 flutter build macos --release
 ```

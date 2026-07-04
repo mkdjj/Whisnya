@@ -43,13 +43,7 @@ build/app/outputs/flutter-apk/app-release.apk
 
 ## 其他平台
 
-需要其他平台目录时，可以让 Flutter 生成：
-
-```powershell
-flutter create --platforms=windows,macos,ios .
-```
-
-在 Windows 上打包 Windows 版：
+仓库已经包含 Windows 平台文件。在 Windows 上打包 Windows 版：
 
 ```powershell
 flutter build windows --release
@@ -63,9 +57,10 @@ build/windows/x64/runner/Release/
 
 发布时要带上整个 `Release` 文件夹，不要只发 `.exe`。
 
-iOS 或 macOS 需要在安装了 Xcode 的 macOS 上打包：
+iOS 或 macOS 需要先生成平台文件，然后在安装了 Xcode 的 macOS 上打包：
 
 ```bash
+flutter create --platforms=ios,macos .
 flutter build ipa --release
 flutter build macos --release
 ```
