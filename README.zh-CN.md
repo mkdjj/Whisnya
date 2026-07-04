@@ -41,6 +41,37 @@ build/app/outputs/flutter-apk/app-release.apk
 
 如果要公开分发，请先配置自己的 Android 签名文件。
 
+## 其他平台
+
+需要其他平台目录时，可以让 Flutter 生成：
+
+```powershell
+flutter create --platforms=windows,macos,ios .
+```
+
+在 Windows 上打包 Windows 版：
+
+```powershell
+flutter build windows --release
+```
+
+Windows 产物会生成在：
+
+```text
+build/windows/x64/runner/Release/
+```
+
+发布时要带上整个 `Release` 文件夹，不要只发 `.exe`。
+
+iOS 或 macOS 需要在安装了 Xcode 的 macOS 上打包：
+
+```bash
+flutter build ipa --release
+flutter build macos --release
+```
+
+iOS 和 macOS 分发需要 Apple 签名。
+
 ## 本地数据
 
 App 会在应用文档目录下创建：
@@ -64,5 +95,8 @@ app_data/
     backgrounds/
     global/
 ```
+
+App 内的“导出全部数据”会生成 zip 备份，里面使用 `app_data/` 下的相对文件结构。
+导入时会自动修复当前平台的数据路径，所以备份可以在 Whisnya 的 Android、Windows、macOS 和 iOS 版本之间迁移。
 
 不要上传本地备份、API Key、聊天记录、小说原文或签名文件。

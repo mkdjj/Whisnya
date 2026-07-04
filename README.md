@@ -40,6 +40,37 @@ build/app/outputs/flutter-apk/app-release.apk
 
 For public distribution, configure your own Android signing key first.
 
+## Other Platforms
+
+Flutter can generate the missing platform folders when you need them:
+
+```powershell
+flutter create --platforms=windows,macos,ios .
+```
+
+Build Windows on Windows:
+
+```powershell
+flutter build windows --release
+```
+
+The Windows build is generated at:
+
+```text
+build/windows/x64/runner/Release/
+```
+
+Ship the whole `Release` folder, not only the `.exe`.
+
+Build iOS or macOS on macOS with Xcode installed:
+
+```bash
+flutter build ipa --release
+flutter build macos --release
+```
+
+iOS and macOS distribution requires Apple signing.
+
 ## Local Data
 
 Whisnya stores data in the app documents directory:
@@ -63,5 +94,9 @@ app_data/
     backgrounds/
     global/
 ```
+
+The in-app full-data export creates a zip backup with relative files under `app_data/`.
+Import repairs saved paths for the current platform, so backups can be moved between
+Android, Windows, macOS, and iOS builds of Whisnya.
 
 Do not publish local backups, API keys, chat records, novel text, or signing files.
