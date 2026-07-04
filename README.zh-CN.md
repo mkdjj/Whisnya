@@ -2,9 +2,9 @@
 
 [English](README.md)
 
-Whisnya 是一个本地自用 Android AI 角色聊天 App，使用 Flutter + Dart 开发。
+Whisnya 是一个本地优先的 Android AI 角色聊天和 TXT 小说阅读 App，使用 Flutter 开发。
 
-## 已实现
+## 功能
 
 - Grok / DeepSeek / GPT 三组 OpenAI Chat Completions 兼容 API 配置。
 - 角色创建、编辑、隐藏、上锁、导入和导出。
@@ -15,6 +15,31 @@ Whisnya 是一个本地自用 Android AI 角色聊天 App，使用 Flutter + Dar
 - 导出/导入全部本地数据，包括小说原文、聊天记录、总结、图片、设置和 API 配置。
 - 隐私密码保护上锁角色和小说。
 - 主题模式、背景透明度/模糊度、字体大小和中英文界面。
+
+## 环境要求
+
+- Flutter >= 3.38.4
+- Dart >= 3.12.2
+- Android SDK，并能正常执行 release 构建
+
+## 打包 APK
+
+```powershell
+git clone https://github.com/mkdjj/Whisnya.git
+cd Whisnya
+flutter pub get
+flutter analyze
+flutter test
+flutter build apk --release
+```
+
+APK 会生成在：
+
+```text
+build/app/outputs/flutter-apk/app-release.apk
+```
+
+如果要公开分发，请先配置自己的 Android 签名文件。
 
 ## 本地数据
 
@@ -41,12 +66,3 @@ app_data/
 ```
 
 不要上传本地备份、API Key、聊天记录、小说原文或签名文件。
-
-## 常用命令
-
-```powershell
-.\.toolcache\flutter\bin\flutter.bat pub get
-.\.toolcache\flutter\bin\flutter.bat analyze
-.\.toolcache\flutter\bin\flutter.bat test
-.\.toolcache\flutter\bin\flutter.bat build apk --release
-```
