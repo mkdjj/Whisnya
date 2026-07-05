@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/ai_provider.dart';
+import '../models/api_config.dart';
 import '../models/app_character.dart';
 import '../services/local_storage_service.dart';
 import '../utils/app_i18n.dart';
@@ -34,7 +35,8 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
   late final TextEditingController _openingMessageController;
   late final TextEditingController _extraPromptController;
 
-  late AiProvider _defaultProvider;
+  var _apiConfig = ApiConfig.defaults();
+  var _defaultEndpointId = '';
   var _isSaving = false;
   var _isPickingImage = false;
 
@@ -69,7 +71,9 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
     _extraPromptController = TextEditingController(
       text: character?.extraPrompt ?? '',
     );
-    _defaultProvider = character?.defaultProvider ?? AiProvider.deepseek;
+    _defaultEndpointId =
+        character?.defaultEndpointId ?? character?.defaultProvider.id ?? '';
+    _loadApiConfig();
   }
 
   @override
@@ -103,7 +107,9 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
       speakingStyle: _speakingStyleController.text.trim(),
       openingMessage: _openingMessageController.text.trim(),
       extraPrompt: _extraPromptController.text.trim(),
-      defaultProvider: _defaultProvider,
+      defaultProvider: AiProviderX.fromId(_defaultEndpointId),
+      defaultEndpointId: _defaultEndpointId,
+      useFullChatContext: existing?.useFullChatContext ?? true,
       isPinned: existing?.isPinned ?? false,
       isHidden: existing?.isHidden ?? false,
       isLocked: existing?.isLocked ?? false,
@@ -128,6 +134,20 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
       if (!mounted) return;
       _showSnack(error.toString());
       setState(() => _isSaving = false);
+    }
+  }
+
+  Future<void> _loadApiConfig() async {
+    try {
+      final config = await widget.storage.loadApiConfig();
+      if (!mounted) return;
+      setState(() {
+        _apiConfig = config;
+        _defaultEndpointId =
+            config.effectiveEndpoint(_defaultEndpointId)?.id ?? '';
+      });
+    } catch (_) {
+      // Keep character editing usable even if API config is broken.
     }
   }
 
@@ -397,22 +417,31 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
             const SizedBox(height: 12),
             _multiLineField(_extraPromptController, context.t('补充设定')),
             const SizedBox(height: 12),
-            DropdownButtonFormField<AiProvider>(
-              initialValue: _defaultProvider,
-              decoration: InputDecoration(labelText: context.t('默认模型')),
-              items: [
-                for (final provider in AiProvider.values)
-                  DropdownMenuItem(
-                    value: provider,
-                    child: Text(provider.label),
-                  ),
-              ],
-              onChanged: (provider) {
-                if (provider != null) {
-                  setState(() => _defaultProvider = provider);
-                }
-              },
-            ),
+            if (_apiConfig.endpoints.isEmpty)
+              InputDecorator(
+                decoration: InputDecoration(labelText: context.t('默认模型')),
+                child: Text(context.t('请先到 API 设置添加配置')),
+              )
+            else
+              DropdownButtonFormField<String>(
+                initialValue:
+                    _apiConfig.endpointById(_defaultEndpointId) == null
+                    ? null
+                    : _defaultEndpointId,
+                decoration: InputDecoration(labelText: context.t('默认模型')),
+                items: [
+                  for (final endpoint in _apiConfig.endpoints)
+                    DropdownMenuItem(
+                      value: endpoint.id,
+                      child: Text(endpoint.name),
+                    ),
+                ],
+                onChanged: (endpointId) {
+                  if (endpointId != null) {
+                    setState(() => _defaultEndpointId = endpointId);
+                  }
+                },
+              ),
             const SizedBox(height: 20),
             FilledButton.icon(
               onPressed: _isSaving ? null : _save,

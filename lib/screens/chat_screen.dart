@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
-import '../models/ai_provider.dart';
 import '../models/api_config.dart';
 import '../models/app_character.dart';
 import '../models/app_settings.dart';
@@ -16,6 +15,7 @@ import '../prompts.dart';
 import '../services/ai_service.dart';
 import '../services/local_storage_service.dart';
 import '../utils/app_i18n.dart';
+import '../utils/page_layout.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({
@@ -44,7 +44,7 @@ class _ChatScreenState extends State<ChatScreen> {
   late AppCharacter _character;
   var _summary = ChatSummary.empty('');
   var _messages = <ChatMessage>[];
-  var _selectedProvider = AiProvider.deepseek;
+  var _selectedEndpointId = '';
   var _isLoading = true;
   var _isSending = false;
   var _isSummarizing = false;
@@ -52,13 +52,13 @@ class _ChatScreenState extends State<ChatScreen> {
   var _searchQuery = '';
   var _searchResults = <int>[];
   var _activeSearchResult = 0;
+  var _generationId = 0;
   String? _loadError;
 
   @override
   void initState() {
     super.initState();
     _character = widget.character;
-    _selectedProvider = _character.defaultProvider;
     _summary = ChatSummary.empty(_character.id);
     _load();
   }
@@ -81,6 +81,8 @@ class _ChatScreenState extends State<ChatScreen> {
       final apiConfig = await widget.storage.loadApiConfig();
       final summary = await widget.storage.loadSummary(_character.id);
       final chat = await widget.storage.loadChat(_character.id);
+      final selectedEndpointId =
+          apiConfig.effectiveEndpoint(_character.defaultEndpointId)?.id ?? '';
       var messages = [...chat.messages];
 
       if (messages.isEmpty && _character.openingMessage.trim().isNotEmpty) {
@@ -89,7 +91,8 @@ class _ChatScreenState extends State<ChatScreen> {
             role: 'assistant',
             content: _character.openingMessage.trim(),
             time: DateTime.now(),
-            provider: _character.defaultProvider.id,
+            endpointId: selectedEndpointId,
+            endpointName: apiConfig.endpointById(selectedEndpointId)?.name,
           ),
         ];
         await widget.storage.saveChat(_character.id, messages);
@@ -98,6 +101,7 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!mounted) return;
       setState(() {
         _apiConfig = apiConfig;
+        _selectedEndpointId = selectedEndpointId;
         _summary = summary;
         _messages = messages;
         _isLoading = false;
@@ -117,8 +121,8 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
 
-    final providerConfig = _apiConfig.get(_selectedProvider);
-    final configError = _validateProviderConfig(providerConfig);
+    final endpoint = _apiConfig.effectiveEndpoint(_selectedEndpointId);
+    final configError = _validateEndpointConfig(endpoint);
     if (configError != null) {
       _showSnack(configError);
       return;
@@ -140,24 +144,32 @@ class _ChatScreenState extends State<ChatScreen> {
     await widget.storage.saveChat(_character.id, _messages);
     await widget.storage.markCharacterUsed(_character.id);
 
+    await _requestAssistantReply(endpoint!);
+  }
+
+  Future<void> _requestAssistantReply(AiEndpointConfig endpoint) async {
+    final generationId = ++_generationId;
     try {
+      await _updateRollingSummary(endpoint, generationId);
+      if (!mounted || generationId != _generationId || !_isSending) return;
+
       final reply = await widget.aiService.sendMessage(
-        provider: _selectedProvider.id,
-        apiKey: providerConfig.apiKey,
-        baseUrl: providerConfig.baseUrl,
-        model: providerConfig.model,
+        apiKey: endpoint.apiKey,
+        baseUrl: endpoint.baseUrl,
+        model: endpoint.model,
         messages: _buildChatRequestMessages(),
       );
+      if (!mounted || generationId != _generationId || !_isSending) return;
 
       final assistantMessage = ChatMessage(
         role: 'assistant',
         content: reply,
         time: DateTime.now(),
-        provider: _selectedProvider.id,
-        model: providerConfig.model,
+        endpointId: endpoint.id,
+        endpointName: endpoint.name,
+        model: endpoint.model,
       );
 
-      if (!mounted) return;
       setState(() {
         _messages = [..._messages, assistantMessage];
         _isSending = false;
@@ -165,10 +177,92 @@ class _ChatScreenState extends State<ChatScreen> {
       await widget.storage.saveChat(_character.id, _messages);
       _scrollToEnd();
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || generationId != _generationId) return;
       setState(() => _isSending = false);
       _showSnack(error.toString());
     }
+  }
+
+  Future<void> _retryLastUserMessage() async {
+    if (_isSending || _messages.isEmpty || !_messages.last.isUser) return;
+    final endpoint = _apiConfig.effectiveEndpoint(_selectedEndpointId);
+    final configError = _validateEndpointConfig(endpoint);
+    if (configError != null) {
+      _showSnack(configError);
+      return;
+    }
+    setState(() => _isSending = true);
+    _scrollToEnd();
+    await _requestAssistantReply(endpoint!);
+  }
+
+  Future<void> _editLastUserMessageAndResend() async {
+    if (_isSending) return;
+    final index = _lastUserMessageIndex();
+    if (index == -1) {
+      _showSnack('没有可编辑的用户消息。');
+      return;
+    }
+
+    final controller = TextEditingController(text: _messages[index].content);
+    final edited = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(context.t('编辑并重发')),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          minLines: 3,
+          maxLines: 8,
+          decoration: InputDecoration(labelText: context.t('输入消息')),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(context.t('取消')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: Text(context.t('重新生成')),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (edited == null || edited.isEmpty) return;
+
+    final endpoint = _apiConfig.effectiveEndpoint(_selectedEndpointId);
+    final configError = _validateEndpointConfig(endpoint);
+    if (configError != null) {
+      _showSnack(configError);
+      return;
+    }
+
+    final nextMessages = [
+      ..._messages.take(index),
+      _messages[index].copyWith(content: edited, time: DateTime.now()),
+    ];
+    setState(() {
+      _messages = nextMessages;
+      _isSending = true;
+    });
+    await widget.storage.saveChat(_character.id, _messages);
+    _scrollToEnd();
+    await _requestAssistantReply(endpoint!);
+  }
+
+  void _stopGeneration() {
+    if (!_isSending) return;
+    _generationId++;
+    setState(() => _isSending = false);
+    _showSnack('已停止生成');
+  }
+
+  int _lastUserMessageIndex() {
+    for (var i = _messages.length - 1; i >= 0; i--) {
+      if (_messages[i].isUser) return i;
+    }
+    return -1;
   }
 
   Future<void> _summarize() async {
@@ -177,8 +271,8 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
 
-    final providerConfig = _apiConfig.get(_selectedProvider);
-    final configError = _validateProviderConfig(providerConfig);
+    final endpoint = _apiConfig.effectiveEndpoint(_selectedEndpointId);
+    final configError = _validateEndpointConfig(endpoint);
     if (configError != null) {
       _showSnack(configError);
       return;
@@ -186,12 +280,12 @@ class _ChatScreenState extends State<ChatScreen> {
 
     setState(() => _isSummarizing = true);
     try {
-      final prompt = PromptBuilder.buildSummaryPrompt(_messages);
+      final messages = _chatMessagesOnly();
+      final prompt = PromptBuilder.buildSummaryPrompt(messages);
       final summaryText = await widget.aiService.sendMessage(
-        provider: _selectedProvider.id,
-        apiKey: providerConfig.apiKey,
-        baseUrl: providerConfig.baseUrl,
-        model: providerConfig.model,
+        apiKey: endpoint!.apiKey,
+        baseUrl: endpoint.baseUrl,
+        model: endpoint.model,
         messages: [
           {'role': 'system', 'content': '你负责总结聊天记录，并只输出总结内容。'},
           {'role': 'user', 'content': prompt},
@@ -202,6 +296,7 @@ class _ChatScreenState extends State<ChatScreen> {
         characterId: _character.id,
         summary: summaryText,
         updatedAt: DateTime.now(),
+        summarizedMessageCount: messages.length,
       );
       await widget.storage.saveSummary(nextSummary);
 
@@ -376,26 +471,88 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   List<Map<String, String>> _buildChatRequestMessages() {
-    final systemPrompt = PromptBuilder.buildSystemPrompt(
-      _character,
-      _summary.summary,
+    return PromptBuilder.buildChatRequestMessages(
+      character: _character,
+      historySummary: _summary.summary,
+      messages: _messages,
+      useFullContext: _character.useFullChatContext,
+      recentMessageLimit: _character.chatSummaryMessageLimit,
     );
-    return [
-      {'role': 'system', 'content': systemPrompt},
-      for (final message in _messages)
-        if (message.isUser || message.isAssistant)
-          {'role': message.role, 'content': message.content},
-    ];
   }
 
-  String? _validateProviderConfig(ApiProviderConfig config) {
-    if (config.apiKey.trim().isEmpty) {
+  List<ChatMessage> _chatMessagesOnly() {
+    return _messages
+        .where((message) => message.isUser || message.isAssistant)
+        .toList();
+  }
+
+  Future<void> _updateRollingSummary(
+    AiEndpointConfig endpoint,
+    int generationId,
+  ) async {
+    if (_character.useFullChatContext) return;
+
+    final messages = _chatMessagesOnly();
+    final limit = _character.chatSummaryMessageLimit;
+    if (messages.length <= limit) return;
+
+    final summarizeUntil = PromptBuilder.rollingSummaryEndIndex(
+      messageCount: messages.length,
+      summaryLimit: limit,
+    );
+    final summarizedCount = _summary.summarizedMessageCount
+        .clamp(0, summarizeUntil)
+        .toInt();
+    if (summarizedCount >= summarizeUntil) return;
+
+    final nextChunk = messages.sublist(summarizedCount, summarizeUntil);
+    if (nextChunk.isEmpty) return;
+
+    setState(() => _isSummarizing = true);
+    try {
+      final summaryText = await widget.aiService.sendMessage(
+        apiKey: endpoint.apiKey,
+        baseUrl: endpoint.baseUrl,
+        model: endpoint.model,
+        messages: [
+          {'role': 'system', 'content': '你负责总结聊天记录，并只输出总结内容。'},
+          {
+            'role': 'user',
+            'content': PromptBuilder.buildRollingSummaryPrompt(
+              previousSummary: _summary.summary,
+              newMessages: nextChunk,
+            ),
+          },
+        ],
+      );
+      final nextSummary = ChatSummary(
+        characterId: _character.id,
+        summary: summaryText,
+        updatedAt: DateTime.now(),
+        summarizedMessageCount: summarizeUntil,
+      );
+      await widget.storage.saveSummary(nextSummary);
+      if (!mounted || generationId != _generationId || !_isSending) return;
+      setState(() => _summary = nextSummary);
+    } finally {
+      if (mounted) setState(() => _isSummarizing = false);
+    }
+  }
+
+  String? _validateEndpointConfig(AiEndpointConfig? endpoint) {
+    if (endpoint == null) {
+      return '请先到 API 设置添加配置。';
+    }
+    if (!endpoint.enabled) {
+      return '当前 API 配置已禁用。';
+    }
+    if (endpoint.apiKey.trim().isEmpty) {
       return 'API Key 为空，请先配置。';
     }
-    if (config.baseUrl.trim().isEmpty) {
+    if (endpoint.baseUrl.trim().isEmpty) {
       return 'Base URL 为空，请先配置。';
     }
-    if (config.model.trim().isEmpty) {
+    if (endpoint.model.trim().isEmpty) {
       return 'Model 为空，请先配置。';
     }
     return null;
@@ -414,11 +571,10 @@ class _ChatScreenState extends State<ChatScreen> {
           constraints: const BoxConstraints(maxWidth: 520),
           child: TextField(
             controller: controller,
-            enabled: hasSummary,
             minLines: 8,
             maxLines: 14,
             decoration: InputDecoration(
-              hintText: hasSummary ? null : context.t('暂无历史总结，请先生成历史总结。'),
+              hintText: hasSummary ? null : context.t('可以直接填写历史总结'),
             ),
           ),
         ),
@@ -449,36 +605,38 @@ class _ChatScreenState extends State<ChatScreen> {
                   child: Text(context.t('删除历史总结')),
                 ),
                 FilledButton(
-                  onPressed: hasSummary
-                      ? () async {
-                          final navigator = Navigator.of(dialogContext);
-                          final nextText = controller.text.trim();
-                          if (nextText.isEmpty) {
-                            _showSnack('总结内容不能为空，想删除请点删除历史总结');
-                            return;
-                          }
-                          if (nextText == text) {
-                            navigator.pop();
-                            return;
-                          }
-                          final confirmed = await _confirmSummaryAction(
-                            title: '保存历史总结',
-                            content: '确定保存对历史总结的改动吗？',
-                            confirmLabel: '保存',
-                          );
-                          if (!confirmed || !mounted) return;
-                          final nextSummary = ChatSummary(
-                            characterId: _character.id,
-                            summary: nextText,
-                            updatedAt: DateTime.now(),
-                          );
-                          await widget.storage.saveSummary(nextSummary);
-                          if (!mounted) return;
-                          setState(() => _summary = nextSummary);
-                          navigator.pop();
-                          _showSnack('历史总结已保存');
-                        }
-                      : null,
+                  onPressed: () async {
+                    final navigator = Navigator.of(dialogContext);
+                    final nextText = controller.text.trim();
+                    if (nextText.isEmpty) {
+                      _showSnack('总结内容不能为空，想删除请点删除历史总结');
+                      return;
+                    }
+                    if (nextText == text) {
+                      navigator.pop();
+                      return;
+                    }
+                    final confirmed = await _confirmSummaryAction(
+                      title: '保存历史总结',
+                      content: '确定保存对历史总结的改动吗？',
+                      confirmLabel: '保存',
+                    );
+                    if (!confirmed || !mounted) return;
+                    final nextSummary = ChatSummary(
+                      characterId: _character.id,
+                      summary: nextText,
+                      updatedAt: DateTime.now(),
+                      summarizedMessageCount:
+                          _summary.summarizedMessageCount == 0
+                          ? _chatMessagesOnly().length
+                          : _summary.summarizedMessageCount,
+                    );
+                    await widget.storage.saveSummary(nextSummary);
+                    if (!mounted) return;
+                    setState(() => _summary = nextSummary);
+                    navigator.pop();
+                    _showSnack('历史总结已保存');
+                  },
                   child: Text(context.t('保存')),
                 ),
                 TextButton(
@@ -552,8 +710,65 @@ class _ChatScreenState extends State<ChatScreen> {
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.memory),
                   title: Text(context.t('当前模型')),
-                  subtitle: Text(_selectedProvider.label),
+                  subtitle: Text(
+                    _apiConfig.endpointById(_selectedEndpointId)?.name ??
+                        context.t('未配置 API'),
+                  ),
                 ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.manage_history),
+                  title: Text(context.t('上下文模式')),
+                  subtitle: Text(_contextModeSubtitle(draft)),
+                ),
+                SegmentedButton<bool>(
+                  segments: [
+                    ButtonSegment(
+                      value: true,
+                      icon: const Icon(Icons.all_inclusive),
+                      label: Text(context.t('全部上下文')),
+                    ),
+                    ButtonSegment(
+                      value: false,
+                      icon: const Icon(Icons.compress),
+                      label: Text(context.t('总结 + 最近消息')),
+                    ),
+                  ],
+                  selected: {draft.useFullChatContext},
+                  onSelectionChanged: (values) {
+                    final useFullContext = values.first;
+                    final next = draft.copyWith(
+                      useFullChatContext: useFullContext,
+                    );
+                    preview(next);
+                    _applyCharacterSettings(next);
+                  },
+                ),
+                if (!draft.useFullChatContext) ...[
+                  const SizedBox(height: 8),
+                  _settingsSlider(
+                    label: '自动总结阈值',
+                    value: draft.chatSummaryMessageLimit.toDouble(),
+                    min: AppCharacter.minChatSummaryMessageLimit.toDouble(),
+                    max: AppCharacter.maxChatSummaryMessageLimit.toDouble(),
+                    divisions:
+                        AppCharacter.maxChatSummaryMessageLimit -
+                        AppCharacter.minChatSummaryMessageLimit,
+                    display: context.isEnglish
+                        ? '${draft.chatSummaryMessageLimit} msgs'
+                        : '${draft.chatSummaryMessageLimit} 条',
+                    onChanged: (value) {
+                      preview(
+                        draft.copyWith(chatSummaryMessageLimit: value.round()),
+                      );
+                    },
+                    onChangeEnd: (value) {
+                      _applyCharacterSettings(
+                        draft.copyWith(chatSummaryMessageLimit: value.round()),
+                      );
+                    },
+                  ),
+                ],
                 const Divider(),
                 _settingsSlider(
                   label: '背景图透明度',
@@ -646,6 +861,28 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  String _contextModeSubtitle(AppCharacter character) {
+    final count = _estimatedRequestMessageCount(character);
+    if (character.useFullChatContext) {
+      return context.isEnglish
+          ? 'Send all chat messages this time: $count'
+          : '本次请求携带全部聊天消息：$count 条';
+    }
+    return context.isEnglish
+        ? 'Summary + latest $count messages, auto summary after ${character.chatSummaryMessageLimit}'
+        : '历史总结 + 最近 $count 条，超过 ${character.chatSummaryMessageLimit} 条自动总结';
+  }
+
+  int _estimatedRequestMessageCount(AppCharacter character) {
+    final count = _chatMessagesOnly().length;
+    if (character.useFullChatContext) return count;
+    final startIndex = PromptBuilder.recentContextStartIndex(
+      messageCount: count,
+      summaryLimit: character.chatSummaryMessageLimit,
+    );
+    return count - startIndex;
+  }
+
   void _applyCharacterSettings(AppCharacter character) {
     final next = character.copyWith(updatedAt: DateTime.now());
     setState(() => _character = next);
@@ -673,19 +910,26 @@ class _ChatScreenState extends State<ChatScreen> {
     required ValueChanged<double> onChangeEnd,
   }) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 8),
       child: InputDecorator(
-        decoration: InputDecoration(labelText: context.t(label)),
+        decoration: InputDecoration(
+          isDense: true,
+          contentPadding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+          labelText: context.t(label),
+        ),
         child: Row(
           children: [
             Expanded(
-              child: Slider(
-                value: value.clamp(min, max).toDouble(),
-                min: min,
-                max: max,
-                divisions: divisions,
-                onChanged: onChanged,
-                onChangeEnd: onChangeEnd,
+              child: SizedBox(
+                height: 32,
+                child: Slider(
+                  value: value.clamp(min, max).toDouble(),
+                  min: min,
+                  max: max,
+                  divisions: divisions,
+                  onChanged: onChanged,
+                  onChangeEnd: onChangeEnd,
+                ),
               ),
             ),
             SizedBox(width: 48, child: Text(display, textAlign: TextAlign.end)),
@@ -838,6 +1082,13 @@ class _ChatScreenState extends State<ChatScreen> {
                 hasBackground: _character.backgroundImage.trim().isNotEmpty,
                 inputOpacity: _character.inputOpacity,
                 onSend: _send,
+                onStop: _stopGeneration,
+                onRetry: _messages.isNotEmpty && _messages.last.isUser
+                    ? _retryLastUserMessage
+                    : null,
+                onEditResend: _lastUserMessageIndex() == -1
+                    ? null
+                    : _editLastUserMessageAndResend,
               ),
             ],
           ),
@@ -848,12 +1099,13 @@ class _ChatScreenState extends State<ChatScreen> {
             child: _AnimatedTopBar(
               isVisible: _showToolBar || _isSummarizing,
               child: _TopBar(
-                selectedProvider: _selectedProvider,
+                endpoints: _apiConfig.enabledEndpoints,
+                selectedEndpointId: _selectedEndpointId,
                 isSummarizing: _isSummarizing,
                 hasBackground: _character.backgroundImage.trim().isNotEmpty,
-                onProviderChanged: (provider) {
-                  if (provider != null) {
-                    setState(() => _selectedProvider = provider);
+                onEndpointChanged: (endpointId) {
+                  if (endpointId != null) {
+                    setState(() => _selectedEndpointId = endpointId);
                     _showToolsTemporarily();
                   }
                 },
@@ -880,27 +1132,29 @@ class _ChatScreenState extends State<ChatScreen> {
               .clamp(0, _searchResults.length - 1)
               .toInt()];
 
-    return ListView.builder(
-      controller: _scrollController,
-      reverse: true,
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: EdgeInsets.fromLTRB(12, _topInset(context) + 12, 12, 16),
-      itemCount: _messages.length + (_isSending ? 1 : 0),
-      itemBuilder: (context, index) {
-        if (_isSending && index == 0) {
-          return const _TypingBubble();
-        }
-        final messageIndex =
-            _messages.length - 1 - (index - (_isSending ? 1 : 0));
-        final message = _messages[messageIndex];
-        return _MessageBubble(
-          message: message,
-          bubbleOpacity: _character.bubbleOpacity,
-          chatTextColor: widget.settings.chatTextColor,
-          isHighlighted: messageIndex == highlightedIndex,
-          onCopy: () => _copyMessage(message),
-        );
-      },
+    return AdaptivePage(
+      child: ListView.builder(
+        controller: _scrollController,
+        reverse: true,
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: EdgeInsets.fromLTRB(0, _topInset(context) + 12, 0, 16),
+        itemCount: _messages.length + (_isSending ? 1 : 0),
+        itemBuilder: (context, index) {
+          if (_isSending && index == 0) {
+            return const _TypingBubble();
+          }
+          final messageIndex =
+              _messages.length - 1 - (index - (_isSending ? 1 : 0));
+          final message = _messages[messageIndex];
+          return _MessageBubble(
+            message: message,
+            bubbleOpacity: _character.bubbleOpacity,
+            chatTextColor: widget.settings.chatTextColor,
+            isHighlighted: messageIndex == highlightedIndex,
+            onCopy: () => _copyMessage(message),
+          );
+        },
+      ),
     );
   }
 
@@ -920,60 +1174,78 @@ class _ChatScreenState extends State<ChatScreen> {
 
 class _TopBar extends StatelessWidget {
   const _TopBar({
-    required this.selectedProvider,
+    required this.endpoints,
+    required this.selectedEndpointId,
     required this.isSummarizing,
     required this.hasBackground,
-    required this.onProviderChanged,
+    required this.onEndpointChanged,
     required this.onSummarize,
   });
 
-  final AiProvider selectedProvider;
+  final List<AiEndpointConfig> endpoints;
+  final String selectedEndpointId;
   final bool isSummarizing;
   final bool hasBackground;
-  final ValueChanged<AiProvider?> onProviderChanged;
+  final ValueChanged<String?> onEndpointChanged;
   final VoidCallback onSummarize;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-      child: Material(
-        elevation: hasBackground ? 8 : 2,
-        color: colorScheme.surface.withValues(alpha: hasBackground ? 0.90 : 1),
-        borderRadius: BorderRadius.circular(8),
+    final width = MediaQuery.sizeOf(context).width;
+    return Center(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: responsiveMaxContentWidth(width)),
         child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: Row(
-            children: [
-              Expanded(
-                child: DropdownButton<AiProvider>(
-                  value: selectedProvider,
-                  isExpanded: true,
-                  borderRadius: BorderRadius.circular(8),
-                  underline: const SizedBox.shrink(),
-                  items: [
-                    for (final provider in AiProvider.values)
-                      DropdownMenuItem(
-                        value: provider,
-                        child: Text(provider.label),
-                      ),
-                  ],
-                  onChanged: onProviderChanged,
-                ),
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+          child: Material(
+            elevation: hasBackground ? 8 : 2,
+            color: colorScheme.surface.withValues(
+              alpha: hasBackground ? 0.90 : 1,
+            ),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: endpoints.isEmpty
+                        ? Text(context.t('请先添加 API 配置'))
+                        : DropdownButton<String>(
+                            value:
+                                endpoints.any(
+                                  (endpoint) =>
+                                      endpoint.id == selectedEndpointId,
+                                )
+                                ? selectedEndpointId
+                                : null,
+                            isExpanded: true,
+                            borderRadius: BorderRadius.circular(8),
+                            underline: const SizedBox.shrink(),
+                            items: [
+                              for (final endpoint in endpoints)
+                                DropdownMenuItem(
+                                  value: endpoint.id,
+                                  child: Text(endpoint.name),
+                                ),
+                            ],
+                            onChanged: onEndpointChanged,
+                          ),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.icon(
+                    onPressed: isSummarizing ? null : onSummarize,
+                    icon: isSummarizing
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.done_all),
+                    label: Text(context.t('结束并总结')),
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              FilledButton.icon(
-                onPressed: isSummarizing ? null : onSummarize,
-                icon: isSummarizing
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.done_all),
-                label: Text(context.t('结束并总结')),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -1060,6 +1332,9 @@ class _InputComposer extends StatelessWidget {
     required this.hasBackground,
     required this.inputOpacity,
     required this.onSend,
+    required this.onStop,
+    this.onRetry,
+    this.onEditResend,
   });
 
   final TextEditingController controller;
@@ -1067,6 +1342,9 @@ class _InputComposer extends StatelessWidget {
   final bool hasBackground;
   final double inputOpacity;
   final VoidCallback onSend;
+  final VoidCallback onStop;
+  final VoidCallback? onRetry;
+  final VoidCallback? onEditResend;
 
   @override
   Widget build(BuildContext context) {
@@ -1077,51 +1355,72 @@ class _InputComposer extends StatelessWidget {
     final borderColor = Theme.of(
       context,
     ).colorScheme.outline.withValues(alpha: alpha);
+    final width = MediaQuery.sizeOf(context).width;
     return SafeArea(
       top: false,
-      child: Material(
-        color: surfaceColor,
-        elevation: hasBackground ? 8 * alpha : 0,
-        shadowColor: Colors.black.withValues(alpha: alpha),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: controller,
-                  minLines: 1,
-                  maxLines: 5,
-                  textInputAction: TextInputAction.newline,
-                  decoration: InputDecoration(
-                    hintText: context.t('输入消息'),
-                    isDense: true,
-                    enabledBorder: OutlineInputBorder(
-                      borderSide: BorderSide(color: borderColor),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderSide: BorderSide(
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.primary.withValues(alpha: alpha),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: responsiveMaxContentWidth(width),
+          ),
+          child: Material(
+            color: surfaceColor,
+            elevation: hasBackground ? 8 * alpha : 0,
+            shadowColor: Colors.black.withValues(alpha: alpha),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: controller,
+                      minLines: 1,
+                      maxLines: 5,
+                      textInputAction: TextInputAction.newline,
+                      decoration: InputDecoration(
+                        hintText: context.t('输入消息'),
+                        isDense: true,
+                        enabledBorder: OutlineInputBorder(
+                          borderSide: BorderSide(color: borderColor),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderSide: BorderSide(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.primary.withValues(alpha: alpha),
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ),
+                  const SizedBox(width: 8),
+                  if (!isSending && onRetry != null) ...[
+                    IconButton(
+                      tooltip: context.t('重试上一条'),
+                      onPressed: onRetry,
+                      icon: const Icon(Icons.refresh),
+                    ),
+                    const SizedBox(width: 4),
+                  ],
+                  if (!isSending && onEditResend != null) ...[
+                    IconButton(
+                      tooltip: context.t('编辑并重发'),
+                      onPressed: onEditResend,
+                      icon: const Icon(Icons.edit_note),
+                    ),
+                    const SizedBox(width: 4),
+                  ],
+                  IconButton.filled(
+                    tooltip: context.t(isSending ? '停止生成' : '发送'),
+                    onPressed: isSending ? onStop : onSend,
+                    icon: isSending
+                        ? const Icon(Icons.stop)
+                        : const Icon(Icons.send),
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              IconButton.filled(
-                tooltip: context.t('发送'),
-                onPressed: isSending ? null : onSend,
-                icon: isSending
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.send),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -1156,13 +1455,15 @@ class _MessageBubble extends StatelessWidget {
     );
     final align = isUser ? Alignment.centerRight : Alignment.centerLeft;
     final radius = BorderRadius.circular(8);
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final maxBubbleWidth = isCompactWidth(screenWidth)
+        ? screenWidth * 0.82
+        : 760.0;
 
     return Align(
       alignment: align,
       child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.sizeOf(context).width * 0.82,
-        ),
+        constraints: BoxConstraints(maxWidth: maxBubbleWidth),
         child: Container(
           margin: const EdgeInsets.only(bottom: 10),
           padding: const EdgeInsets.fromLTRB(12, 10, 6, 6),

@@ -8,6 +8,7 @@ import 'package:ai_role_chat/models/novel_book.dart';
 import 'package:ai_role_chat/prompts.dart';
 import 'package:ai_role_chat/screens/novel_screen.dart';
 import 'package:ai_role_chat/services/local_storage_service.dart';
+import 'package:ai_role_chat/services/novel_parser.dart';
 import 'package:ai_role_chat/utils/app_i18n.dart';
 import 'package:ai_role_chat/utils/role_import_parser.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -51,6 +52,122 @@ void main() {
     expect(prompt, contains('本次聊天主要内容'));
     expect(prompt, contains('用户：你好'));
     expect(prompt, contains('角色：你好呀'));
+  });
+
+  test('builds full chat context when requested', () {
+    final character = AppCharacter(
+      id: 'c1',
+      name: '测试角色',
+      avatar: '',
+      backgroundImage: '',
+      backgroundImageOpacity: 1,
+      backgroundBlur: 0,
+      bubbleOpacity: 0.92,
+      inputOpacity: 0.92,
+      description: '',
+      personality: '',
+      background: '',
+      speakingStyle: '',
+      openingMessage: '',
+      extraPrompt: '',
+      defaultProvider: AiProvider.deepseek,
+      createdAt: DateTime(2026),
+      updatedAt: DateTime(2026),
+      lastUsedAt: DateTime(2026),
+    );
+    final messages = [
+      for (var i = 0; i < 35; i++)
+        ChatMessage(role: 'user', content: '消息 $i', time: DateTime(2026)),
+    ];
+
+    final request = PromptBuilder.buildChatRequestMessages(
+      character: character,
+      historySummary: '历史总结',
+      messages: messages,
+      useFullContext: true,
+    );
+
+    expect(request, hasLength(36));
+    expect(request[1]['content'], '消息 0');
+    expect(request.first['content'], contains('历史总结'));
+  });
+
+  test('builds rolling recent chat context with summary when requested', () {
+    final character = AppCharacter(
+      id: 'c1',
+      name: '测试角色',
+      avatar: '',
+      backgroundImage: '',
+      backgroundImageOpacity: 1,
+      backgroundBlur: 0,
+      bubbleOpacity: 0.92,
+      inputOpacity: 0.92,
+      description: '',
+      personality: '',
+      background: '',
+      speakingStyle: '',
+      openingMessage: '',
+      extraPrompt: '',
+      defaultProvider: AiProvider.deepseek,
+      chatSummaryMessageLimit: 50,
+      createdAt: DateTime(2026),
+      updatedAt: DateTime(2026),
+      lastUsedAt: DateTime(2026),
+    );
+    final messages = [
+      for (var i = 1; i <= 56; i++)
+        ChatMessage(role: 'user', content: '消息 $i', time: DateTime(2026)),
+    ];
+
+    final request = PromptBuilder.buildChatRequestMessages(
+      character: character,
+      historySummary: '历史总结',
+      messages: messages,
+      useFullContext: false,
+      recentMessageLimit: character.chatSummaryMessageLimit,
+    );
+
+    expect(request, hasLength(12));
+    expect(request[1]['content'], '消息 46');
+    expect(request.last['content'], '消息 56');
+    expect(request.first['content'], contains('历史总结'));
+  });
+
+  test('grows recent context until the summary threshold', () {
+    final start = PromptBuilder.recentContextStartIndex(
+      messageCount: 70,
+      summaryLimit: 50,
+    );
+
+    expect(start, 49);
+  });
+
+  test('rolls summary forward by configured blocks', () {
+    expect(
+      PromptBuilder.rollingSummaryEndIndex(messageCount: 56, summaryLimit: 50),
+      50,
+    );
+    expect(
+      PromptBuilder.rollingSummaryEndIndex(messageCount: 70, summaryLimit: 50),
+      50,
+    );
+    expect(
+      PromptBuilder.rollingSummaryEndIndex(messageCount: 101, summaryLimit: 50),
+      100,
+    );
+  });
+
+  test('builds rolling summary merge prompt', () {
+    final prompt = PromptBuilder.buildRollingSummaryPrompt(
+      previousSummary: '旧总结',
+      newMessages: [
+        ChatMessage(role: 'user', content: '新消息', time: DateTime(2026)),
+      ],
+    );
+
+    expect(prompt, contains('旧总结'));
+    expect(prompt, contains('用户：新消息'));
+    expect(prompt, contains('合并'));
   });
 
   test('parses pasted role card fields', () {

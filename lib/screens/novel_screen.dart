@@ -15,6 +15,8 @@ import '../models/novel_book.dart';
 import '../prompts.dart';
 import '../services/ai_service.dart';
 import '../services/local_storage_service.dart';
+import '../services/novel_parser.dart';
+import '../services/novel_summary_service.dart';
 import '../utils/app_i18n.dart';
 import '../utils/page_layout.dart';
 import '../utils/password_lock.dart';
@@ -24,12 +26,14 @@ class NovelScreen extends StatefulWidget {
     required this.storage,
     required this.aiService,
     required this.settings,
+    this.useGridView = false,
     super.key,
   });
 
   final LocalStorageService storage;
   final AiService aiService;
   final AppSettings settings;
+  final bool useGridView;
 
   @override
   State<NovelScreen> createState() => NovelScreenState();
@@ -82,7 +86,7 @@ class NovelScreenState extends State<NovelScreen> {
     try {
       final file = File(filePath);
       final bytes = await file.readAsBytes();
-      final content = utf8.decode(bytes, allowMalformed: true);
+      final content = await _decodePickedNovel(bytes);
       final title = result!.files.single.name.replaceFirst(
         RegExp(r'\.txt$', caseSensitive: false),
         '',
@@ -96,6 +100,30 @@ class NovelScreenState extends State<NovelScreen> {
     } catch (error) {
       if (!mounted) return;
       _showSnack(error.toString());
+    }
+  }
+
+  Future<String> _decodePickedNovel(List<int> bytes) async {
+    try {
+      return decodeNovelBytes(bytes);
+    } on NovelDecodeException {
+      final encoding = await showDialog<String>(
+        context: context,
+        builder: (context) => SimpleDialog(
+          title: Text(context.t('选择 TXT 编码')),
+          children: [
+            for (final encoding in supportedNovelEncodings)
+              SimpleDialogOption(
+                onPressed: () => Navigator.of(context).pop(encoding),
+                child: Text(encoding.toUpperCase()),
+              ),
+          ],
+        ),
+      );
+      if (encoding == null) {
+        throw const NovelDecodeException('已取消导入。');
+      }
+      return decodeNovelBytes(bytes, encoding: encoding);
     }
   }
 
@@ -282,11 +310,67 @@ class NovelScreenState extends State<NovelScreen> {
               ),
             ),
           )
+        : widget.useGridView
+        ? GridView.builder(
+            padding: EdgeInsets.fromLTRB(
+              0,
+              homeListTop(context) - kToolbarHeight,
+              0,
+              50,
+            ),
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 210,
+              childAspectRatio: 1.15,
+              crossAxisSpacing: 8,
+              mainAxisSpacing: 8,
+            ),
+            itemCount: _books.length,
+            itemBuilder: (context, index) {
+              final book = _books[index];
+              return Card(
+                margin: EdgeInsets.zero,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () => _openBook(book),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              book.isChatMode ? Icons.chat : Icons.menu_book,
+                            ),
+                            const Spacer(),
+                            _bookMenu(book),
+                          ],
+                        ),
+                        const Spacer(),
+                        Text(
+                          book.isHidden ? '******' : book.title,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          _bookStatus(book),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          )
         : ListView.separated(
             padding: EdgeInsets.fromLTRB(
-              pageHorizontalPadding,
+              0,
               homeListTop(context) - kToolbarHeight,
-              pageHorizontalPadding,
+              0,
               50,
             ),
             itemCount: _books.length,
@@ -298,205 +382,76 @@ class NovelScreenState extends State<NovelScreen> {
                 child: ListTile(
                   leading: Icon(book.isChatMode ? Icons.chat : Icons.menu_book),
                   title: Text(book.isHidden ? '******' : book.title),
-                  subtitle: Text(
-                    book.summary.trim().isEmpty
-                        ? context.t('阅读模式')
-                        : context.isEnglish
-                        ? '${book.roles.length} roles generated'
-                        : '已生成 ${book.roles.length} 个角色',
-                  ),
+                  subtitle: Text(_bookStatus(book)),
                   onTap: () => _openBook(book),
-                  trailing: PopupMenuButton<_NovelAction>(
-                    onSelected: (action) {
-                      switch (action) {
-                        case _NovelAction.hide:
-                          _toggleBookHidden(book);
-                          break;
-                        case _NovelAction.lock:
-                          _toggleBookLock(book);
-                          break;
-                        case _NovelAction.delete:
-                          _deleteBook(book);
-                          break;
-                      }
-                    },
-                    itemBuilder: (context) => [
-                      PopupMenuItem(
-                        value: _NovelAction.hide,
-                        child: ListTile(
-                          leading: Icon(
-                            book.isHidden
-                                ? Icons.visibility_outlined
-                                : Icons.visibility_off_outlined,
-                          ),
-                          title: Text(
-                            context.t(book.isHidden ? '显示设定' : '隐藏设定'),
-                          ),
-                        ),
-                      ),
-                      PopupMenuItem(
-                        value: _NovelAction.lock,
-                        child: ListTile(
-                          leading: Icon(
-                            book.isLocked
-                                ? Icons.lock_open_outlined
-                                : Icons.lock_outline,
-                          ),
-                          title: Text(context.t(book.isLocked ? '解除上锁' : '上锁')),
-                        ),
-                      ),
-                      PopupMenuItem(
-                        value: _NovelAction.delete,
-                        child: ListTile(
-                          leading: const Icon(Icons.delete_outline),
-                          title: Text(context.t('删除小说')),
-                        ),
-                      ),
-                    ],
-                  ),
+                  trailing: _bookMenu(book),
                 ),
               );
             },
           );
 
-    return content;
+    return AdaptivePage(child: content);
+  }
+
+  String _bookStatus(NovelBook book) {
+    return book.summary.trim().isEmpty
+        ? context.t('阅读模式')
+        : context.isEnglish
+        ? '${book.roles.length} roles generated'
+        : '已生成 ${book.roles.length} 个角色';
+  }
+
+  Widget _bookMenu(NovelBook book) {
+    return PopupMenuButton<_NovelAction>(
+      onSelected: (action) {
+        switch (action) {
+          case _NovelAction.hide:
+            _toggleBookHidden(book);
+            break;
+          case _NovelAction.lock:
+            _toggleBookLock(book);
+            break;
+          case _NovelAction.delete:
+            _deleteBook(book);
+            break;
+        }
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem(
+          value: _NovelAction.hide,
+          child: ListTile(
+            leading: Icon(
+              book.isHidden
+                  ? Icons.visibility_outlined
+                  : Icons.visibility_off_outlined,
+            ),
+            title: Text(context.t(book.isHidden ? '显示设定' : '隐藏设定')),
+          ),
+        ),
+        PopupMenuItem(
+          value: _NovelAction.lock,
+          child: ListTile(
+            leading: Icon(
+              book.isLocked ? Icons.lock_open_outlined : Icons.lock_outline,
+            ),
+            title: Text(context.t(book.isLocked ? '解除上锁' : '上锁')),
+          ),
+        ),
+        PopupMenuItem(
+          value: _NovelAction.delete,
+          child: ListTile(
+            leading: const Icon(Icons.delete_outline),
+            title: Text(context.t('删除小说')),
+          ),
+        ),
+      ],
+    );
   }
 }
 
 enum _NovelAction { hide, lock, delete }
 
 enum _NovelSummaryMode { low, range, full }
-
-List<({String title, String content})> detectNovelChapters(String text) {
-  const number = r'[0-9０-９零〇○一二三四五六七八九十百千万两壹贰叁肆伍陆柒捌玖拾佰仟萬]+';
-  const unit = r'[章节節卷回部篇集话話幕]';
-
-  String? chapterTitle(String raw) {
-    var line = raw.trim();
-    if (line.startsWith('[::]')) {
-      final title = line.substring(4).trim();
-      return title.isEmpty ? null : title;
-    }
-
-    while (line.startsWith('#')) {
-      line = line.substring(1).trimLeft();
-    }
-    if (line.isEmpty || line.length > 70) {
-      return null;
-    }
-
-    final compact = line.replaceAll(RegExp(r'\s+'), '');
-    final leadingChapter = RegExp('^第\\s*$number\\s*$unit').firstMatch(line);
-    if (leadingChapter != null) {
-      final rest = line.substring(leadingChapter.end);
-      final compactRest = rest.replaceAll(RegExp(r'\s+'), '');
-      final hasSeparator =
-          rest.isEmpty || RegExp(r'^[\s　:：、.．-]').hasMatch(rest);
-      if (!hasSeparator && RegExp(r'^(的|时|时候|后|前|里|中)').hasMatch(compactRest)) {
-        return null;
-      }
-    }
-
-    final hasChapterToken = RegExp(
-      '(^|[\\s　])第\\s*$number\\s*$unit',
-    ).hasMatch(line);
-    final endsLikeSentence = RegExp(r'[。！？!?；;，,]$').hasMatch(line);
-    if (RegExp('^第$number$unit\$').hasMatch(compact) ||
-        (RegExp('^第$number$unit.{1,60}\$').hasMatch(compact) &&
-            !endsLikeSentence) ||
-        RegExp(r'^(序章|楔子|引子|前言|序言|尾声|后记|终章|大结局)$').hasMatch(compact) ||
-        RegExp(
-          r'^(番外|外传|间章|同人|附录|作品相关|作者的话|设定集|上架感言|完本感言).{0,60}$',
-        ).hasMatch(line) ||
-        (hasChapterToken && !endsLikeSentence) ||
-        RegExp(
-          r'^(chapter|part|book|volume)\s+([0-9]+|[ivxlcdm]+)\b.{0,60}$',
-          caseSensitive: false,
-        ).hasMatch(line) ||
-        RegExp(r'^\d{1,4}\s*[、.．。:：-]\s*.{1,60}$').hasMatch(line)) {
-      return line;
-    }
-    return null;
-  }
-
-  bool numberedTitle(String title) {
-    return RegExp('第\\s*$number\\s*$unit').hasMatch(title) ||
-        RegExp(
-          r'^(chapter|part|book|volume)\s+([0-9]+|[ivxlcdm]+)\b',
-          caseSensitive: false,
-        ).hasMatch(title) ||
-        RegExp(r'^\d{1,4}\s*[、.．。:：-]').hasMatch(title);
-  }
-
-  List<({String title, int line})> dropCatalogDuplicates(
-    List<({String title, int line})> headings,
-  ) {
-    final seen = <String>{};
-    final kept = <({String title, int line})>[];
-    for (final heading in headings.reversed) {
-      final key = heading.title.replaceAll(RegExp(r'\s+'), '');
-      if (numberedTitle(heading.title) && !seen.add(key)) {
-        continue;
-      }
-      kept.add(heading);
-    }
-    return kept.reversed.toList();
-  }
-
-  final lines = text.replaceAll('\r\n', '\n').split('\n');
-  var headings = <({String title, int line})>[];
-  for (var i = 0; i < lines.length; i++) {
-    final title = chapterTitle(lines[i]);
-    if (title != null) {
-      headings.add((title: title, line: i));
-    }
-  }
-  if (headings.length < 2) {
-    return const [];
-  }
-  headings = dropCatalogDuplicates(headings);
-  if (headings.length < 2) {
-    return const [];
-  }
-
-  final chapters = <({String title, String content})>[];
-  for (var i = 0; i < headings.length; i++) {
-    final nextLine = i + 1 < headings.length
-        ? headings[i + 1].line
-        : lines.length;
-    final content = lines
-        .sublist(headings[i].line + 1, nextLine)
-        .join('\n')
-        .trim();
-    if (content.isNotEmpty) {
-      chapters.add((title: headings[i].title, content: content));
-    }
-  }
-  return chapters;
-}
-
-List<String> splitNovelText(String text, int chunkSize) {
-  final normalized = text.trim();
-  if (normalized.isEmpty) {
-    return const [];
-  }
-
-  final chunks = <String>[];
-  for (var start = 0; start < normalized.length; start += chunkSize) {
-    final end = (start + chunkSize).clamp(0, normalized.length);
-    chunks.add(normalized.substring(start, end));
-  }
-  return chunks;
-}
-
-List<int> chapterRangeIndexes(int total, int startChapter, int count) {
-  if (total <= 0 || count <= 0) {
-    return const [];
-  }
-  final start = (startChapter - 1).clamp(0, total - 1).toInt();
-  final end = (start + count).clamp(0, total).toInt();
-  return [for (var index = start; index < end; index++) index];
-}
 
 int novelRoleIndexAfterDelete({
   required int selectedIndex,
@@ -514,21 +469,6 @@ int novelRoleIndexAfterDelete({
     return selectedIndex - 1;
   }
   return selectedIndex.clamp(0, newLength - 1).toInt();
-}
-
-List<({String title, String content})> buildNovelChapters(
-  String text, {
-  int autoChunkSize = 12000,
-}) {
-  final detected = detectNovelChapters(text);
-  if (detected.isNotEmpty) {
-    return detected;
-  }
-  final chunks = splitNovelText(text, autoChunkSize);
-  return [
-    for (var i = 0; i < chunks.length; i++)
-      (title: '第 ${i + 1} 段', content: chunks[i]),
-  ];
 }
 
 class NovelReaderScreen extends StatefulWidget {
@@ -555,11 +495,12 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
 
   late NovelBook _book;
   var _apiConfig = ApiConfig.defaults();
-  var _selectedProvider = AiProvider.deepseek;
+  var _selectedEndpointId = '';
   var _content = '';
   var _readChunks = <String>[];
-  var _chapters = <_NovelChapter>[];
+  var _chapters = <NovelChapter>[];
   var _messages = <ChatMessage>[];
+  NovelSummaryCache? _summaryCache;
   var _isLoading = true;
   var _isBusy = false;
   var _busyText = '';
@@ -589,13 +530,19 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
       final apiConfig = await widget.storage.loadApiConfig();
       final content = await widget.storage.loadNovelText(_book);
       final chat = await widget.storage.loadNovelChat(_book.id);
+      final summaryCache = await NovelSummaryService(
+        widget.storage,
+      ).loadCache(_book.id);
       if (!mounted) return;
       setState(() {
         _apiConfig = apiConfig;
+        _selectedEndpointId =
+            apiConfig.effectiveEndpoint(_selectedEndpointId)?.id ?? '';
         _content = content;
         _readChunks = splitNovelText(content, 1600);
-        _chapters = _detectChapters(content);
+        _chapters = buildNovelChapters(content);
         _messages = chat.messages;
+        _summaryCache = summaryCache;
         _isLoading = false;
       });
     } catch (error) {
@@ -619,17 +566,44 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
       return;
     }
 
-    final config = _apiConfig.get(_selectedProvider);
-    if (!config.isComplete) {
-      _showSnack('${_selectedProvider.label} 配置不完整，请先到设置里配置 API。');
+    final endpoint = _apiConfig.effectiveEndpoint(_selectedEndpointId);
+    if (endpoint == null || !endpoint.isComplete) {
+      _showSnack('请先到 API 设置添加完整配置。');
       return;
     }
 
-    final chunks = await _chooseSummaryChunks();
-    if (chunks == null || chunks.isEmpty || !mounted) {
-      return;
-    }
+    final cached = _summaryCache;
+    final resume = cached != null && cached.canResume
+        ? await _askResumeSummary()
+        : false;
+    if (resume == null) return;
 
+    final chunks = resume
+        ? cached.selectedChunks
+        : await _chooseSummaryChunks();
+    if (chunks == null || chunks.isEmpty || !mounted) return;
+
+    final summaries = resume ? [...cached.completedSummaries] : <String>[];
+    var startIndex = resume ? cached.currentIndex : 0;
+    if (startIndex > chunks.length) startIndex = chunks.length;
+    var cache = resume
+        ? cached
+        : NovelSummaryCache(
+            novelId: _book.id,
+            selectedChunkIndexes: [
+              for (var index = 0; index < chunks.length; index++) index,
+            ],
+            selectedChunks: chunks,
+            completedSummaries: const [],
+            currentIndex: 0,
+            endpointId: endpoint.id,
+            updatedAt: DateTime.now(),
+          );
+    final summaryService = NovelSummaryService(widget.storage);
+    await summaryService.saveCache(cache);
+    _summaryCache = cache;
+
+    if (!mounted) return;
     final useEnglish = context.isEnglish;
     setState(() {
       _isBusy = true;
@@ -637,15 +611,13 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
     });
 
     try {
-      final summaries = <String>[];
-      for (var i = 0; i < chunks.length; i++) {
+      for (var i = startIndex; i < chunks.length; i++) {
         if (!mounted) return;
         setState(() => _busyText = '正在总结 ${i + 1} / ${chunks.length}');
         final summary = await widget.aiService.sendMessage(
-          provider: _selectedProvider.id,
-          apiKey: config.apiKey,
-          baseUrl: config.baseUrl,
-          model: config.model,
+          apiKey: endpoint.apiKey,
+          baseUrl: endpoint.baseUrl,
+          model: endpoint.model,
           messages: [
             {'role': 'system', 'content': '你是小说分析助手，只提炼原文信息。'},
             {
@@ -659,15 +631,21 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
           ],
         );
         summaries.add(summary);
+        cache = cache.copyWith(
+          completedSummaries: summaries,
+          currentIndex: i + 1,
+          updatedAt: DateTime.now(),
+        );
+        await summaryService.saveCache(cache);
+        _summaryCache = cache;
       }
 
       if (!mounted) return;
       setState(() => _busyText = '正在合并总结并生成角色');
       final merged = await widget.aiService.sendMessage(
-        provider: _selectedProvider.id,
-        apiKey: config.apiKey,
-        baseUrl: config.baseUrl,
-        model: config.model,
+        apiKey: endpoint.apiKey,
+        baseUrl: endpoint.baseUrl,
+        model: endpoint.model,
         messages: [
           {'role': 'system', 'content': '你只输出可解析 JSON。'},
           {
@@ -704,8 +682,12 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
           isChatMode: true,
         ),
       );
+      await summaryService.deleteCache(_book.id);
       if (!mounted) return;
-      setState(() => _isBusy = false);
+      setState(() {
+        _isBusy = false;
+        _summaryCache = null;
+      });
       await _chooseRole();
       _showSnack('小说总结完成');
     } catch (error) {
@@ -713,6 +695,36 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
       setState(() => _isBusy = false);
       _showSnack(error.toString());
     }
+  }
+
+  Future<bool?> _askResumeSummary() async {
+    final cache = _summaryCache;
+    if (cache == null || !cache.canResume) return false;
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(context.t('继续上次总结')),
+        content: Text(
+          context.isEnglish
+              ? 'Last run finished ${cache.currentIndex} / ${cache.selectedChunks.length} chunks. Continue?'
+              : '上次已完成 ${cache.currentIndex} / ${cache.selectedChunks.length} 个片段，是否继续？',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(null),
+            child: Text(context.t('取消')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(context.t('重新开始')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(context.t('继续')),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<List<String>?> _chooseSummaryChunks() async {
@@ -1178,7 +1190,8 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
         speakingStyle: role.speakingStyle.trim(),
         openingMessage: '',
         extraPrompt: '',
-        defaultProvider: _selectedProvider,
+        defaultProvider: AiProviderX.fromId(_selectedEndpointId),
+        defaultEndpointId: _selectedEndpointId,
         createdAt: now,
         updatedAt: now,
         lastUsedAt: now,
@@ -1275,7 +1288,7 @@ ${role.speakingStyle}
   }
 
   Future<void> _showSettings() async {
-    var provider = _selectedProvider;
+    var endpointId = _selectedEndpointId;
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -1295,20 +1308,30 @@ ${role.speakingStyle}
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.memory),
                   title: Text(context.t('总结和聊天模型')),
-                  subtitle: DropdownButton<AiProvider>(
-                    value: provider,
-                    isExpanded: true,
-                    underline: const SizedBox.shrink(),
-                    items: [
-                      for (final item in AiProvider.values)
-                        DropdownMenuItem(value: item, child: Text(item.label)),
-                    ],
-                    onChanged: (value) {
-                      if (value == null) return;
-                      setSheetState(() => provider = value);
-                      setState(() => _selectedProvider = value);
-                    },
-                  ),
+                  subtitle: _apiConfig.enabledEndpoints.isEmpty
+                      ? Text(context.t('请先添加 API 配置'))
+                      : DropdownButton<String>(
+                          value:
+                              _apiConfig.enabledEndpoints.any(
+                                (endpoint) => endpoint.id == endpointId,
+                              )
+                              ? endpointId
+                              : null,
+                          isExpanded: true,
+                          underline: const SizedBox.shrink(),
+                          items: [
+                            for (final endpoint in _apiConfig.enabledEndpoints)
+                              DropdownMenuItem(
+                                value: endpoint.id,
+                                child: Text(endpoint.name),
+                              ),
+                          ],
+                          onChanged: (value) {
+                            if (value == null) return;
+                            setSheetState(() => endpointId = value);
+                            setState(() => _selectedEndpointId = value);
+                          },
+                        ),
                 ),
                 const Divider(),
                 SwitchListTile(
@@ -1443,6 +1466,33 @@ ${role.speakingStyle}
                       _showSummaryDialog();
                     },
                   ),
+                if (_summaryCache?.canResume == true)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.restore_page_outlined),
+                    title: Text(context.t('继续上次总结')),
+                    subtitle: Text(
+                      context.isEnglish
+                          ? '${_summaryCache!.currentIndex} / ${_summaryCache!.selectedChunks.length} chunks completed'
+                          : '已完成 ${_summaryCache!.currentIndex} / ${_summaryCache!.selectedChunks.length} 个片段',
+                    ),
+                    trailing: IconButton(
+                      tooltip: context.t('清理总结缓存'),
+                      onPressed: () async {
+                        await NovelSummaryService(
+                          widget.storage,
+                        ).deleteCache(_book.id);
+                        if (!mounted) return;
+                        setState(() => _summaryCache = null);
+                        setSheetState(() {});
+                      },
+                      icon: const Icon(Icons.delete_outline),
+                    ),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      _summarizeNovel();
+                    },
+                  ),
                 const Divider(),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -1564,19 +1614,26 @@ ${role.speakingStyle}
     required ValueChanged<double> onChangeEnd,
   }) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 8),
       child: InputDecorator(
-        decoration: InputDecoration(labelText: context.t(label)),
+        decoration: InputDecoration(
+          isDense: true,
+          contentPadding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+          labelText: context.t(label),
+        ),
         child: Row(
           children: [
             Expanded(
-              child: Slider(
-                value: value.clamp(min, max).toDouble(),
-                min: min,
-                max: max,
-                divisions: divisions,
-                onChanged: onChanged,
-                onChangeEnd: onChangeEnd,
+              child: SizedBox(
+                height: 32,
+                child: Slider(
+                  value: value.clamp(min, max).toDouble(),
+                  min: min,
+                  max: max,
+                  divisions: divisions,
+                  onChanged: onChanged,
+                  onChangeEnd: onChangeEnd,
+                ),
               ),
             ),
             SizedBox(width: 48, child: Text(display, textAlign: TextAlign.end)),
@@ -1618,9 +1675,9 @@ ${role.speakingStyle}
       return;
     }
 
-    final config = _apiConfig.get(_selectedProvider);
-    if (!config.isComplete) {
-      _showSnack('${_selectedProvider.label} 配置不完整，请先到设置里配置 API。');
+    final endpoint = _apiConfig.effectiveEndpoint(_selectedEndpointId);
+    if (endpoint == null || !endpoint.isComplete) {
+      _showSnack('请先到 API 设置添加完整配置。');
       return;
     }
 
@@ -1639,10 +1696,9 @@ ${role.speakingStyle}
 
     try {
       final reply = await widget.aiService.sendMessage(
-        provider: _selectedProvider.id,
-        apiKey: config.apiKey,
-        baseUrl: config.baseUrl,
-        model: config.model,
+        apiKey: endpoint.apiKey,
+        baseUrl: endpoint.baseUrl,
+        model: endpoint.model,
         messages: [
           {
             'role': 'system',
@@ -1664,8 +1720,9 @@ ${role.speakingStyle}
         role: 'assistant',
         content: reply,
         time: DateTime.now(),
-        provider: _selectedProvider.id,
-        model: config.model,
+        endpointId: endpoint.id,
+        endpointName: endpoint.name,
+        model: endpoint.model,
       );
       if (!mounted) return;
       setState(() {
@@ -1679,15 +1736,6 @@ ${role.speakingStyle}
       setState(() => _isSending = false);
       _showSnack(error.toString());
     }
-  }
-
-  List<_NovelChapter> _detectChapters(String text) {
-    return buildNovelChapters(text)
-        .map(
-          (chapter) =>
-              _NovelChapter(title: chapter.title, content: chapter.content),
-        )
-        .toList();
   }
 
   int get _safeChapterIndex {
@@ -1924,65 +1972,78 @@ ${role.speakingStyle}
               ),
               subtitle: Text(
                 context.isEnglish
-                    ? 'You: ${_book.selectedUserRole?.name ?? 'Not set'} · ${_selectedProvider.label}'
-                    : '你：${_book.selectedUserRole?.name ?? '未指定'} · ${_selectedProvider.label}',
+                    ? 'You: ${_book.selectedUserRole?.name ?? 'Not set'} · ${_apiConfig.endpointById(_selectedEndpointId)?.name ?? 'No API'}'
+                    : '你：${_book.selectedUserRole?.name ?? '未指定'} · ${_apiConfig.endpointById(_selectedEndpointId)?.name ?? '未配置 API'}',
               ),
             ),
           ),
           Expanded(
             child: _messages.isEmpty
                 ? Center(child: Text(context.t('开始小说内聊天吧。')))
-                : ListView.builder(
-                    controller: _chatScrollController,
-                    reverse: true,
-                    padding: const EdgeInsets.all(12),
-                    itemCount: _messages.length + (_isSending ? 1 : 0),
-                    itemBuilder: (context, index) {
-                      if (_isSending && index == 0) {
+                : AdaptivePage(
+                    child: ListView.builder(
+                      controller: _chatScrollController,
+                      reverse: true,
+                      padding: const EdgeInsets.fromLTRB(0, 12, 0, 12),
+                      itemCount: _messages.length + (_isSending ? 1 : 0),
+                      itemBuilder: (context, index) {
+                        if (_isSending && index == 0) {
+                          return _NovelBubble(
+                            text: context.t('生成中'),
+                            isUser: false,
+                          );
+                        }
+                        final messageIndex =
+                            _messages.length -
+                            1 -
+                            (index - (_isSending ? 1 : 0));
+                        final message = _messages[messageIndex];
                         return _NovelBubble(
-                          text: context.t('生成中'),
-                          isUser: false,
+                          text: message.content,
+                          isUser: message.isUser,
                         );
-                      }
-                      final messageIndex =
-                          _messages.length - 1 - (index - (_isSending ? 1 : 0));
-                      final message = _messages[messageIndex];
-                      return _NovelBubble(
-                        text: message.content,
-                        isUser: message.isUser,
-                      );
-                    },
+                      },
+                    ),
                   ),
           ),
           SafeArea(
             top: false,
-            child: Material(
-              color: Theme.of(
-                context,
-              ).colorScheme.surface.withValues(alpha: 0.92),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _inputController,
-                        minLines: 1,
-                        maxLines: 5,
-                        decoration: InputDecoration(
-                          hintText: context.t('输入消息'),
-                          isDense: true,
+            child: Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: responsiveMaxContentWidth(
+                    MediaQuery.sizeOf(context).width,
+                  ),
+                ),
+                child: Material(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.surface.withValues(alpha: 0.92),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _inputController,
+                            minLines: 1,
+                            maxLines: 5,
+                            decoration: InputDecoration(
+                              hintText: context.t('输入消息'),
+                              isDense: true,
+                            ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 8),
+                        IconButton.filled(
+                          tooltip: context.t('发送'),
+                          onPressed: _isSending ? null : _sendNovelMessage,
+                          icon: const Icon(Icons.send),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 8),
-                    IconButton.filled(
-                      tooltip: context.t('发送'),
-                      onPressed: _isSending ? null : _sendNovelMessage,
-                      icon: const Icon(Icons.send),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -1998,13 +2059,6 @@ class _NovelAiResult {
 
   final String summary;
   final List<NovelRoleCandidate> roles;
-}
-
-class _NovelChapter {
-  const _NovelChapter({required this.title, required this.content});
-
-  final String title;
-  final String content;
 }
 
 class _NovelChatBackground extends StatelessWidget {
@@ -2063,12 +2117,14 @@ class _NovelBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final maxBubbleWidth = isCompactWidth(screenWidth)
+        ? screenWidth * 0.82
+        : 760.0;
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.sizeOf(context).width * 0.82,
-        ),
+        constraints: BoxConstraints(maxWidth: maxBubbleWidth),
         child: Container(
           margin: const EdgeInsets.only(bottom: 10),
           padding: const EdgeInsets.all(12),

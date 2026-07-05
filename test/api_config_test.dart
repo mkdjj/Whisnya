@@ -1,0 +1,63 @@
+import 'package:ai_role_chat/models/api_config.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  test('migrates legacy provider config without losing keys', () {
+    final config = ApiConfig.fromJson({
+      'grok': {
+        'apiKey': 'grok-key',
+        'baseUrl': 'https://grok.test/v1',
+        'model': 'grok-model',
+      },
+      'deepseek': {
+        'apiKey': 'deep-key',
+        'baseUrl': 'https://deep.test/v1',
+        'model': 'deep-model',
+      },
+      'gpt': {'apiKey': '', 'baseUrl': '', 'model': ''},
+    });
+
+    expect(config.endpoints.map((endpoint) => endpoint.id), [
+      'grok',
+      'deepseek',
+    ]);
+    expect(config.defaultEndpointId, 'deepseek');
+    expect(config.endpointById('deepseek')!.apiKey, 'deep-key');
+    expect(config.endpointById('grok')!.baseUrl, 'https://grok.test/v1');
+  });
+
+  test('does not create endpoints from empty legacy defaults', () {
+    final config = ApiConfig.fromJson({
+      'grok': {'apiKey': '', 'baseUrl': '', 'model': ''},
+      'deepseek': {'apiKey': '', 'baseUrl': '', 'model': ''},
+      'gpt': {'apiKey': '', 'baseUrl': '', 'model': ''},
+    });
+
+    expect(config.endpoints, isEmpty);
+    expect(config.defaultEndpointId, isEmpty);
+    expect(config.effectiveEndpoint('deepseek'), isNull);
+  });
+
+  test('replaces deleted or disabled default with first enabled endpoint', () {
+    final now = DateTime(2026);
+    final a = AiEndpointConfig(
+      id: 'a',
+      name: 'A',
+      apiKey: 'key',
+      baseUrl: 'https://a.test/v1',
+      model: 'a',
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
+    );
+    final b = a.copyWith(id: 'b', name: 'B');
+
+    final config = ApiConfig(endpoints: [a, b], defaultEndpointId: 'b');
+
+    expect(config.removeEndpoint('b').defaultEndpointId, 'a');
+    expect(
+      config.upsertEndpoint(b.copyWith(enabled: false)).defaultEndpointId,
+      'a',
+    );
+  });
+}

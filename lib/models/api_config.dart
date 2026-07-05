@@ -37,24 +37,165 @@ class ApiProviderConfig {
   }
 }
 
-class ApiConfig {
-  ApiConfig({Map<AiProvider, ApiProviderConfig>? providers})
-    : providers = {
-        for (final provider in AiProvider.values)
-          provider: providers?[provider] ?? const ApiProviderConfig(),
-      };
+class AiEndpointConfig {
+  const AiEndpointConfig({
+    required this.id,
+    required this.name,
+    required this.apiKey,
+    required this.baseUrl,
+    required this.model,
+    required this.enabled,
+    required this.createdAt,
+    required this.updatedAt,
+  });
 
-  final Map<AiProvider, ApiProviderConfig> providers;
+  final String id;
+  final String name;
+  final String apiKey;
+  final String baseUrl;
+  final String model;
+  final bool enabled;
+  final DateTime createdAt;
+  final DateTime updatedAt;
 
-  ApiProviderConfig get(AiProvider provider) {
-    return providers[provider] ?? const ApiProviderConfig();
+  bool get isComplete =>
+      apiKey.trim().isNotEmpty &&
+      baseUrl.trim().isNotEmpty &&
+      model.trim().isNotEmpty;
+
+  AiEndpointConfig copyWith({
+    String? id,
+    String? name,
+    String? apiKey,
+    String? baseUrl,
+    String? model,
+    bool? enabled,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return AiEndpointConfig(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      apiKey: apiKey ?? this.apiKey,
+      baseUrl: baseUrl ?? this.baseUrl,
+      model: model ?? this.model,
+      enabled: enabled ?? this.enabled,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
   }
 
-  ApiConfig copyWithProvider(
+  factory AiEndpointConfig.fromJson(Map<String, dynamic> json) {
+    final now = DateTime.now();
+    return AiEndpointConfig(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      apiKey: json['apiKey'] as String? ?? '',
+      baseUrl: json['baseUrl'] as String? ?? '',
+      model: json['model'] as String? ?? '',
+      enabled: json['enabled'] as bool? ?? true,
+      createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? now,
+      updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? '') ?? now,
+    );
+  }
+
+  factory AiEndpointConfig.fromLegacy(
     AiProvider provider,
-    ApiProviderConfig providerConfig,
+    ApiProviderConfig config,
   ) {
-    return ApiConfig(providers: {...providers, provider: providerConfig});
+    final now = DateTime.now();
+    return AiEndpointConfig(
+      id: provider.id,
+      name: provider.label,
+      apiKey: config.apiKey,
+      baseUrl: config.baseUrl,
+      model: config.model,
+      enabled: config.isComplete,
+      createdAt: now,
+      updatedAt: now,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'apiKey': apiKey,
+      'baseUrl': baseUrl,
+      'model': model,
+      'enabled': enabled,
+      'createdAt': createdAt.toIso8601String(),
+      'updatedAt': updatedAt.toIso8601String(),
+    };
+  }
+}
+
+class ApiConfig {
+  ApiConfig({
+    List<AiEndpointConfig> endpoints = const [],
+    String defaultEndpointId = '',
+  }) : endpoints = _uniqueEndpoints(endpoints),
+       defaultEndpointId = _normalizedDefaultEndpointId(
+         _uniqueEndpoints(endpoints),
+         defaultEndpointId,
+       );
+
+  final List<AiEndpointConfig> endpoints;
+  final String defaultEndpointId;
+
+  List<AiEndpointConfig> get enabledEndpoints =>
+      endpoints.where((endpoint) => endpoint.enabled).toList();
+
+  List<AiEndpointConfig> get readyEndpoints => endpoints
+      .where((endpoint) => endpoint.enabled && endpoint.isComplete)
+      .toList();
+
+  AiEndpointConfig? endpointById(String id) {
+    for (final endpoint in endpoints) {
+      if (endpoint.id == id) return endpoint;
+    }
+    return null;
+  }
+
+  AiEndpointConfig? effectiveEndpoint(String id) {
+    final selected = endpointById(id);
+    if (selected != null && selected.enabled) return selected;
+    if (defaultEndpointId.isNotEmpty) {
+      final endpoint = endpointById(defaultEndpointId);
+      if (endpoint != null && endpoint.enabled) return endpoint;
+    }
+    for (final endpoint in endpoints) {
+      if (endpoint.enabled) return endpoint;
+    }
+    return null;
+  }
+
+  ApiConfig copyWith({
+    List<AiEndpointConfig>? endpoints,
+    String? defaultEndpointId,
+  }) {
+    return ApiConfig(
+      endpoints: endpoints ?? this.endpoints,
+      defaultEndpointId: defaultEndpointId ?? this.defaultEndpointId,
+    );
+  }
+
+  ApiConfig upsertEndpoint(AiEndpointConfig endpoint) {
+    final index = endpoints.indexWhere((item) => item.id == endpoint.id);
+    final next = [...endpoints];
+    if (index == -1) {
+      next.add(endpoint);
+    } else {
+      next[index] = endpoint;
+    }
+    return ApiConfig(endpoints: next, defaultEndpointId: defaultEndpointId);
+  }
+
+  ApiConfig removeEndpoint(String id) {
+    return ApiConfig(
+      endpoints: endpoints.where((endpoint) => endpoint.id != id).toList(),
+      defaultEndpointId: defaultEndpointId == id ? '' : defaultEndpointId,
+    );
   }
 
   factory ApiConfig.defaults() {
@@ -62,20 +203,63 @@ class ApiConfig {
   }
 
   factory ApiConfig.fromJson(Map<String, dynamic>? json) {
-    return ApiConfig(
-      providers: {
-        for (final provider in AiProvider.values)
-          provider: ApiProviderConfig.fromJson(
-            json?[provider.id] as Map<String, dynamic>?,
-          ),
-      },
-    );
+    final rawEndpoints = json?['endpoints'];
+    if (rawEndpoints is List) {
+      return ApiConfig(
+        endpoints: rawEndpoints
+            .whereType<Map<String, dynamic>>()
+            .map(AiEndpointConfig.fromJson)
+            .toList(),
+        defaultEndpointId: json?['defaultEndpointId'] as String? ?? '',
+      );
+    }
+
+    final endpoints = <AiEndpointConfig>[];
+    for (final provider in AiProvider.values) {
+      final raw = json?[provider.id];
+      if (raw is! Map<String, dynamic>) continue;
+      final config = ApiProviderConfig.fromJson(raw);
+      if (!config.hasAnyValue) continue;
+      endpoints.add(AiEndpointConfig.fromLegacy(provider, config));
+    }
+
+    return ApiConfig(endpoints: endpoints, defaultEndpointId: 'deepseek');
   }
 
   Map<String, dynamic> toJson() {
     return {
-      for (final provider in AiProvider.values)
-        provider.id: get(provider).toJson(),
+      'endpoints': endpoints.map((endpoint) => endpoint.toJson()).toList(),
+      'defaultEndpointId': defaultEndpointId,
     };
   }
+
+  static List<AiEndpointConfig> _uniqueEndpoints(
+    List<AiEndpointConfig> endpoints,
+  ) {
+    final seen = <String>{};
+    return [
+      for (final endpoint in endpoints)
+        if (endpoint.id.trim().isNotEmpty && seen.add(endpoint.id)) endpoint,
+    ];
+  }
+
+  static String _normalizedDefaultEndpointId(
+    List<AiEndpointConfig> endpoints,
+    String requested,
+  ) {
+    for (final endpoint in endpoints) {
+      if (endpoint.id == requested && endpoint.enabled) return endpoint.id;
+    }
+    for (final endpoint in endpoints) {
+      if (endpoint.enabled) return endpoint.id;
+    }
+    return '';
+  }
+}
+
+extension on ApiProviderConfig {
+  bool get hasAnyValue =>
+      apiKey.trim().isNotEmpty ||
+      baseUrl.trim().isNotEmpty ||
+      model.trim().isNotEmpty;
 }

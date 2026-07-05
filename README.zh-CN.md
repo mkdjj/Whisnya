@@ -2,15 +2,23 @@
 
 [English](README.md)
 
-Whisnya 是一个本地优先的 Android AI 角色聊天和 TXT 小说阅读 App，使用 Flutter 开发。
+Whisnya 是一个本地优先的 Android / Windows AI 角色聊天和 TXT 小说阅读 App，使用 Flutter 开发。
+
+## 下载
+
+预构建的 Android APK 和 Windows x64 zip 包会发布在
+[GitHub Releases](https://github.com/mkdjj/Whisnya/releases/latest)。
+
+发布包不会提交进源码仓库。想自己打包时，clone 源码后按下面步骤构建即可。
 
 ## 功能
 
-- Grok / DeepSeek / GPT 三组 OpenAI Chat Completions 兼容 API 配置。
+- 可添加多个 OpenAI Chat Completions 兼容 API 配置。
 - 角色创建、编辑、隐藏、上锁、导入和导出。
 - 头像、聊天背景图和界面背景可从系统文件选择器选取，并在 App 内裁剪后保存到本地。
-- 选择角色进入聊天，发送消息时携带角色设定和历史总结。
-- 导入 TXT 小说，按章节阅读，总结小说并提取角色。
+- 角色聊天支持全部上下文，或自动滚动总结 + 最近消息。
+- 导入 TXT 小说，支持 UTF-8 / GBK 识别，按章节阅读，总结小说并提取角色。
+- 小说列表支持列表/网格视图切换。
 - 小说内角色聊天、角色详情查看、导出和删除。
 - 导出/导入全部本地数据，包括小说原文、聊天记录、总结、图片、设置和 API 配置。
 - 隐私密码保护上锁角色和小说。
@@ -21,6 +29,7 @@ Whisnya 是一个本地优先的 Android AI 角色聊天和 TXT 小说阅读 App
 - Flutter >= 3.38.4
 - Dart >= 3.12.2
 - Android SDK，并能正常执行 release 构建
+- Windows 打包需要 Visual Studio 2022 Build Tools，并包含 Desktop development with C++
 
 ## 打包 APK
 

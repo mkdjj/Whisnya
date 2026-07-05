@@ -72,6 +72,9 @@ class LocalStorageService {
     await Directory(
       '${directory.path}${Platform.pathSeparator}novel_chats',
     ).create(recursive: true);
+    await Directory(
+      '${directory.path}${Platform.pathSeparator}novel_summary_cache',
+    ).create(recursive: true);
     _appDataDirectory = directory;
     return directory;
   }

@@ -17,6 +17,9 @@ class AppCharacter {
     required this.openingMessage,
     required this.extraPrompt,
     required this.defaultProvider,
+    this.defaultEndpointId = '',
+    this.useFullChatContext = true,
+    this.chatSummaryMessageLimit = defaultChatSummaryMessageLimit,
     this.isPinned = false,
     this.isHidden = false,
     this.isLocked = false,
@@ -24,6 +27,10 @@ class AppCharacter {
     required this.updatedAt,
     required this.lastUsedAt,
   });
+
+  static const minChatSummaryMessageLimit = 30;
+  static const maxChatSummaryMessageLimit = 150;
+  static const defaultChatSummaryMessageLimit = 50;
 
   final String id;
   final String name;
@@ -40,6 +47,9 @@ class AppCharacter {
   final String openingMessage;
   final String extraPrompt;
   final AiProvider defaultProvider;
+  final String defaultEndpointId;
+  final bool useFullChatContext;
+  final int chatSummaryMessageLimit;
   final bool isPinned;
   final bool isHidden;
   final bool isLocked;
@@ -63,6 +73,9 @@ class AppCharacter {
     String? openingMessage,
     String? extraPrompt,
     AiProvider? defaultProvider,
+    String? defaultEndpointId,
+    bool? useFullChatContext,
+    int? chatSummaryMessageLimit,
     bool? isPinned,
     bool? isHidden,
     bool? isLocked,
@@ -87,6 +100,11 @@ class AppCharacter {
       openingMessage: openingMessage ?? this.openingMessage,
       extraPrompt: extraPrompt ?? this.extraPrompt,
       defaultProvider: defaultProvider ?? this.defaultProvider,
+      defaultEndpointId: defaultEndpointId ?? this.defaultEndpointId,
+      useFullChatContext: useFullChatContext ?? this.useFullChatContext,
+      chatSummaryMessageLimit: _clampSummaryLimit(
+        chatSummaryMessageLimit ?? this.chatSummaryMessageLimit,
+      ),
       isPinned: isPinned ?? this.isPinned,
       isHidden: isHidden ?? this.isHidden,
       isLocked: isLocked ?? this.isLocked,
@@ -117,6 +135,14 @@ class AppCharacter {
       openingMessage: json['openingMessage'] as String? ?? '',
       extraPrompt: json['extraPrompt'] as String? ?? '',
       defaultProvider: AiProviderX.fromId(json['defaultProvider'] as String?),
+      defaultEndpointId:
+          json['defaultEndpointId'] as String? ??
+          (json['defaultProvider'] as String? ?? 'deepseek'),
+      useFullChatContext: json['useFullChatContext'] as bool? ?? true,
+      chatSummaryMessageLimit: _clampSummaryLimit(
+        json['chatSummaryMessageLimit'] as int? ??
+            defaultChatSummaryMessageLimit,
+      ),
       isPinned: json['isPinned'] as bool? ?? false,
       isHidden: json['isHidden'] as bool? ?? false,
       isLocked: json['isLocked'] as bool? ?? false,
@@ -146,6 +172,9 @@ class AppCharacter {
       'openingMessage': openingMessage,
       'extraPrompt': extraPrompt,
       'defaultProvider': defaultProvider.id,
+      'defaultEndpointId': defaultEndpointId,
+      'useFullChatContext': useFullChatContext,
+      'chatSummaryMessageLimit': chatSummaryMessageLimit,
       'isPinned': isPinned,
       'isHidden': isHidden,
       'isLocked': isLocked,
@@ -160,5 +189,9 @@ class AppCharacter {
       return value.toDouble();
     }
     return fallback;
+  }
+
+  static int _clampSummaryLimit(int value) {
+    return value.clamp(minChatSummaryMessageLimit, maxChatSummaryMessageLimit);
   }
 }

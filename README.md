@@ -2,15 +2,24 @@
 
 [简体中文](README.zh-CN.md)
 
-Whisnya is a local-first Android AI role chat and TXT novel reader app built with Flutter.
+Whisnya is a local-first Android and Windows AI role chat and TXT novel reader app built with Flutter.
+
+## Download
+
+Prebuilt Android APK and Windows x64 zip packages are published on
+[GitHub Releases](https://github.com/mkdjj/Whisnya/releases/latest).
+
+Release assets are intentionally not committed to the repository. Clone the
+source if you want to build Whisnya yourself.
 
 ## Features
 
-- Configure Grok, DeepSeek, and GPT-compatible Chat Completions APIs.
+- Configure multiple OpenAI Chat Completions compatible API endpoints.
 - Create, edit, hide, lock, import, and export character cards.
 - Pick and crop avatars, chat backgrounds, and interface backgrounds locally.
-- Chat with character prompts plus saved conversation summaries.
-- Import TXT novels, read by detected chapters, summarize novels, and chat with extracted roles.
+- Chat with full context or automatic rolling summaries plus recent messages.
+- Import TXT novels with UTF-8/GBK detection, read by detected chapters, summarize novels, and chat with extracted roles.
+- Switch the novel library between list and grid views.
 - Export and import all local data, including novel text, chats, summaries, images, settings, and API config.
 - Privacy password for locked characters and novels.
 - Light/dark/system theme, background opacity/blur, font scaling, and Chinese/English UI.
@@ -20,6 +29,7 @@ Whisnya is a local-first Android AI role chat and TXT novel reader app built wit
 - Flutter >= 3.38.4
 - Dart >= 3.12.2
 - Android SDK with a working release build setup
+- Visual Studio 2022 Build Tools with Desktop development with C++ for Windows builds
 
 ## Build APK
 

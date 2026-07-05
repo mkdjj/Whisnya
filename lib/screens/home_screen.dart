@@ -39,6 +39,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   var _isLoading = true;
   var _tabIndex = 0;
+  var _novelGridView = false;
   String? _error;
   List<AppCharacter> _characters = const [];
 
@@ -264,98 +265,177 @@ class _HomeScreenState extends State<HomeScreen> {
       ..showSnackBar(SnackBar(content: Text(context.t(message))));
   }
 
+  void _selectTab(int index) {
+    setState(() => _tabIndex = index);
+    if (index == 0) {
+      _load();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final navOpacity = widget.settings.navigationBarOpacity
         .clamp(0, 1)
         .toDouble();
-    return Scaffold(
-      extendBodyBehindAppBar: true,
-      extendBody: true,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        surfaceTintColor: Colors.transparent,
-        systemOverlayStyle: _overlayStyle(context),
-        title: switch (_tabIndex) {
-          0 => Text(context.t('Whisnya')),
-          1 => Text(context.t('小说')),
-          _ => Text(context.t('设置')),
-        },
-        actions: [
-          if (_tabIndex == 1)
-            Padding(
-              padding: const EdgeInsets.only(right: 12),
-              child: Center(
-                child: FilledButton.icon(
-                  onPressed: () => _novelKey.currentState?.importNovel(),
-                  icon: const Icon(Icons.upload_file),
-                  label: Text(context.t('导入 txt')),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final useRail = !isCompactWidth(constraints.maxWidth);
+        final body = _currentBody();
+        return Scaffold(
+          extendBodyBehindAppBar: true,
+          extendBody: !useRail,
+          appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            scrolledUnderElevation: 0,
+            surfaceTintColor: Colors.transparent,
+            systemOverlayStyle: _overlayStyle(context),
+            title: switch (_tabIndex) {
+              0 => Text(context.t('Whisnya')),
+              1 => Text(context.t('小说')),
+              _ => Text(context.t('设置')),
+            },
+            actions: [
+              if (_tabIndex == 1)
+                Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: Center(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        FilledButton.tonalIcon(
+                          onPressed: () {
+                            setState(() => _novelGridView = !_novelGridView);
+                          },
+                          icon: Icon(
+                            _novelGridView
+                                ? Icons.view_list_outlined
+                                : Icons.grid_view_outlined,
+                          ),
+                          label: Text(context.t(_novelGridView ? '列表' : '网格')),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton.icon(
+                          onPressed: () =>
+                              _novelKey.currentState?.importNovel(),
+                          icon: const Icon(Icons.upload_file),
+                          label: Text(context.t('导入 txt')),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-            ),
-        ],
-      ),
-      body: switch (_tabIndex) {
-        0 => AppBackground(settings: widget.settings, child: _buildBody()),
-        1 => AppBackground(
-          settings: widget.settings,
-          child: NovelScreen(
-            key: _novelKey,
-            storage: widget.storage,
-            aiService: widget.aiService,
-            settings: widget.settings,
+            ],
           ),
-        ),
-        _ => SettingsScreen(
+          body: useRail
+              ? Row(
+                  children: [
+                    Padding(
+                      padding: EdgeInsets.only(
+                        top: MediaQuery.paddingOf(context).top + kToolbarHeight,
+                      ),
+                      child: _navigationRail(
+                        navOpacity,
+                        extended: isExpandedWidth(constraints.maxWidth),
+                      ),
+                    ),
+                    const VerticalDivider(width: 1),
+                    Expanded(child: body),
+                  ],
+                )
+              : body,
+          floatingActionButton: _tabIndex == 0
+              ? Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: FloatingActionButton.extended(
+                    onPressed: () => _editCharacter(),
+                    icon: const Icon(Icons.add),
+                    label: Text(context.t('新建角色')),
+                  ),
+                )
+              : null,
+          bottomNavigationBar: useRail ? null : _navigationBar(navOpacity),
+        );
+      },
+    );
+  }
+
+  Widget _currentBody() {
+    return switch (_tabIndex) {
+      0 => AppBackground(settings: widget.settings, child: _buildBody()),
+      1 => AppBackground(
+        settings: widget.settings,
+        child: NovelScreen(
+          key: _novelKey,
           storage: widget.storage,
           aiService: widget.aiService,
           settings: widget.settings,
-          onSettingsChanged: widget.onSettingsChanged,
+          useGridView: _novelGridView,
         ),
-      },
-      floatingActionButton: _tabIndex == 0
-          ? Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: FloatingActionButton.extended(
-                onPressed: () => _editCharacter(),
-                icon: const Icon(Icons.add),
-                label: Text(context.t('新建角色')),
-              ),
-            )
-          : null,
-      bottomNavigationBar: NavigationBar(
-        height: 68,
-        backgroundColor: Theme.of(
-          context,
-        ).colorScheme.surface.withValues(alpha: navOpacity),
-        surfaceTintColor: Colors.transparent,
-        selectedIndex: _tabIndex,
-        onDestinationSelected: (index) {
-          setState(() => _tabIndex = index);
-          if (index == 0) {
-            _load();
-          }
-        },
-        destinations: [
-          NavigationDestination(
-            icon: const Icon(Icons.people_outline),
-            selectedIcon: const Icon(Icons.people),
-            label: context.t('角色'),
-          ),
-          NavigationDestination(
-            icon: const Icon(Icons.menu_book_outlined),
-            selectedIcon: const Icon(Icons.menu_book),
-            label: context.t('小说'),
-          ),
-          NavigationDestination(
-            icon: const Icon(Icons.settings_outlined),
-            selectedIcon: const Icon(Icons.settings),
-            label: context.t('设置'),
-          ),
-        ],
       ),
+      _ => SettingsScreen(
+        storage: widget.storage,
+        aiService: widget.aiService,
+        settings: widget.settings,
+        onSettingsChanged: widget.onSettingsChanged,
+      ),
+    };
+  }
+
+  Widget _navigationBar(double navOpacity) {
+    return NavigationBar(
+      height: 68,
+      backgroundColor: Theme.of(
+        context,
+      ).colorScheme.surface.withValues(alpha: navOpacity),
+      surfaceTintColor: Colors.transparent,
+      selectedIndex: _tabIndex,
+      onDestinationSelected: _selectTab,
+      destinations: [
+        NavigationDestination(
+          icon: const Icon(Icons.people_outline),
+          selectedIcon: const Icon(Icons.people),
+          label: context.t('角色'),
+        ),
+        NavigationDestination(
+          icon: const Icon(Icons.menu_book_outlined),
+          selectedIcon: const Icon(Icons.menu_book),
+          label: context.t('小说'),
+        ),
+        NavigationDestination(
+          icon: const Icon(Icons.settings_outlined),
+          selectedIcon: const Icon(Icons.settings),
+          label: context.t('设置'),
+        ),
+      ],
+    );
+  }
+
+  Widget _navigationRail(double navOpacity, {required bool extended}) {
+    return NavigationRail(
+      backgroundColor: Theme.of(
+        context,
+      ).colorScheme.surface.withValues(alpha: navOpacity),
+      extended: extended,
+      selectedIndex: _tabIndex,
+      onDestinationSelected: _selectTab,
+      destinations: [
+        NavigationRailDestination(
+          icon: const Icon(Icons.people_outline),
+          selectedIcon: const Icon(Icons.people),
+          label: Text(context.t('角色')),
+        ),
+        NavigationRailDestination(
+          icon: const Icon(Icons.menu_book_outlined),
+          selectedIcon: const Icon(Icons.menu_book),
+          label: Text(context.t('小说')),
+        ),
+        NavigationRailDestination(
+          icon: const Icon(Icons.settings_outlined),
+          selectedIcon: const Icon(Icons.settings),
+          label: Text(context.t('设置')),
+        ),
+      ],
     );
   }
 
@@ -365,164 +445,167 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.error_outline, size: 44),
-              const SizedBox(height: 12),
-              Text(_error!, textAlign: TextAlign.center),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: _load,
-                icon: const Icon(Icons.refresh),
-                label: Text(context.t('重新加载')),
-              ),
-            ],
+      return AdaptivePage(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.error_outline, size: 44),
+                const SizedBox(height: 12),
+                Text(_error!, textAlign: TextAlign.center),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: _load,
+                  icon: const Icon(Icons.refresh),
+                  label: Text(context.t('重新加载')),
+                ),
+              ],
+            ),
           ),
         ),
       );
     }
 
     if (_characters.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.person_add_alt_1, size: 48),
-              const SizedBox(height: 12),
-              Text(context.t('还没有角色')),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: () => _editCharacter(),
-                icon: const Icon(Icons.add),
-                label: Text(context.t('创建第一个角色')),
-              ),
-            ],
+      return AdaptivePage(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.person_add_alt_1, size: 48),
+                const SizedBox(height: 12),
+                Text(context.t('还没有角色')),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: () => _editCharacter(),
+                  icon: const Icon(Icons.add),
+                  label: Text(context.t('创建第一个角色')),
+                ),
+              ],
+            ),
           ),
         ),
       );
     }
 
-    return ListView.separated(
-      padding: EdgeInsets.fromLTRB(
-        pageHorizontalPadding,
-        homeListTop(context),
-        pageHorizontalPadding,
-        148,
-      ),
-      itemCount: _characters.length,
-      separatorBuilder: (context, index) => const SizedBox(height: 8),
-      itemBuilder: (context, index) {
-        final character = _characters[index];
-        return Card(
-          margin: EdgeInsets.zero,
-          child: ListTile(
-            leading: _CharacterAvatar(character: character),
-            title: Row(
-              children: [
-                Flexible(child: Text(character.name)),
-                if (character.isPinned) ...[
-                  const SizedBox(width: 6),
-                  Icon(
-                    Icons.push_pin,
-                    size: 16,
-                    color: Theme.of(context).colorScheme.primary,
+    return AdaptivePage(
+      child: ListView.separated(
+        padding: EdgeInsets.fromLTRB(0, homeListTop(context), 0, 148),
+        itemCount: _characters.length,
+        separatorBuilder: (context, index) => const SizedBox(height: 8),
+        itemBuilder: (context, index) {
+          final character = _characters[index];
+          return Card(
+            margin: EdgeInsets.zero,
+            child: ListTile(
+              leading: _CharacterAvatar(character: character),
+              title: Row(
+                children: [
+                  Flexible(child: Text(character.name)),
+                  if (character.isPinned) ...[
+                    const SizedBox(width: 6),
+                    Icon(
+                      Icons.push_pin,
+                      size: 16,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ],
+                ],
+              ),
+              subtitle: Text(
+                character.isHidden
+                    ? '******'
+                    : character.description.isEmpty
+                    ? context.t('未填写简介')
+                    : character.description,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              onTap: () => _openChat(character),
+              trailing: PopupMenuButton<_CharacterAction>(
+                onSelected: (action) {
+                  switch (action) {
+                    case _CharacterAction.edit:
+                      _editCharacter(character);
+                      break;
+                    case _CharacterAction.pin:
+                      _togglePin(character);
+                      break;
+                    case _CharacterAction.hide:
+                      _toggleHidden(character);
+                      break;
+                    case _CharacterAction.lock:
+                      _toggleLock(character);
+                      break;
+                    case _CharacterAction.delete:
+                      _deleteCharacter(character);
+                      break;
+                  }
+                },
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    value: _CharacterAction.edit,
+                    child: ListTile(
+                      leading: const Icon(Icons.edit),
+                      title: Text(context.t('编辑角色')),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: _CharacterAction.pin,
+                    child: ListTile(
+                      leading: Icon(
+                        character.isPinned
+                            ? Icons.push_pin
+                            : Icons.push_pin_outlined,
+                      ),
+                      title: Text(
+                        context.t(character.isPinned ? '取消置顶' : '置顶角色'),
+                      ),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: _CharacterAction.hide,
+                    child: ListTile(
+                      leading: Icon(
+                        character.isHidden
+                            ? Icons.visibility_outlined
+                            : Icons.visibility_off_outlined,
+                      ),
+                      title: Text(
+                        context.t(character.isHidden ? '显示设定' : '隐藏设定'),
+                      ),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: _CharacterAction.lock,
+                    child: ListTile(
+                      leading: Icon(
+                        character.isLocked
+                            ? Icons.lock_open_outlined
+                            : Icons.lock_outline,
+                      ),
+                      title: Text(
+                        context.t(character.isLocked ? '解除上锁' : '上锁'),
+                      ),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: _CharacterAction.delete,
+                    child: ListTile(
+                      leading: const Icon(Icons.delete_outline),
+                      title: Text(context.t('删除角色')),
+                    ),
                   ),
                 ],
-              ],
+              ),
             ),
-            subtitle: Text(
-              character.isHidden
-                  ? '******'
-                  : character.description.isEmpty
-                  ? context.t('未填写简介')
-                  : character.description,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            onTap: () => _openChat(character),
-            trailing: PopupMenuButton<_CharacterAction>(
-              onSelected: (action) {
-                switch (action) {
-                  case _CharacterAction.edit:
-                    _editCharacter(character);
-                    break;
-                  case _CharacterAction.pin:
-                    _togglePin(character);
-                    break;
-                  case _CharacterAction.hide:
-                    _toggleHidden(character);
-                    break;
-                  case _CharacterAction.lock:
-                    _toggleLock(character);
-                    break;
-                  case _CharacterAction.delete:
-                    _deleteCharacter(character);
-                    break;
-                }
-              },
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: _CharacterAction.edit,
-                  child: ListTile(
-                    leading: const Icon(Icons.edit),
-                    title: Text(context.t('编辑角色')),
-                  ),
-                ),
-                PopupMenuItem(
-                  value: _CharacterAction.pin,
-                  child: ListTile(
-                    leading: Icon(
-                      character.isPinned
-                          ? Icons.push_pin
-                          : Icons.push_pin_outlined,
-                    ),
-                    title: Text(
-                      context.t(character.isPinned ? '取消置顶' : '置顶角色'),
-                    ),
-                  ),
-                ),
-                PopupMenuItem(
-                  value: _CharacterAction.hide,
-                  child: ListTile(
-                    leading: Icon(
-                      character.isHidden
-                          ? Icons.visibility_outlined
-                          : Icons.visibility_off_outlined,
-                    ),
-                    title: Text(
-                      context.t(character.isHidden ? '显示设定' : '隐藏设定'),
-                    ),
-                  ),
-                ),
-                PopupMenuItem(
-                  value: _CharacterAction.lock,
-                  child: ListTile(
-                    leading: Icon(
-                      character.isLocked
-                          ? Icons.lock_open_outlined
-                          : Icons.lock_outline,
-                    ),
-                    title: Text(context.t(character.isLocked ? '解除上锁' : '上锁')),
-                  ),
-                ),
-                PopupMenuItem(
-                  value: _CharacterAction.delete,
-                  child: ListTile(
-                    leading: const Icon(Icons.delete_outline),
-                    title: Text(context.t('删除角色')),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 

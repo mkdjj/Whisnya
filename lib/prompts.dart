@@ -5,6 +5,9 @@ import 'models/novel_book.dart';
 class PromptBuilder {
   const PromptBuilder._();
 
+  static const defaultRecentMessageLimit =
+      AppCharacter.defaultChatSummaryMessageLimit;
+
   static String buildSystemPrompt(
     AppCharacter character,
     String historySummary,
@@ -45,6 +48,66 @@ ${historySummary.isEmpty ? '暂无历史总结。' : historySummary}
 ''';
   }
 
+  static List<Map<String, String>> buildChatRequestMessages({
+    required AppCharacter character,
+    required String historySummary,
+    required List<ChatMessage> messages,
+    required bool useFullContext,
+    int recentMessageLimit = defaultRecentMessageLimit,
+  }) {
+    final chatMessages = messages
+        .where((message) => message.isUser || message.isAssistant)
+        .toList();
+    final startIndex = useFullContext
+        ? 0
+        : recentContextStartIndex(
+            messageCount: chatMessages.length,
+            summaryLimit: recentMessageLimit,
+          );
+    final requestMessages = chatMessages.skip(startIndex);
+    return [
+      {
+        'role': 'system',
+        'content': buildSystemPrompt(character, historySummary),
+      },
+      for (final message in requestMessages)
+        {'role': message.role, 'content': message.content},
+    ];
+  }
+
+  static int recentContextStartIndex({
+    required int messageCount,
+    required int summaryLimit,
+  }) {
+    if (messageCount <= summaryLimit) return 0;
+    final safeLimit = summaryLimit
+        .clamp(
+          AppCharacter.minChatSummaryMessageLimit,
+          AppCharacter.maxChatSummaryMessageLimit,
+        )
+        .toInt();
+    final recentBeforeCurrent = (messageCount - safeLimit)
+        .clamp(10, safeLimit)
+        .toInt();
+    final start = messageCount - 1 - recentBeforeCurrent;
+    return start < 0 ? 0 : start;
+  }
+
+  static int rollingSummaryEndIndex({
+    required int messageCount,
+    required int summaryLimit,
+  }) {
+    if (messageCount <= summaryLimit) return 0;
+    final safeLimit = summaryLimit
+        .clamp(
+          AppCharacter.minChatSummaryMessageLimit,
+          AppCharacter.maxChatSummaryMessageLimit,
+        )
+        .toInt();
+    final previousCount = messageCount - 1;
+    return (previousCount ~/ safeLimit) * safeLimit;
+  }
+
   static String buildSummaryPrompt(List<ChatMessage> messages) {
     final transcript = messages
         .map((message) {
@@ -71,6 +134,35 @@ ${historySummary.isEmpty ? '暂无历史总结。' : historySummary}
 
 聊天内容如下：
 $transcript
+''';
+  }
+
+  static String buildRollingSummaryPrompt({
+    required String previousSummary,
+    required List<ChatMessage> newMessages,
+  }) {
+    final transcript = newMessages
+        .where((message) => message.isUser || message.isAssistant)
+        .map((message) {
+          final roleLabel = message.isUser ? '用户' : '角色';
+          return '$roleLabel：${message.content}';
+        })
+        .join('\n\n');
+
+    return '''
+请把已有历史总结和新增聊天内容合并成一份新的历史总结，用于后续继续对话。
+
+【已有历史总结】
+${previousSummary.trim().isEmpty ? '暂无。' : previousSummary.trim()}
+
+【新增聊天内容】
+$transcript
+
+要求：
+- 保留重要事实、关系变化、用户偏好、当前未完成话题。
+- 删除重复、口水话和无关细节。
+- 不要加入聊天中没有出现的新内容。
+- 只输出合并后的总结正文。
 ''';
   }
 

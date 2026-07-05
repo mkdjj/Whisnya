@@ -18,7 +18,6 @@ class AiService {
   final http.Client _client;
 
   Future<String> sendMessage({
-    required String provider,
     required String apiKey,
     required String baseUrl,
     required String model,
