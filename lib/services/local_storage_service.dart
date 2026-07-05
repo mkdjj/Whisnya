@@ -12,6 +12,7 @@ import '../models/chat_message.dart';
 import '../models/chat_session.dart';
 import '../models/chat_summary.dart';
 import '../models/novel_book.dart';
+import '../models/theater.dart';
 import '../utils/role_import_parser.dart';
 
 String restoreAppDataPath(String path, String appDataPath) {
@@ -30,6 +31,47 @@ String restoreAppDataPath(String path, String appDataPath) {
   }
   final separator = Platform.pathSeparator;
   return '$appDataPath$separator${relative.replaceAll('/', separator)}';
+}
+
+Map<String, dynamic> redactApiKeysForExport(Map<String, dynamic> json) {
+  final copy = _jsonCopy(json) as Map<String, dynamic>;
+  final endpoints = copy['endpoints'];
+  if (endpoints is List) {
+    copy['endpoints'] = [
+      for (final endpoint in endpoints)
+        if (endpoint is Map)
+          {..._stringKeyMap(endpoint), 'apiKey': ''}
+        else
+          endpoint,
+    ];
+  }
+  for (final key in const ['grok', 'deepseek', 'gpt']) {
+    final provider = copy[key];
+    if (provider is Map) {
+      copy[key] = {..._stringKeyMap(provider), 'apiKey': ''};
+    }
+  }
+  return copy;
+}
+
+dynamic _jsonCopy(dynamic value) {
+  if (value is Map) {
+    return {
+      for (final entry in value.entries)
+        entry.key.toString(): _jsonCopy(entry.value),
+    };
+  }
+  if (value is List) {
+    return [for (final item in value) _jsonCopy(item)];
+  }
+  return value;
+}
+
+Map<String, dynamic> _stringKeyMap(Map<dynamic, dynamic> value) {
+  return {
+    for (final entry in value.entries)
+      entry.key.toString(): _jsonCopy(entry.value),
+  };
 }
 
 class StorageException implements Exception {
@@ -74,6 +116,9 @@ class LocalStorageService {
     ).create(recursive: true);
     await Directory(
       '${directory.path}${Platform.pathSeparator}novel_summary_cache',
+    ).create(recursive: true);
+    await Directory(
+      '${directory.path}${Platform.pathSeparator}theater_messages',
     ).create(recursive: true);
     _appDataDirectory = directory;
     return directory;
@@ -312,6 +357,71 @@ class LocalStorageService {
     await _writeJson(await _summaryFile(summary.characterId), summary.toJson());
   }
 
+  Future<List<TheaterSession>> loadTheaterSessions() async {
+    final file = await _theaterSessionsFile();
+    final decoded = await _readJson(file, <dynamic>[], recoverOnInvalid: true);
+    if (decoded is! List) {
+      throw StorageException('群聊文件异常：${file.path}');
+    }
+    return decoded
+        .whereType<Map<String, dynamic>>()
+        .map(TheaterSession.fromJson)
+        .where((session) => session.id.isNotEmpty)
+        .toList()
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+  }
+
+  Future<void> saveTheaterSession(TheaterSession session) async {
+    await _updateTheaterSessions((sessions) {
+      final index = sessions.indexWhere((item) => item.id == session.id);
+      if (index >= 0) {
+        sessions[index] = session;
+      } else {
+        sessions.add(session);
+      }
+      return sessions;
+    });
+  }
+
+  Future<void> deleteTheaterSession(String sessionId) async {
+    await _updateTheaterSessions((sessions) {
+      sessions.removeWhere((session) => session.id == sessionId);
+      return sessions;
+    });
+    final messages = await _theaterMessagesFile(sessionId);
+    if (await messages.exists()) {
+      await messages.delete();
+    }
+  }
+
+  Future<List<TheaterMessage>> loadTheaterMessages(String sessionId) async {
+    final file = await _theaterMessagesFile(sessionId);
+    final decoded = await _readJson(file, <dynamic>[]);
+    if (decoded is! List) {
+      throw StorageException('群聊消息文件异常：${file.path}');
+    }
+    return decoded
+        .whereType<Map<String, dynamic>>()
+        .map(TheaterMessage.fromJson)
+        .where((message) => message.id.isNotEmpty)
+        .toList()
+      ..sort((a, b) => a.time.compareTo(b.time));
+  }
+
+  Future<void> saveTheaterMessages(
+    String sessionId,
+    List<TheaterMessage> messages,
+  ) async {
+    await _writeJson(
+      await _theaterMessagesFile(sessionId),
+      messages.map((message) => message.toJson()).toList(),
+    );
+  }
+
+  Future<void> clearTheaterMessages(String sessionId) async {
+    await saveTheaterMessages(sessionId, const []);
+  }
+
   Future<Uint8List> exportCharacterPackage(AppCharacter character) async {
     final archive = Archive();
     final characterJson = character.toJson();
@@ -408,7 +518,7 @@ class LocalStorageService {
     return character;
   }
 
-  Future<Uint8List> exportAllData() async {
+  Future<Uint8List> exportAllData({bool includeApiKeys = false}) async {
     final directory = await appDataDirectory;
     final archive = Archive();
     archive.addFile(
@@ -423,10 +533,26 @@ class LocalStorageService {
       if (entity is! File) {
         continue;
       }
-      final bytes = await entity.readAsBytes();
+      var bytes = await entity.readAsBytes();
       final name = entity.path
           .substring(directory.path.length + 1)
           .replaceAll(Platform.pathSeparator, '/');
+      if (!includeApiKeys && name == 'api_config.json') {
+        try {
+          final decoded = jsonDecode(utf8.decode(bytes));
+          if (decoded is Map<String, dynamic>) {
+            bytes = Uint8List.fromList(
+              utf8.encode(
+                const JsonEncoder.withIndent(
+                  '  ',
+                ).convert(redactApiKeysForExport(decoded)),
+              ),
+            );
+          }
+        } on FormatException {
+          // Keep export behavior unchanged for a corrupt API config file.
+        }
+      }
       archive.addFile(ArchiveFile(name, bytes.length, bytes));
     }
     return Uint8List.fromList(ZipEncoder().encode(archive));
@@ -508,6 +634,25 @@ class LocalStorageService {
         );
       }
     });
+    await updateJson('theater_sessions.json', (decoded) {
+      if (decoded is! List) {
+        return;
+      }
+      for (final item in decoded.whereType<Map<String, dynamic>>()) {
+        item['avatar'] = fixPath(item['avatar'] as String? ?? '');
+        item['backgroundImage'] = fixPath(
+          item['backgroundImage'] as String? ?? '',
+        );
+        final rawParticipants = item['participants'];
+        if (rawParticipants is! List) continue;
+        for (final participant
+            in rawParticipants.whereType<Map<String, dynamic>>()) {
+          participant['avatar'] = fixPath(
+            participant['avatar'] as String? ?? '',
+          );
+        }
+      }
+    });
   }
 
   Future<String> saveMediaImage({
@@ -581,6 +726,20 @@ class LocalStorageService {
     final directory = await appDataDirectory;
     return File(
       '${directory.path}${Platform.pathSeparator}summaries${Platform.pathSeparator}$characterId.json',
+    );
+  }
+
+  Future<File> _theaterSessionsFile() async {
+    final directory = await appDataDirectory;
+    return File(
+      '${directory.path}${Platform.pathSeparator}theater_sessions.json',
+    );
+  }
+
+  Future<File> _theaterMessagesFile(String sessionId) async {
+    final directory = await appDataDirectory;
+    return File(
+      '${directory.path}${Platform.pathSeparator}theater_messages${Platform.pathSeparator}$sessionId.json',
     );
   }
 
@@ -750,6 +909,28 @@ class LocalStorageService {
           .toList();
       final next = update(books);
       await _writeJsonNow(file, next.map((book) => book.toJson()).toList());
+    });
+  }
+
+  Future<void> _updateTheaterSessions(
+    List<TheaterSession> Function(List<TheaterSession>) update,
+  ) async {
+    final file = await _theaterSessionsFile();
+    await _enqueueWrite(() async {
+      final decoded = await _readJsonNow(file, <dynamic>[]);
+      if (decoded is! List) {
+        throw StorageException('群聊文件异常：${file.path}');
+      }
+      final sessions = decoded
+          .whereType<Map<String, dynamic>>()
+          .map(TheaterSession.fromJson)
+          .where((session) => session.id.isNotEmpty)
+          .toList();
+      final next = update(sessions);
+      await _writeJsonNow(
+        file,
+        next.map((session) => session.toJson()).toList(),
+      );
     });
   }
 

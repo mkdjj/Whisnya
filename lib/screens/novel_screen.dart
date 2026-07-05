@@ -319,8 +319,8 @@ class NovelScreenState extends State<NovelScreen> {
               50,
             ),
             gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: 210,
-              childAspectRatio: 1.15,
+              maxCrossAxisExtent: 320,
+              mainAxisExtent: 72,
               crossAxisSpacing: 8,
               mainAxisSpacing: 8,
             ),
@@ -333,32 +333,31 @@ class NovelScreenState extends State<NovelScreen> {
                   borderRadius: BorderRadius.circular(8),
                   onTap: () => _openBook(book),
                   child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+                    child: Row(
                       children: [
-                        Row(
-                          children: [
-                            Icon(
-                              book.isChatMode ? Icons.chat : Icons.menu_book,
-                            ),
-                            const Spacer(),
-                            _bookMenu(book),
-                          ],
+                        Icon(book.isChatMode ? Icons.chat : Icons.menu_book),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                book.isHidden ? '******' : book.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _bookStatus(book),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
                         ),
-                        const Spacer(),
-                        Text(
-                          book.isHidden ? '******' : book.title,
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          _bookStatus(book),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                        SizedBox(width: 36, child: _bookMenu(book)),
                       ],
                     ),
                   ),
@@ -1192,6 +1191,10 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
         extraPrompt: '',
         defaultProvider: AiProviderX.fromId(_selectedEndpointId),
         defaultEndpointId: _selectedEndpointId,
+        sourceType: 'novelExport',
+        sourceNovelId: _book.id,
+        sourceNovelTitle: _book.title,
+        sourceNovelRoleName: role.name,
         createdAt: now,
         updatedAt: now,
         lastUsedAt: now,

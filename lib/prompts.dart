@@ -1,6 +1,16 @@
+import 'dart:convert';
+
 import 'models/app_character.dart';
 import 'models/chat_message.dart';
 import 'models/novel_book.dart';
+import 'models/theater.dart';
+
+class TheaterReplyDraft {
+  const TheaterReplyDraft({required this.speaker, required this.content});
+
+  final String speaker;
+  final String content;
+}
 
 class PromptBuilder {
   const PromptBuilder._();
@@ -164,6 +174,189 @@ $transcript
 - 不要加入聊天中没有出现的新内容。
 - 只输出合并后的总结正文。
 ''';
+  }
+
+  static List<Map<String, String>> buildTheaterSingleApiRequest({
+    required TheaterSession session,
+    required String novelSummary,
+    required List<TheaterMessage> messages,
+  }) {
+    final allowed = session.aiParticipants;
+    return [
+      {
+        'role': 'system',
+        'content':
+            '''
+你正在 Whisnya 的群聊剧场中同时扮演多个角色。
+
+【群聊名称】
+${session.title}
+
+${_theaterNovelText(session, novelSummary)}
+
+【群聊总结】
+${session.theaterSummary.trim().isEmpty ? '暂无。' : session.theaterSummary}
+
+【参与角色】
+${_theaterParticipantsText(session.participants)}
+
+【本轮允许你发言的角色】
+${allowed.map((role) => '- ${role.name}').join('\n')}
+
+要求：
+1. 只允许上面列出的角色发言。
+2. 如果用户扮演了某个角色，不要替该角色发言。
+3. 每个角色保持自己的性格、背景和说话风格。
+4. 不要求所有角色都发言，但至少输出 1 条回复。
+5. 每条回复不要过长。
+6. 只输出 JSON 数组，不要 Markdown 代码块。
+
+输出格式：
+[
+  {"speaker":"角色名","content":"回复内容"}
+]
+''',
+      },
+      {'role': 'user', 'content': _theaterMessagesText(messages)},
+    ];
+  }
+
+  static List<Map<String, String>> buildTheaterParticipantRequest({
+    required TheaterSession session,
+    required TheaterParticipant participant,
+    required String novelSummary,
+    required List<TheaterMessage> messages,
+  }) {
+    return [
+      {
+        'role': 'system',
+        'content':
+            '''
+你正在 Whisnya 的群聊剧场中扮演一个角色。
+
+【群聊名称】
+${session.title}
+
+${_theaterNovelText(session, novelSummary)}
+
+【群聊总结】
+${session.theaterSummary.trim().isEmpty ? '暂无。' : session.theaterSummary}
+
+【你只能扮演】
+${_theaterParticipantText(participant)}
+
+【其他参与者】
+${session.participants.where((role) => role.id != participant.id).map((role) => '- ${role.name}').join('\n')}
+
+要求：
+1. 你只能作为「${participant.name}」发言。
+2. 不要替其他角色或用户说话。
+3. 不要输出旁白，除非用户明确要求。
+4. 保持角色设定、语气和关系状态。
+5. 直接输出回复正文，不要加角色名。
+''',
+      },
+      {'role': 'user', 'content': _theaterMessagesText(messages)},
+    ];
+  }
+
+  static String buildTheaterSummaryPrompt({
+    required String previousSummary,
+    required List<TheaterMessage> messages,
+  }) {
+    return '''
+请把已有群聊总结和新增群聊内容合并成一份新的群聊总结。
+
+【已有群聊总结】
+${previousSummary.trim().isEmpty ? '暂无。' : previousSummary.trim()}
+
+【新增群聊内容】
+${_theaterMessagesText(messages)}
+
+请输出：
+1. 群聊目前发生了什么。
+2. 用户说过的重要信息。
+3. 各角色当前立场。
+4. 各角色情绪变化。
+5. 角色之间的关系变化。
+6. 当前未结束的话题。
+7. 后续对话应该如何自然接上。
+
+要求：
+- 不要编造对话中没有的信息。
+- 保留重要冲突、暧昧、敌意、误会和关系变化。
+- 尽量简洁，避免越来越长。
+- 只输出总结正文。
+''';
+  }
+
+  static List<TheaterReplyDraft> parseTheaterReplies(String raw) {
+    final text = _stripJsonFence(raw);
+    final decoded = jsonDecode(text);
+    final list = switch (decoded) {
+      List value => value,
+      {'replies': List value} => value,
+      {'messages': List value} => value,
+      _ => throw const FormatException('not a theater reply list'),
+    };
+    return list
+        .whereType<Map<String, dynamic>>()
+        .map(
+          (item) => TheaterReplyDraft(
+            speaker: (item['speaker'] ?? item['name'] ?? '').toString().trim(),
+            content: (item['content'] ?? item['message'] ?? '')
+                .toString()
+                .trim(),
+          ),
+        )
+        .where((reply) => reply.speaker.isNotEmpty && reply.content.isNotEmpty)
+        .toList();
+  }
+
+  static String _stripJsonFence(String raw) {
+    var text = raw.trim();
+    if (text.startsWith('```')) {
+      text = text.replaceFirst(RegExp(r'^```(?:json)?\s*'), '');
+      text = text.replaceFirst(RegExp(r'\s*```$'), '');
+    }
+    final start = text.indexOf('[');
+    final end = text.lastIndexOf(']');
+    if (start >= 0 && end > start) {
+      return text.substring(start, end + 1);
+    }
+    return text;
+  }
+
+  static String _theaterNovelText(TheaterSession session, String novelSummary) {
+    if (session.boundNovelId.isEmpty) return '【绑定小说】\n无';
+    return '''
+【绑定小说】
+${session.boundNovelTitle}
+
+【小说设定档】
+${novelSummary.trim().isEmpty ? '暂无。' : novelSummary.trim()}
+''';
+  }
+
+  static String _theaterParticipantsText(List<TheaterParticipant> roles) {
+    return roles.map(_theaterParticipantText).join('\n\n');
+  }
+
+  static String _theaterParticipantText(TheaterParticipant role) {
+    return '''
+- 名称：${role.name}
+  简介：${role.description}
+  性格：${role.personality}
+  背景：${role.background}
+  说话风格：${role.speakingStyle}
+''';
+  }
+
+  static String _theaterMessagesText(List<TheaterMessage> messages) {
+    if (messages.isEmpty) return '暂无群聊记录。';
+    return messages
+        .map((message) => '${message.speakerName}：${message.content}')
+        .join('\n\n');
   }
 
   static String buildNovelChunkPrompt(String chunk, int index, int total) {

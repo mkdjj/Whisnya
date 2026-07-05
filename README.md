@@ -18,9 +18,10 @@ source if you want to build Whisnya yourself.
 - Create, edit, hide, lock, import, and export character cards.
 - Pick and crop avatars, chat backgrounds, and interface backgrounds locally.
 - Chat with full context or automatic rolling summaries plus recent messages.
+- Create theater/group chats with multiple character or novel-role participants.
 - Import TXT novels with UTF-8/GBK detection, read by detected chapters, summarize novels, and chat with extracted roles.
 - Switch the novel library between list and grid views.
-- Export and import all local data, including novel text, chats, summaries, images, settings, and API config.
+- Export and import all local data, with API keys excluded by default.
 - Privacy password for locked characters and novels.
 - Light/dark/system theme, background opacity/blur, font scaling, and Chinese/English UI.
 
@@ -101,7 +102,16 @@ app_data/
 ```
 
 The in-app full-data export creates a zip backup with relative files under `app_data/`.
+API keys are excluded by default and are only included when you explicitly enable
+that option before exporting.
 Import repairs saved paths for the current platform, so backups can be moved between
 Android, Windows, macOS, and iOS builds of Whisnya.
 
-Do not publish local backups, API keys, chat records, novel text, or signing files.
+## Privacy
+
+Whisnya is local-first. Chat records, novel text, character data, images, settings,
+and API configuration are stored locally by default. After you configure a third-party
+API endpoint, request content is sent to that model provider when you chat or summarize.
+
+Do not publicly share backups that contain API keys, chat records, novel text, or
+other private data. Local API key encryption or system secure storage is a future TODO.

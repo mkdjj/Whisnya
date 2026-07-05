@@ -1,4 +1,5 @@
 import 'package:ai_role_chat/models/api_config.dart';
+import 'package:ai_role_chat/services/local_storage_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -59,5 +60,20 @@ void main() {
       config.upsertEndpoint(b.copyWith(enabled: false)).defaultEndpointId,
       'a',
     );
+  });
+
+  test('redacts api keys from exported backup config', () {
+    final original = {
+      'endpoints': [
+        {'id': 'a', 'apiKey': 'secret', 'baseUrl': 'https://a.test'},
+      ],
+      'grok': {'apiKey': 'legacy-secret', 'baseUrl': 'https://grok.test'},
+    };
+
+    final redacted = redactApiKeysForExport(original);
+
+    expect((redacted['endpoints'] as List).single['apiKey'], isEmpty);
+    expect((redacted['grok'] as Map)['apiKey'], isEmpty);
+    expect((original['endpoints'] as List).single['apiKey'], 'secret');
   });
 }

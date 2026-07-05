@@ -1,0 +1,489 @@
+import 'app_character.dart';
+import 'novel_book.dart';
+
+enum TheaterRoleSource {
+  appCharacter('appCharacter'),
+  novelRole('novelRole');
+
+  const TheaterRoleSource(this.id);
+
+  final String id;
+
+  static TheaterRoleSource fromId(String? id) {
+    return values.firstWhere(
+      (value) => value.id == id,
+      orElse: () => TheaterRoleSource.appCharacter,
+    );
+  }
+}
+
+enum TheaterApiMode {
+  singleApi('singleApi'),
+  multiApi('multiApi');
+
+  const TheaterApiMode(this.id);
+
+  final String id;
+
+  static TheaterApiMode fromId(String? id) {
+    return values.firstWhere(
+      (value) => value.id == id,
+      orElse: () => TheaterApiMode.singleApi,
+    );
+  }
+}
+
+enum TheaterMultiApiReplyMode {
+  randomSequential('randomSequential'),
+  parallel('parallel');
+
+  const TheaterMultiApiReplyMode(this.id);
+
+  final String id;
+
+  static TheaterMultiApiReplyMode fromId(String? id) {
+    return values.firstWhere(
+      (value) => value.id == id,
+      orElse: () => TheaterMultiApiReplyMode.randomSequential,
+    );
+  }
+}
+
+enum TheaterSpeakerType {
+  user('user'),
+  role('role'),
+  system('system');
+
+  const TheaterSpeakerType(this.id);
+
+  final String id;
+
+  static TheaterSpeakerType fromId(String? id) {
+    return values.firstWhere(
+      (value) => value.id == id,
+      orElse: () => TheaterSpeakerType.role,
+    );
+  }
+}
+
+class TheaterParticipant {
+  const TheaterParticipant({
+    required this.id,
+    required this.source,
+    required this.name,
+    required this.avatar,
+    required this.description,
+    required this.personality,
+    required this.background,
+    required this.speakingStyle,
+    this.sourceNovelId = '',
+    this.sourceNovelTitle = '',
+    this.sourceRoleId = '',
+    this.sourceCharacterId = '',
+    this.endpointId = '',
+    this.enabled = true,
+  });
+
+  final String id;
+  final TheaterRoleSource source;
+  final String sourceNovelId;
+  final String sourceNovelTitle;
+  final String sourceRoleId;
+  final String sourceCharacterId;
+  final String name;
+  final String avatar;
+  final String description;
+  final String personality;
+  final String background;
+  final String speakingStyle;
+  final String endpointId;
+  final bool enabled;
+
+  TheaterParticipant copyWith({
+    String? id,
+    TheaterRoleSource? source,
+    String? sourceNovelId,
+    String? sourceNovelTitle,
+    String? sourceRoleId,
+    String? sourceCharacterId,
+    String? name,
+    String? avatar,
+    String? description,
+    String? personality,
+    String? background,
+    String? speakingStyle,
+    String? endpointId,
+    bool? enabled,
+  }) {
+    return TheaterParticipant(
+      id: id ?? this.id,
+      source: source ?? this.source,
+      sourceNovelId: sourceNovelId ?? this.sourceNovelId,
+      sourceNovelTitle: sourceNovelTitle ?? this.sourceNovelTitle,
+      sourceRoleId: sourceRoleId ?? this.sourceRoleId,
+      sourceCharacterId: sourceCharacterId ?? this.sourceCharacterId,
+      name: name ?? this.name,
+      avatar: avatar ?? this.avatar,
+      description: description ?? this.description,
+      personality: personality ?? this.personality,
+      background: background ?? this.background,
+      speakingStyle: speakingStyle ?? this.speakingStyle,
+      endpointId: endpointId ?? this.endpointId,
+      enabled: enabled ?? this.enabled,
+    );
+  }
+
+  factory TheaterParticipant.fromAppCharacter(
+    AppCharacter character, {
+    required String id,
+    String endpointId = '',
+  }) {
+    return TheaterParticipant(
+      id: id,
+      source: TheaterRoleSource.appCharacter,
+      sourceCharacterId: character.id,
+      sourceNovelId: character.sourceNovelId,
+      sourceNovelTitle: character.sourceNovelTitle,
+      sourceRoleId: character.sourceNovelRoleName,
+      name: character.name,
+      avatar: character.avatar,
+      description: character.description,
+      personality: character.personality,
+      background: character.background,
+      speakingStyle: character.speakingStyle,
+      endpointId: endpointId,
+    );
+  }
+
+  factory TheaterParticipant.fromNovelRole({
+    required NovelBook book,
+    required NovelRoleCandidate role,
+    required String id,
+    String endpointId = '',
+  }) {
+    return TheaterParticipant(
+      id: id,
+      source: TheaterRoleSource.novelRole,
+      sourceNovelId: book.id,
+      sourceNovelTitle: book.title,
+      sourceRoleId: role.name,
+      sourceCharacterId: '',
+      name: role.name,
+      avatar: '',
+      description: role.description,
+      personality: role.personality,
+      background: role.background,
+      speakingStyle: role.speakingStyle,
+      endpointId: endpointId,
+    );
+  }
+
+  factory TheaterParticipant.fromJson(Map<String, dynamic> json) {
+    return TheaterParticipant(
+      id: json['id'] as String? ?? '',
+      source: TheaterRoleSource.fromId(json['source'] as String?),
+      sourceNovelId: json['sourceNovelId'] as String? ?? '',
+      sourceNovelTitle: json['sourceNovelTitle'] as String? ?? '',
+      sourceRoleId: json['sourceRoleId'] as String? ?? '',
+      sourceCharacterId: json['sourceCharacterId'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      avatar: json['avatar'] as String? ?? '',
+      description: json['description'] as String? ?? '',
+      personality: json['personality'] as String? ?? '',
+      background: json['background'] as String? ?? '',
+      speakingStyle: json['speakingStyle'] as String? ?? '',
+      endpointId: json['endpointId'] as String? ?? '',
+      enabled: json['enabled'] as bool? ?? true,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'source': source.id,
+      'sourceNovelId': sourceNovelId,
+      'sourceNovelTitle': sourceNovelTitle,
+      'sourceRoleId': sourceRoleId,
+      'sourceCharacterId': sourceCharacterId,
+      'name': name,
+      'avatar': avatar,
+      'description': description,
+      'personality': personality,
+      'background': background,
+      'speakingStyle': speakingStyle,
+      'endpointId': endpointId,
+      'enabled': enabled,
+    };
+  }
+}
+
+class TheaterSession {
+  const TheaterSession({
+    required this.id,
+    required this.title,
+    required this.createdAt,
+    required this.updatedAt,
+    this.avatar = '',
+    this.backgroundImage = '',
+    this.backgroundImageOpacity = 1,
+    this.backgroundBlur = 0,
+    this.bubbleOpacity = 0.94,
+    this.inputOpacity = 0.92,
+    this.topBarOpacity = 0,
+    this.isHidden = false,
+    this.isLocked = false,
+    this.boundNovelId = '',
+    this.boundNovelTitle = '',
+    this.apiMode = TheaterApiMode.singleApi,
+    this.multiApiReplyMode = TheaterMultiApiReplyMode.randomSequential,
+    this.singleEndpointId = '',
+    this.userParticipantId = '',
+    this.keepRoundCount = 30,
+    this.theaterSummary = '',
+    this.summarizedMessageCount = 0,
+    this.participants = const [],
+  });
+
+  final String id;
+  final String title;
+  final String avatar;
+  final String backgroundImage;
+  final double backgroundImageOpacity;
+  final double backgroundBlur;
+  final double bubbleOpacity;
+  final double inputOpacity;
+  final double topBarOpacity;
+  final bool isHidden;
+  final bool isLocked;
+  final String boundNovelId;
+  final String boundNovelTitle;
+  final TheaterApiMode apiMode;
+  final TheaterMultiApiReplyMode multiApiReplyMode;
+  final String singleEndpointId;
+  final String userParticipantId;
+  final int keepRoundCount;
+  final String theaterSummary;
+  final int summarizedMessageCount;
+  final List<TheaterParticipant> participants;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  List<TheaterParticipant> get enabledParticipants =>
+      participants.where((participant) => participant.enabled).toList();
+
+  List<TheaterParticipant> get aiParticipants => enabledParticipants
+      .where((participant) => participant.id != userParticipantId)
+      .toList();
+
+  TheaterParticipant? get userParticipant {
+    if (userParticipantId.isEmpty) return null;
+    for (final participant in participants) {
+      if (participant.id == userParticipantId) return participant;
+    }
+    return null;
+  }
+
+  int get participantUnitCount => 1 + enabledParticipants.length;
+
+  int get recentMessageLimit => participantUnitCount * keepRoundCount;
+
+  TheaterSession copyWith({
+    String? id,
+    String? title,
+    String? avatar,
+    String? backgroundImage,
+    double? backgroundImageOpacity,
+    double? backgroundBlur,
+    double? bubbleOpacity,
+    double? inputOpacity,
+    double? topBarOpacity,
+    bool? isHidden,
+    bool? isLocked,
+    String? boundNovelId,
+    String? boundNovelTitle,
+    TheaterApiMode? apiMode,
+    TheaterMultiApiReplyMode? multiApiReplyMode,
+    String? singleEndpointId,
+    String? userParticipantId,
+    int? keepRoundCount,
+    String? theaterSummary,
+    int? summarizedMessageCount,
+    List<TheaterParticipant>? participants,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return TheaterSession(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      avatar: avatar ?? this.avatar,
+      backgroundImage: backgroundImage ?? this.backgroundImage,
+      backgroundImageOpacity:
+          backgroundImageOpacity ?? this.backgroundImageOpacity,
+      backgroundBlur: backgroundBlur ?? this.backgroundBlur,
+      bubbleOpacity: bubbleOpacity ?? this.bubbleOpacity,
+      inputOpacity: inputOpacity ?? this.inputOpacity,
+      topBarOpacity: topBarOpacity ?? this.topBarOpacity,
+      isHidden: isHidden ?? this.isHidden,
+      isLocked: isLocked ?? this.isLocked,
+      boundNovelId: boundNovelId ?? this.boundNovelId,
+      boundNovelTitle: boundNovelTitle ?? this.boundNovelTitle,
+      apiMode: apiMode ?? this.apiMode,
+      multiApiReplyMode: multiApiReplyMode ?? this.multiApiReplyMode,
+      singleEndpointId: singleEndpointId ?? this.singleEndpointId,
+      userParticipantId: userParticipantId ?? this.userParticipantId,
+      keepRoundCount: (keepRoundCount ?? this.keepRoundCount).clamp(5, 100),
+      theaterSummary: theaterSummary ?? this.theaterSummary,
+      summarizedMessageCount:
+          summarizedMessageCount ?? this.summarizedMessageCount,
+      participants: participants ?? this.participants,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
+  factory TheaterSession.fromJson(Map<String, dynamic> json) {
+    final now = DateTime.now();
+    final rawParticipants = json['participants'];
+    return TheaterSession(
+      id: json['id'] as String? ?? '',
+      title: json['title'] as String? ?? '',
+      avatar: json['avatar'] as String? ?? '',
+      backgroundImage: json['backgroundImage'] as String? ?? '',
+      backgroundImageOpacity: _readDouble(
+        json['backgroundImageOpacity'],
+        fallback: 1,
+      ),
+      backgroundBlur: _readDouble(json['backgroundBlur'], fallback: 0),
+      bubbleOpacity: _readDouble(json['bubbleOpacity'], fallback: 0.94),
+      inputOpacity: _readDouble(json['inputOpacity'], fallback: 0.92),
+      topBarOpacity: _readDouble(json['topBarOpacity'], fallback: 0),
+      isHidden: json['isHidden'] as bool? ?? false,
+      isLocked: json['isLocked'] as bool? ?? false,
+      boundNovelId: json['boundNovelId'] as String? ?? '',
+      boundNovelTitle: json['boundNovelTitle'] as String? ?? '',
+      apiMode: TheaterApiMode.fromId(json['apiMode'] as String?),
+      multiApiReplyMode: TheaterMultiApiReplyMode.fromId(
+        json['multiApiReplyMode'] as String?,
+      ),
+      singleEndpointId: json['singleEndpointId'] as String? ?? '',
+      userParticipantId: json['userParticipantId'] as String? ?? '',
+      keepRoundCount: (json['keepRoundCount'] as int? ?? 30).clamp(5, 100),
+      theaterSummary: json['theaterSummary'] as String? ?? '',
+      summarizedMessageCount: json['summarizedMessageCount'] as int? ?? 0,
+      participants: rawParticipants is List
+          ? rawParticipants
+                .whereType<Map<String, dynamic>>()
+                .map(TheaterParticipant.fromJson)
+                .where((participant) => participant.id.isNotEmpty)
+                .toList()
+          : const [],
+      createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? now,
+      updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? '') ?? now,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'title': title,
+      'avatar': avatar,
+      'backgroundImage': backgroundImage,
+      'backgroundImageOpacity': backgroundImageOpacity,
+      'backgroundBlur': backgroundBlur,
+      'bubbleOpacity': bubbleOpacity,
+      'inputOpacity': inputOpacity,
+      'topBarOpacity': topBarOpacity,
+      'isHidden': isHidden,
+      'isLocked': isLocked,
+      'boundNovelId': boundNovelId,
+      'boundNovelTitle': boundNovelTitle,
+      'apiMode': apiMode.id,
+      'multiApiReplyMode': multiApiReplyMode.id,
+      'singleEndpointId': singleEndpointId,
+      'userParticipantId': userParticipantId,
+      'keepRoundCount': keepRoundCount,
+      'theaterSummary': theaterSummary,
+      'summarizedMessageCount': summarizedMessageCount,
+      'participants': participants
+          .map((participant) => participant.toJson())
+          .toList(),
+      'createdAt': createdAt.toIso8601String(),
+      'updatedAt': updatedAt.toIso8601String(),
+    };
+  }
+
+  static double _readDouble(dynamic value, {required double fallback}) {
+    if (value is num) return value.toDouble();
+    return fallback;
+  }
+}
+
+class TheaterMessage {
+  const TheaterMessage({
+    required this.id,
+    required this.sessionId,
+    required this.round,
+    required this.speakerType,
+    required this.speakerId,
+    required this.speakerName,
+    required this.content,
+    required this.time,
+    this.endpointId = '',
+    this.endpointName = '',
+    this.model = '',
+    this.isError = false,
+    this.errorMessage = '',
+  });
+
+  final String id;
+  final String sessionId;
+  final int round;
+  final TheaterSpeakerType speakerType;
+  final String speakerId;
+  final String speakerName;
+  final String content;
+  final String endpointId;
+  final String endpointName;
+  final String model;
+  final bool isError;
+  final String errorMessage;
+  final DateTime time;
+
+  bool get isUser => speakerType == TheaterSpeakerType.user;
+
+  factory TheaterMessage.fromJson(Map<String, dynamic> json) {
+    return TheaterMessage(
+      id: json['id'] as String? ?? '',
+      sessionId: json['sessionId'] as String? ?? '',
+      round: json['round'] as int? ?? 0,
+      speakerType: TheaterSpeakerType.fromId(json['speakerType'] as String?),
+      speakerId: json['speakerId'] as String? ?? '',
+      speakerName: json['speakerName'] as String? ?? '',
+      content: json['content'] as String? ?? '',
+      endpointId: json['endpointId'] as String? ?? '',
+      endpointName: json['endpointName'] as String? ?? '',
+      model: json['model'] as String? ?? '',
+      isError: json['isError'] as bool? ?? false,
+      errorMessage: json['errorMessage'] as String? ?? '',
+      time: DateTime.tryParse(json['time'] as String? ?? '') ?? DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'sessionId': sessionId,
+      'round': round,
+      'speakerType': speakerType.id,
+      'speakerId': speakerId,
+      'speakerName': speakerName,
+      'content': content,
+      'endpointId': endpointId,
+      'endpointName': endpointName,
+      'model': model,
+      'isError': isError,
+      'errorMessage': errorMessage,
+      'time': time.toIso8601String(),
+    };
+  }
+}

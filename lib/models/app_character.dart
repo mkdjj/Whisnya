@@ -20,6 +20,10 @@ class AppCharacter {
     this.defaultEndpointId = '',
     this.useFullChatContext = true,
     this.chatSummaryMessageLimit = defaultChatSummaryMessageLimit,
+    this.sourceType = '',
+    this.sourceNovelId = '',
+    this.sourceNovelTitle = '',
+    this.sourceNovelRoleName = '',
     this.isPinned = false,
     this.isHidden = false,
     this.isLocked = false,
@@ -50,6 +54,10 @@ class AppCharacter {
   final String defaultEndpointId;
   final bool useFullChatContext;
   final int chatSummaryMessageLimit;
+  final String sourceType;
+  final String sourceNovelId;
+  final String sourceNovelTitle;
+  final String sourceNovelRoleName;
   final bool isPinned;
   final bool isHidden;
   final bool isLocked;
@@ -76,6 +84,10 @@ class AppCharacter {
     String? defaultEndpointId,
     bool? useFullChatContext,
     int? chatSummaryMessageLimit,
+    String? sourceType,
+    String? sourceNovelId,
+    String? sourceNovelTitle,
+    String? sourceNovelRoleName,
     bool? isPinned,
     bool? isHidden,
     bool? isLocked,
@@ -105,6 +117,10 @@ class AppCharacter {
       chatSummaryMessageLimit: _clampSummaryLimit(
         chatSummaryMessageLimit ?? this.chatSummaryMessageLimit,
       ),
+      sourceType: sourceType ?? this.sourceType,
+      sourceNovelId: sourceNovelId ?? this.sourceNovelId,
+      sourceNovelTitle: sourceNovelTitle ?? this.sourceNovelTitle,
+      sourceNovelRoleName: sourceNovelRoleName ?? this.sourceNovelRoleName,
       isPinned: isPinned ?? this.isPinned,
       isHidden: isHidden ?? this.isHidden,
       isLocked: isLocked ?? this.isLocked,
@@ -143,6 +159,10 @@ class AppCharacter {
         json['chatSummaryMessageLimit'] as int? ??
             defaultChatSummaryMessageLimit,
       ),
+      sourceType: json['sourceType'] as String? ?? '',
+      sourceNovelId: json['sourceNovelId'] as String? ?? '',
+      sourceNovelTitle: json['sourceNovelTitle'] as String? ?? '',
+      sourceNovelRoleName: json['sourceNovelRoleName'] as String? ?? '',
       isPinned: json['isPinned'] as bool? ?? false,
       isHidden: json['isHidden'] as bool? ?? false,
       isLocked: json['isLocked'] as bool? ?? false,
@@ -175,6 +195,10 @@ class AppCharacter {
       'defaultEndpointId': defaultEndpointId,
       'useFullChatContext': useFullChatContext,
       'chatSummaryMessageLimit': chatSummaryMessageLimit,
+      'sourceType': sourceType,
+      'sourceNovelId': sourceNovelId,
+      'sourceNovelTitle': sourceNovelTitle,
+      'sourceNovelRoleName': sourceNovelRoleName,
       'isPinned': isPinned,
       'isHidden': isHidden,
       'isLocked': isLocked,

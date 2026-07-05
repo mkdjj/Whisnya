@@ -126,14 +126,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _exportAllData() async {
-    final ok = await _confirm(
-      title: '导出全部数据',
-      content: '会包含角色、小说原文、小说聊天、聊天记录、总结、图片、设置和 API 配置。API Key 也会在备份里。',
+    var includeApiKeys = false;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(context.t('导出全部数据')),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(context.t('备份可能包含角色、聊天记录、小说原文、图片、设置和 API 配置，请不要公开上传。')),
+              const SizedBox(height: 12),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: includeApiKeys,
+                title: Text(context.t('包含 API Key')),
+                subtitle: Text(context.t('默认不包含 API Key')),
+                onChanged: (value) {
+                  setDialogState(() => includeApiKeys = value ?? false);
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(context.t('取消')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(context.t('继续')),
+            ),
+          ],
+        ),
+      ),
     );
-    if (!ok) return;
+    if (ok != true) return;
 
     await _runBusy(() async {
-      final bytes = await widget.storage.exportAllData();
+      final bytes = await widget.storage.exportAllData(
+        includeApiKeys: includeApiKeys,
+      );
       await _saveBytes('Whisnya_backup_${_dateStamp()}.zip', bytes);
     });
   }
@@ -373,7 +406,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required ValueChanged<double> onChangeEnd,
   }) {
     return SizedBox(
-      height: 32,
+      height: 24,
       child: Slider(
         value: value.clamp(min, max).toDouble(),
         min: min,
@@ -899,7 +932,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _tile(
               icon: Icons.backup_outlined,
               title: context.t('导出全部数据'),
-              subtitle: context.t('包含 API Key'),
+              subtitle: context.t('默认不包含 API Key'),
               onTap: _isBusy ? null : _exportAllData,
             ),
             _tile(
@@ -929,6 +962,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     VoidCallback? onTap,
   }) {
     final tile = ListTile(
+      dense: true,
+      visualDensity: VisualDensity.compact,
+      minVerticalPadding: 4,
       leading: Icon(icon),
       title: Text(title),
       subtitle: subtitle == null ? null : Text(subtitle),
@@ -942,7 +978,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         tile,
         if (child != null)
           Padding(
-            padding: const EdgeInsets.fromLTRB(64, 0, 16, 8),
+            padding: const EdgeInsets.fromLTRB(64, 0, 16, 2),
             child: child,
           ),
         const Divider(height: 1),

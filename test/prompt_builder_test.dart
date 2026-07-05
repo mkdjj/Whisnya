@@ -5,6 +5,7 @@ import 'package:ai_role_chat/models/app_character.dart';
 import 'package:ai_role_chat/models/app_settings.dart';
 import 'package:ai_role_chat/models/chat_message.dart';
 import 'package:ai_role_chat/models/novel_book.dart';
+import 'package:ai_role_chat/models/theater.dart';
 import 'package:ai_role_chat/prompts.dart';
 import 'package:ai_role_chat/screens/novel_screen.dart';
 import 'package:ai_role_chat/services/local_storage_service.dart';
@@ -168,6 +169,44 @@ void main() {
     expect(prompt, contains('旧总结'));
     expect(prompt, contains('用户：新消息'));
     expect(prompt, contains('合并'));
+  });
+
+  test('round trips theater session and parses single api replies', () {
+    final now = DateTime(2026);
+    const participant = TheaterParticipant(
+      id: 'p1',
+      source: TheaterRoleSource.appCharacter,
+      sourceCharacterId: 'c1',
+      name: '苏璃',
+      avatar: '',
+      description: '角色简介',
+      personality: '冷静',
+      background: '背景',
+      speakingStyle: '短句',
+      endpointId: 'deepseek',
+    );
+    final session = TheaterSession(
+      id: 't1',
+      title: '测试群聊',
+      singleEndpointId: 'deepseek',
+      isHidden: true,
+      isLocked: true,
+      participants: const [participant],
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    final restored = TheaterSession.fromJson(session.toJson());
+    final replies = PromptBuilder.parseTheaterReplies(
+      '[{"speaker":"苏璃","content":"我知道了。"}]',
+    );
+
+    expect(restored.participants.single.name, '苏璃');
+    expect(restored.isHidden, isTrue);
+    expect(restored.isLocked, isTrue);
+    expect(restored.recentMessageLimit, 60);
+    expect(replies.single.speaker, '苏璃');
+    expect(replies.single.content, '我知道了。');
   });
 
   test('parses pasted role card fields', () {

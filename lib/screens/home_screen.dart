@@ -15,6 +15,7 @@ import 'character_edit_screen.dart';
 import 'chat_screen.dart';
 import 'novel_screen.dart';
 import 'settings_screen.dart';
+import 'theater_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -36,6 +37,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final _novelKey = GlobalKey<NovelScreenState>();
+  final _theaterKey = GlobalKey<TheaterListScreenState>();
 
   var _isLoading = true;
   var _tabIndex = 0;
@@ -293,9 +295,21 @@ class _HomeScreenState extends State<HomeScreen> {
             title: switch (_tabIndex) {
               0 => Text(context.t('Whisnya')),
               1 => Text(context.t('小说')),
+              2 => Text(context.t('群聊')),
               _ => Text(context.t('设置')),
             },
             actions: [
+              if (_tabIndex == 0)
+                Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: Center(
+                    child: FilledButton.icon(
+                      onPressed: () => _editCharacter(),
+                      icon: const Icon(Icons.add),
+                      label: Text(context.t('新建角色')),
+                    ),
+                  ),
+                ),
               if (_tabIndex == 1)
                 Padding(
                   padding: const EdgeInsets.only(right: 12),
@@ -325,6 +339,18 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                 ),
+              if (_tabIndex == 2)
+                Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: Center(
+                    child: FilledButton.icon(
+                      onPressed: () =>
+                          _theaterKey.currentState?.createTheater(),
+                      icon: const Icon(Icons.add),
+                      label: Text(context.t('新建')),
+                    ),
+                  ),
+                ),
             ],
           ),
           body: useRail
@@ -344,16 +370,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 )
               : body,
-          floatingActionButton: _tabIndex == 0
-              ? Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: FloatingActionButton.extended(
-                    onPressed: () => _editCharacter(),
-                    icon: const Icon(Icons.add),
-                    label: Text(context.t('新建角色')),
-                  ),
-                )
-              : null,
+          floatingActionButton: null,
           bottomNavigationBar: useRail ? null : _navigationBar(navOpacity),
         );
       },
@@ -371,6 +388,15 @@ class _HomeScreenState extends State<HomeScreen> {
           aiService: widget.aiService,
           settings: widget.settings,
           useGridView: _novelGridView,
+        ),
+      ),
+      2 => AppBackground(
+        settings: widget.settings,
+        child: TheaterListScreen(
+          key: _theaterKey,
+          storage: widget.storage,
+          aiService: widget.aiService,
+          settings: widget.settings,
         ),
       ),
       _ => SettingsScreen(
@@ -403,6 +429,11 @@ class _HomeScreenState extends State<HomeScreen> {
           label: context.t('小说'),
         ),
         NavigationDestination(
+          icon: const Icon(Icons.forum_outlined),
+          selectedIcon: const Icon(Icons.forum),
+          label: context.t('群聊'),
+        ),
+        NavigationDestination(
           icon: const Icon(Icons.settings_outlined),
           selectedIcon: const Icon(Icons.settings),
           label: context.t('设置'),
@@ -429,6 +460,11 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: const Icon(Icons.menu_book_outlined),
           selectedIcon: const Icon(Icons.menu_book),
           label: Text(context.t('小说')),
+        ),
+        NavigationRailDestination(
+          icon: const Icon(Icons.forum_outlined),
+          selectedIcon: const Icon(Icons.forum),
+          label: Text(context.t('群聊')),
         ),
         NavigationRailDestination(
           icon: const Icon(Icons.settings_outlined),
