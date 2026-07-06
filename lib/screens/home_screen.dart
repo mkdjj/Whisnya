@@ -45,7 +45,6 @@ class _HomeScreenState extends State<HomeScreen> {
   var _isLoading = true;
   var _tabIndex = 0;
   var _novelGridView = false;
-  var _characterSearchQuery = '';
   String? _error;
   List<AppCharacter> _characters = const [];
 
@@ -632,20 +631,11 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    final characters = _filteredCharacters();
+    final characters = _characters;
     return AdaptivePage(
       child: Column(
         children: [
           SizedBox(height: homeListTop(context)),
-          TextField(
-            decoration: InputDecoration(
-              prefixIcon: const Icon(Icons.search),
-              hintText: context.t('搜索角色'),
-              isDense: true,
-            ),
-            onChanged: (value) => setState(() => _characterSearchQuery = value),
-          ),
-          const SizedBox(height: 8),
           Expanded(
             child: characters.isEmpty
                 ? Center(child: Text(context.t('没有匹配的角色')))
@@ -773,23 +763,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
     );
-  }
-
-  List<AppCharacter> _filteredCharacters() {
-    final query = _characterSearchQuery.trim().toLowerCase();
-    if (query.isEmpty) return _characters;
-    return _characters.where((character) {
-      final visibleText = character.isHidden
-          ? character.name
-          : [
-              character.name,
-              character.description,
-              character.personality,
-              character.background,
-              character.speakingStyle,
-            ].join('\n');
-      return visibleText.toLowerCase().contains(query);
-    }).toList();
   }
 
   SystemUiOverlayStyle _overlayStyle(BuildContext context) {

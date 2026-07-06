@@ -118,6 +118,7 @@ class AiService {
     required String model,
     required List<Map<String, String>> messages,
     AiCancelToken? cancelToken,
+    bool includeReasoning = false,
   }) async* {
     _validateConfig(apiKey: apiKey, baseUrl: baseUrl, model: model);
 
@@ -155,11 +156,17 @@ class AiService {
           if (lineEnd < 0) break;
           final line = buffer.substring(0, lineEnd).trim();
           buffer = buffer.substring(lineEnd + 1);
-          final text = _extractStreamText(line);
+          final text = _extractStreamText(
+            line,
+            includeReasoning: includeReasoning,
+          );
           if (text != null) yield text;
         }
       }
-      final text = _extractStreamText(buffer.trim());
+      final text = _extractStreamText(
+        buffer.trim(),
+        includeReasoning: includeReasoning,
+      );
       if (text != null) yield text;
     } finally {
       cancelToken?._detach(client);
@@ -224,7 +231,7 @@ class AiService {
     return body.length > 300 ? '${body.substring(0, 300)}...' : body;
   }
 
-  String? _extractStreamText(String line) {
+  String? _extractStreamText(String line, {bool includeReasoning = false}) {
     if (line.isEmpty) return null;
     final payload = line.startsWith('data:') ? line.substring(5).trim() : line;
     if (payload.isEmpty || payload == '[DONE]') return null;
@@ -239,8 +246,10 @@ class AiService {
       if (delta is Map<String, dynamic>) {
         final content = delta['content'];
         if (content is String && content.isNotEmpty) return content;
-        final reasoning = delta['reasoning_content'];
-        if (reasoning is String && reasoning.isNotEmpty) return reasoning;
+        if (includeReasoning) {
+          final reasoning = delta['reasoning_content'];
+          if (reasoning is String && reasoning.isNotEmpty) return reasoning;
+        }
       }
       final message = first['message'];
       if (message is Map<String, dynamic>) {

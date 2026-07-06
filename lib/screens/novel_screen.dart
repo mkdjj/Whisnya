@@ -387,7 +387,11 @@ class NovelScreenState extends State<NovelScreen> {
                 margin: EdgeInsets.zero,
                 child: ListTile(
                   leading: Icon(book.isChatMode ? Icons.chat : Icons.menu_book),
-                  title: Text(book.isHidden ? '******' : book.title),
+                  title: Text(
+                    _bookListTitle(book),
+                    maxLines: 1,
+                    overflow: TextOverflow.clip,
+                  ),
                   subtitle: Text(_bookStatus(book)),
                   onTap: () => _openBook(book),
                   trailing: _bookMenu(book),
@@ -397,6 +401,14 @@ class NovelScreenState extends State<NovelScreen> {
           );
 
     return AdaptivePage(child: content);
+  }
+
+  String _bookListTitle(NovelBook book) {
+    if (book.isHidden) return '******';
+    final title = book.title.trim();
+    const maxLength = 14;
+    if (title.characters.length <= maxLength) return title;
+    return '${title.characters.take(maxLength)}*';
   }
 
   String _bookStatus(NovelBook book) {
@@ -1548,74 +1560,6 @@ ${role.speakingStyle}
                 const Divider(),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.image_outlined),
-                  title: Text(context.t('小说聊天背景')),
-                  subtitle: Text(
-                    context.t(
-                      _book.chatBackgroundImage.trim().isEmpty ? '未设置' : '已设置',
-                    ),
-                  ),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    _pickChatBackground();
-                  },
-                ),
-                if (_book.chatBackgroundImage.trim().isNotEmpty) ...[
-                  _readerSlider(
-                    label: '聊天背景透明度',
-                    value: _book.chatBackgroundOpacity,
-                    min: 0,
-                    max: 1,
-                    divisions: 100,
-                    display: '${(_book.chatBackgroundOpacity * 100).round()}%',
-                    onChanged: (value) {
-                      setState(
-                        () => _book = _book.copyWith(
-                          chatBackgroundOpacity: value,
-                        ),
-                      );
-                      setSheetState(() {});
-                    },
-                    onChangeEnd: (value) {
-                      unawaited(
-                        _saveBook(_book.copyWith(chatBackgroundOpacity: value)),
-                      );
-                    },
-                  ),
-                  _readerSlider(
-                    label: '聊天背景模糊度',
-                    value: _book.chatBackgroundBlur,
-                    min: 0,
-                    max: 12,
-                    divisions: 12,
-                    display: _book.chatBackgroundBlur.toStringAsFixed(0),
-                    onChanged: (value) {
-                      setState(
-                        () => _book = _book.copyWith(chatBackgroundBlur: value),
-                      );
-                      setSheetState(() {});
-                    },
-                    onChangeEnd: (value) {
-                      unawaited(
-                        _saveBook(_book.copyWith(chatBackgroundBlur: value)),
-                      );
-                    },
-                  ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.hide_image_outlined),
-                    title: Text(context.t('清除聊天背景')),
-                    onTap: () {
-                      unawaited(
-                        _saveBook(_book.copyWith(chatBackgroundImage: '')),
-                      );
-                      Navigator.of(context).pop();
-                    },
-                  ),
-                ],
-                const Divider(),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
                   leading: Icon(
                     Icons.delete_sweep_outlined,
                     color: Theme.of(context).colorScheme.error,
@@ -1859,8 +1803,10 @@ ${role.speakingStyle}
     final cancelToken = AiCancelToken();
     _cancelToken = cancelToken;
     try {
-      setState(() => _messages = [..._messages, assistantMessage]);
-      _scrollChatToEnd();
+      final streamResponses = widget.settings.streamResponses;
+      if (streamResponses) {
+        setState(() => _messages = [..._messages, assistantMessage]);
+      }
 
       var reply = '';
       await for (final chunk in widget.aiService.streamMessage(
@@ -1869,24 +1815,31 @@ ${role.speakingStyle}
         model: endpoint.model,
         messages: requestMessages,
         cancelToken: cancelToken,
+        includeReasoning: widget.settings.showReasoningContent,
       )) {
         if (!mounted) return;
         reply += chunk;
-        setState(() {
-          _messages = [
-            ..._messages.take(_messages.length - 1),
-            assistantMessage.copyWith(content: reply),
-          ];
-        });
-        _scrollChatToEnd();
+        if (streamResponses) {
+          setState(() {
+            _messages = [
+              ..._messages.take(_messages.length - 1),
+              assistantMessage.copyWith(content: reply),
+            ];
+          });
+        }
       }
       if (reply.trim().isEmpty) {
         throw AiException('API 没有返回可用回复。');
       }
       if (!mounted) return;
-      setState(() => _isSending = false);
+      setState(() {
+        final finalMessage = assistantMessage.copyWith(content: reply);
+        _messages = streamResponses
+            ? [..._messages.take(_messages.length - 1), finalMessage]
+            : [..._messages, finalMessage];
+        _isSending = false;
+      });
       await widget.storage.saveNovelChat(_book.id, _messages);
-      _scrollChatToEnd();
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -2048,29 +2001,6 @@ ${role.speakingStyle}
         : (position.pixels / max).clamp(0, 1).toDouble();
     if ((next - _readProgress).abs() > 0.01 && mounted) {
       setState(() => _readProgress = next);
-    }
-  }
-
-  Future<void> _pickChatBackground() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.image);
-    final filePath = result?.files.single.path;
-    if (filePath == null) {
-      return;
-    }
-
-    try {
-      final bytes = await File(filePath).readAsBytes();
-      final savedPath = await widget.storage.saveMediaImage(
-        folder: 'novel_backgrounds',
-        characterId: _book.id,
-        bytes: bytes,
-      );
-      await _saveBook(_book.copyWith(chatBackgroundImage: savedPath));
-      if (!mounted) return;
-      _showSnack('小说聊天背景已设置');
-    } catch (error) {
-      if (!mounted) return;
-      _showSnack(error.toString());
     }
   }
 

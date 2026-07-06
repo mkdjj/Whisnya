@@ -769,7 +769,7 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
             ),
             const SizedBox(height: 16),
             _sectionTitle('添加参与角色'),
-            if (_characters.isNotEmpty)
+            if (book == null && _characters.isNotEmpty)
               ExpansionTile(
                 title: Text(context.t('从角色库添加')),
                 initiallyExpanded: false,
@@ -1340,10 +1340,12 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
       round,
       endpoint: endpoint!,
     );
+    final streamResponses = widget.settings.streamResponses;
     try {
       if (!mounted || generationId != _generationId) return;
-      setState(() => _messages = [..._messages, placeholder]);
-      _scrollToEnd();
+      if (streamResponses) {
+        setState(() => _messages = [..._messages, placeholder]);
+      }
 
       var reply = '';
       await for (final chunk in widget.aiService.streamMessage(
@@ -1357,20 +1359,29 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
           messages: _recentMessages(),
         ),
         cancelToken: cancelToken,
+        includeReasoning: widget.settings.showReasoningContent,
       )) {
         if (!mounted || generationId != _generationId) return;
         reply += chunk;
-        setState(() {
-          _replaceMessage(placeholder.id, placeholder.copyWith(content: reply));
-        });
-        _scrollToEnd();
+        if (streamResponses) {
+          setState(() {
+            _replaceMessage(
+              placeholder.id,
+              placeholder.copyWith(content: reply),
+            );
+          });
+        }
       }
       if (reply.trim().isEmpty) {
         throw AiException('API 没有返回可用回复。');
       }
       if (!mounted || generationId != _generationId) return;
+      if (!streamResponses) {
+        setState(() {
+          _messages = [..._messages, placeholder.copyWith(content: reply)];
+        });
+      }
       await _saveMessages();
-      _scrollToEnd();
     } catch (error) {
       if (!mounted || generationId != _generationId) return;
       setState(() => _removeMessage(placeholder.id));
@@ -1672,7 +1683,6 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     var openEditor = false;
     await showModalBottomSheet<void>(
       context: context,
-      isScrollControlled: true,
       showDragHandle: true,
       builder: (context) => StatefulBuilder(
         builder: (context, setSheetState) {
@@ -1687,120 +1697,116 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
             unawaited(widget.storage.saveTheaterSession(saved));
           }
 
-          return SizedBox(
-            height: MediaQuery.sizeOf(context).height * 0.56,
-            child: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-                child: ListView(
-                  children: [
-                    Text(
-                      context.t('群聊设置'),
-                      style: Theme.of(context).textTheme.headlineSmall,
-                    ),
-                    const SizedBox(height: 18),
-                    _TheaterSettingsInfo(
-                      icon: Icons.chat_bubble_outline,
-                      title: _chatCountLabel(),
-                      subtitle: _theaterSpeedHint(),
-                    ),
-                    _TheaterSettingsInfo(
-                      icon: Icons.memory_outlined,
-                      title: context.t('当前模型'),
-                      subtitle: _currentModelLabel(),
-                    ),
-                    _TheaterSettingsInfo(
-                      icon: Icons.history_toggle_off,
-                      title: _keepRoundCountLabel(draft.keepRoundCount),
-                      subtitle: null,
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        ChoiceChip(
-                          label: Text(_roundSheetLabel('短', 15)),
-                          selected: draft.keepRoundCount == 15,
-                          onSelected: (_) =>
-                              apply(draft.copyWith(keepRoundCount: 15)),
-                        ),
-                        ChoiceChip(
-                          label: Text(_roundSheetLabel('标准', 30)),
-                          selected: draft.keepRoundCount == 30,
-                          onSelected: (_) =>
-                              apply(draft.copyWith(keepRoundCount: 30)),
-                        ),
-                        ChoiceChip(
-                          label: Text(_roundSheetLabel('长', 50)),
-                          selected: draft.keepRoundCount == 50,
-                          onSelected: (_) =>
-                              apply(draft.copyWith(keepRoundCount: 50)),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    _TheaterSheetSlider(
-                      label: context.t('背景图透明度'),
-                      value: draft.backgroundImageOpacity,
-                      min: 0,
-                      max: 1,
-                      divisions: 100,
-                      display:
-                          '${(draft.backgroundImageOpacity * 100).round()}%',
-                      onChanged: (value) => preview(
-                        draft.copyWith(backgroundImageOpacity: value),
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  Text(
+                    context.t('群聊设置'),
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: 18),
+                  _TheaterSettingsInfo(
+                    icon: Icons.chat_bubble_outline,
+                    title: _chatCountLabel(),
+                    subtitle: _theaterSpeedHint(),
+                  ),
+                  _TheaterSettingsInfo(
+                    icon: Icons.memory_outlined,
+                    title: context.t('当前模型'),
+                    subtitle: _currentModelLabel(),
+                  ),
+                  _TheaterSettingsInfo(
+                    icon: Icons.history_toggle_off,
+                    title: _keepRoundCountLabel(draft.keepRoundCount),
+                    subtitle: null,
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ChoiceChip(
+                        label: Text(_roundSheetLabel('短', 15)),
+                        selected: draft.keepRoundCount == 15,
+                        onSelected: (_) =>
+                            apply(draft.copyWith(keepRoundCount: 15)),
                       ),
-                      onChangeEnd: (value) =>
-                          apply(draft.copyWith(backgroundImageOpacity: value)),
-                    ),
-                    _TheaterSheetSlider(
-                      label: context.t('背景图模糊度'),
-                      value: draft.backgroundBlur,
-                      min: 0,
-                      max: 12,
-                      divisions: 12,
-                      display: draft.backgroundBlur.toStringAsFixed(0),
-                      onChanged: (value) =>
-                          preview(draft.copyWith(backgroundBlur: value)),
-                      onChangeEnd: (value) =>
-                          apply(draft.copyWith(backgroundBlur: value)),
-                    ),
-                    _TheaterSheetSlider(
-                      label: context.t('文本框透明度'),
-                      value: draft.bubbleOpacity,
-                      min: 0,
-                      max: 1,
-                      divisions: 100,
-                      display: '${(draft.bubbleOpacity * 100).round()}%',
-                      onChanged: (value) =>
-                          preview(draft.copyWith(bubbleOpacity: value)),
-                      onChangeEnd: (value) =>
-                          apply(draft.copyWith(bubbleOpacity: value)),
-                    ),
-                    _TheaterSheetSlider(
-                      label: context.t('输入框透明度'),
-                      value: draft.inputOpacity,
-                      min: 0,
-                      max: 1,
-                      divisions: 100,
-                      display: '${(draft.inputOpacity * 100).round()}%',
-                      onChanged: (value) =>
-                          preview(draft.copyWith(inputOpacity: value)),
-                      onChangeEnd: (value) =>
-                          apply(draft.copyWith(inputOpacity: value)),
-                    ),
-                    const SizedBox(height: 16),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        openEditor = true;
-                        Navigator.of(context).pop();
-                      },
-                      icon: const Icon(Icons.tune),
-                      label: Text(context.t('编辑群聊')),
-                    ),
-                  ],
-                ),
+                      ChoiceChip(
+                        label: Text(_roundSheetLabel('标准', 30)),
+                        selected: draft.keepRoundCount == 30,
+                        onSelected: (_) =>
+                            apply(draft.copyWith(keepRoundCount: 30)),
+                      ),
+                      ChoiceChip(
+                        label: Text(_roundSheetLabel('长', 50)),
+                        selected: draft.keepRoundCount == 50,
+                        onSelected: (_) =>
+                            apply(draft.copyWith(keepRoundCount: 50)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  _TheaterSheetSlider(
+                    label: context.t('背景图透明度'),
+                    value: draft.backgroundImageOpacity,
+                    min: 0,
+                    max: 1,
+                    divisions: 100,
+                    display: '${(draft.backgroundImageOpacity * 100).round()}%',
+                    onChanged: (value) =>
+                        preview(draft.copyWith(backgroundImageOpacity: value)),
+                    onChangeEnd: (value) =>
+                        apply(draft.copyWith(backgroundImageOpacity: value)),
+                  ),
+                  _TheaterSheetSlider(
+                    label: context.t('背景图模糊度'),
+                    value: draft.backgroundBlur,
+                    min: 0,
+                    max: 12,
+                    divisions: 12,
+                    display: draft.backgroundBlur.toStringAsFixed(0),
+                    onChanged: (value) =>
+                        preview(draft.copyWith(backgroundBlur: value)),
+                    onChangeEnd: (value) =>
+                        apply(draft.copyWith(backgroundBlur: value)),
+                  ),
+                  _TheaterSheetSlider(
+                    label: context.t('文本框透明度'),
+                    value: draft.bubbleOpacity,
+                    min: 0,
+                    max: 1,
+                    divisions: 100,
+                    display: '${(draft.bubbleOpacity * 100).round()}%',
+                    onChanged: (value) =>
+                        preview(draft.copyWith(bubbleOpacity: value)),
+                    onChangeEnd: (value) =>
+                        apply(draft.copyWith(bubbleOpacity: value)),
+                  ),
+                  _TheaterSheetSlider(
+                    label: context.t('输入框透明度'),
+                    value: draft.inputOpacity,
+                    min: 0,
+                    max: 1,
+                    divisions: 100,
+                    display: '${(draft.inputOpacity * 100).round()}%',
+                    onChanged: (value) =>
+                        preview(draft.copyWith(inputOpacity: value)),
+                    onChangeEnd: (value) =>
+                        apply(draft.copyWith(inputOpacity: value)),
+                  ),
+                  const SizedBox(height: 16),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      openEditor = true;
+                      Navigator.of(context).pop();
+                    },
+                    icon: const Icon(Icons.tune),
+                    label: Text(context.t('编辑群聊')),
+                  ),
+                ],
               ),
             ),
           );
@@ -1871,17 +1877,6 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
       ..showSnackBar(SnackBar(content: Text(context.t(text))));
-  }
-
-  void _scrollToEnd() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) return;
-      _scrollController.animateTo(
-        0,
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOut,
-      );
-    });
   }
 
   SystemUiOverlayStyle _overlayStyle(BuildContext context) {

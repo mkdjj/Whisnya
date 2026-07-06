@@ -159,6 +159,7 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!mounted || generationId != _generationId || !_isSending) return;
 
       final requestMessages = _buildChatRequestMessages();
+      final streamResponses = widget.settings.streamResponses;
       final assistantMessage = ChatMessage(
         role: 'assistant',
         content: '',
@@ -167,10 +168,11 @@ class _ChatScreenState extends State<ChatScreen> {
         endpointName: endpoint.name,
         model: endpoint.model,
       );
-      setState(() {
-        _messages = [..._messages, assistantMessage];
-      });
-      _scrollToEnd();
+      if (streamResponses) {
+        setState(() {
+          _messages = [..._messages, assistantMessage];
+        });
+      }
 
       var reply = '';
       await for (final chunk in widget.aiService.streamMessage(
@@ -179,24 +181,31 @@ class _ChatScreenState extends State<ChatScreen> {
         model: endpoint.model,
         messages: requestMessages,
         cancelToken: cancelToken,
+        includeReasoning: widget.settings.showReasoningContent,
       )) {
         if (!mounted || generationId != _generationId || !_isSending) return;
         reply += chunk;
-        setState(() {
-          _messages = [
-            ..._messages.take(_messages.length - 1),
-            assistantMessage.copyWith(content: reply),
-          ];
-        });
-        _scrollToEnd();
+        if (streamResponses) {
+          setState(() {
+            _messages = [
+              ..._messages.take(_messages.length - 1),
+              assistantMessage.copyWith(content: reply),
+            ];
+          });
+        }
       }
       if (reply.trim().isEmpty) {
         throw AiException('API 没有返回可用回复。');
       }
       if (!mounted || generationId != _generationId || !_isSending) return;
-      setState(() => _isSending = false);
+      setState(() {
+        final finalMessage = assistantMessage.copyWith(content: reply);
+        _messages = streamResponses
+            ? [..._messages.take(_messages.length - 1), finalMessage]
+            : [..._messages, finalMessage];
+        _isSending = false;
+      });
       await widget.storage.saveChat(_character.id, _messages);
-      _scrollToEnd();
     } catch (error) {
       if (!mounted || generationId != _generationId) return;
       setState(() {
@@ -1019,7 +1028,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   bool _handleScrollNotification(ScrollNotification notification) {
     if (notification is UserScrollNotification &&
-        notification.direction == ScrollDirection.forward) {
+        notification.direction == ScrollDirection.reverse) {
       _showToolsTemporarily();
     }
     return false;

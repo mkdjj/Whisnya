@@ -770,7 +770,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             0,
             homeListTop(context) - kToolbarHeight,
             0,
-            48,
+            148,
           ),
           children: [
             _tile(
@@ -778,6 +778,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: context.t('API 设置'),
               subtitle: context.t('模型、Base URL、API Key'),
               onTap: widget.aiService == null ? null : _openApiSettings,
+            ),
+            SwitchListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+              secondary: const Icon(Icons.stream),
+              title: Text(context.t('流式对话')),
+              subtitle: Text(context.t('边返回边显示')),
+              value: _settings.streamResponses,
+              onChanged: (value) =>
+                  _applySettings(_settings.copyWith(streamResponses: value)),
+            ),
+            SwitchListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+              secondary: const Icon(Icons.psychology_alt_outlined),
+              title: Text(context.t('显示思考过程')),
+              subtitle: Text(context.t('把 reasoning_content 显示在回复里')),
+              value: _settings.showReasoningContent,
+              onChanged: (value) => _applySettings(
+                _settings.copyWith(showReasoningContent: value),
+              ),
             ),
             _tile(
               icon: Icons.language,
@@ -898,7 +917,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 max: 1,
                 divisions: 100,
                 onChanged: (value) {
-                  _previewSettings(
+                  _applySettings(
                     _settings.copyWith(navigationBarOpacity: value),
                   );
                 },

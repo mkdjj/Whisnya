@@ -10,6 +10,8 @@ class AppSettings {
     this.chatTextColor,
     this.fontScale = 1,
     this.navigationBarOpacity = 1,
+    this.streamResponses = true,
+    this.showReasoningContent = false,
     this.languageCode = 'system',
     this.privacyPasswordHash = '',
     this.privacyPasswordSalt = '',
@@ -26,6 +28,8 @@ class AppSettings {
   final int? chatTextColor;
   final double fontScale;
   final double navigationBarOpacity;
+  final bool streamResponses;
+  final bool showReasoningContent;
   final String languageCode;
   final String privacyPasswordHash;
   final String privacyPasswordSalt;
@@ -52,6 +56,8 @@ class AppSettings {
     bool clearChatTextColor = false,
     double? fontScale,
     double? navigationBarOpacity,
+    bool? streamResponses,
+    bool? showReasoningContent,
     String? languageCode,
     String? privacyPasswordHash,
     String? privacyPasswordSalt,
@@ -74,6 +80,8 @@ class AppSettings {
           : chatTextColor ?? this.chatTextColor,
       fontScale: fontScale ?? this.fontScale,
       navigationBarOpacity: navigationBarOpacity ?? this.navigationBarOpacity,
+      streamResponses: streamResponses ?? this.streamResponses,
+      showReasoningContent: showReasoningContent ?? this.showReasoningContent,
       languageCode: languageCode ?? this.languageCode,
       privacyPasswordHash: privacyPasswordHash ?? this.privacyPasswordHash,
       privacyPasswordSalt: privacyPasswordSalt ?? this.privacyPasswordSalt,
@@ -102,6 +110,8 @@ class AppSettings {
         json?['navigationBarOpacity'],
         fallback: 1,
       ).clamp(0, 1),
+      streamResponses: json?['streamResponses'] as bool? ?? true,
+      showReasoningContent: json?['showReasoningContent'] as bool? ?? false,
       languageCode: json?['languageCode'] as String? ?? 'system',
       privacyPasswordHash: json?['privacyPasswordHash'] as String? ?? '',
       privacyPasswordSalt: json?['privacyPasswordSalt'] as String? ?? '',
@@ -121,6 +131,8 @@ class AppSettings {
       'chatTextColor': chatTextColor,
       'fontScale': fontScale,
       'navigationBarOpacity': navigationBarOpacity,
+      'streamResponses': streamResponses,
+      'showReasoningContent': showReasoningContent,
       'languageCode': languageCode,
       'privacyPasswordHash': privacyPasswordHash,
       'privacyPasswordSalt': privacyPasswordSalt,
