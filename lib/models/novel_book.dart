@@ -52,6 +52,9 @@ class NovelBook {
     this.chapterIndex = 0,
     this.fontSize = 18,
     this.lineHeight = 1.65,
+    this.manualChapterTitles = const [],
+    this.readerTheme = 0,
+    this.bookmarkedChapterIndexes = const [],
     this.chatBackgroundImage = '',
     this.chatBackgroundOpacity = 1,
     this.chatBackgroundBlur = 0,
@@ -71,6 +74,9 @@ class NovelBook {
   final int chapterIndex;
   final double fontSize;
   final double lineHeight;
+  final List<String> manualChapterTitles;
+  final int readerTheme;
+  final List<int> bookmarkedChapterIndexes;
   final String chatBackgroundImage;
   final double chatBackgroundOpacity;
   final double chatBackgroundBlur;
@@ -106,6 +112,9 @@ class NovelBook {
     int? chapterIndex,
     double? fontSize,
     double? lineHeight,
+    List<String>? manualChapterTitles,
+    int? readerTheme,
+    List<int>? bookmarkedChapterIndexes,
     String? chatBackgroundImage,
     double? chatBackgroundOpacity,
     double? chatBackgroundBlur,
@@ -127,6 +136,10 @@ class NovelBook {
       chapterIndex: chapterIndex ?? this.chapterIndex,
       fontSize: fontSize ?? this.fontSize,
       lineHeight: lineHeight ?? this.lineHeight,
+      manualChapterTitles: manualChapterTitles ?? this.manualChapterTitles,
+      readerTheme: readerTheme ?? this.readerTheme,
+      bookmarkedChapterIndexes:
+          bookmarkedChapterIndexes ?? this.bookmarkedChapterIndexes,
       chatBackgroundImage: chatBackgroundImage ?? this.chatBackgroundImage,
       chatBackgroundOpacity:
           chatBackgroundOpacity ?? this.chatBackgroundOpacity,
@@ -160,6 +173,9 @@ class NovelBook {
       chapterIndex: json['chapterIndex'] as int? ?? 0,
       fontSize: _readDouble(json['fontSize'], fallback: 18),
       lineHeight: _readDouble(json['lineHeight'], fallback: 1.65),
+      manualChapterTitles: _readStringList(json['manualChapterTitles']),
+      readerTheme: json['readerTheme'] as int? ?? 0,
+      bookmarkedChapterIndexes: _readIntList(json['bookmarkedChapterIndexes']),
       chatBackgroundImage: json['chatBackgroundImage'] as String? ?? '',
       chatBackgroundOpacity: _readDouble(
         json['chatBackgroundOpacity'],
@@ -187,6 +203,9 @@ class NovelBook {
       'chapterIndex': chapterIndex,
       'fontSize': fontSize,
       'lineHeight': lineHeight,
+      'manualChapterTitles': manualChapterTitles,
+      'readerTheme': readerTheme,
+      'bookmarkedChapterIndexes': bookmarkedChapterIndexes,
       'chatBackgroundImage': chatBackgroundImage,
       'chatBackgroundOpacity': chatBackgroundOpacity,
       'chatBackgroundBlur': chatBackgroundBlur,
@@ -200,5 +219,15 @@ class NovelBook {
       return value.toDouble();
     }
     return fallback;
+  }
+
+  static List<String> _readStringList(dynamic value) {
+    if (value is! List) return const [];
+    return value.whereType<String>().toList();
+  }
+
+  static List<int> _readIntList(dynamic value) {
+    if (value is! List) return const [];
+    return value.whereType<int>().toList();
   }
 }

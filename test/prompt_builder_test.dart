@@ -1,17 +1,17 @@
 import 'dart:io';
 
-import 'package:ai_role_chat/models/ai_provider.dart';
-import 'package:ai_role_chat/models/app_character.dart';
-import 'package:ai_role_chat/models/app_settings.dart';
-import 'package:ai_role_chat/models/chat_message.dart';
-import 'package:ai_role_chat/models/novel_book.dart';
-import 'package:ai_role_chat/models/theater.dart';
-import 'package:ai_role_chat/prompts.dart';
-import 'package:ai_role_chat/screens/novel_screen.dart';
-import 'package:ai_role_chat/services/local_storage_service.dart';
-import 'package:ai_role_chat/services/novel_parser.dart';
-import 'package:ai_role_chat/utils/app_i18n.dart';
-import 'package:ai_role_chat/utils/role_import_parser.dart';
+import 'package:whisnya/models/ai_provider.dart';
+import 'package:whisnya/models/app_character.dart';
+import 'package:whisnya/models/app_settings.dart';
+import 'package:whisnya/models/chat_message.dart';
+import 'package:whisnya/models/novel_book.dart';
+import 'package:whisnya/models/theater.dart';
+import 'package:whisnya/prompts.dart';
+import 'package:whisnya/screens/novel_screen.dart';
+import 'package:whisnya/services/local_storage_service.dart';
+import 'package:whisnya/services/novel_parser.dart';
+import 'package:whisnya/utils/app_i18n.dart';
+import 'package:whisnya/utils/role_import_parser.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

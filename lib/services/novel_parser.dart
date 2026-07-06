@@ -60,64 +60,64 @@ bool _looksReadable(String text) {
 }
 
 List<NovelChapter> detectNovelChapters(String text) {
-  const number = r'[0-9０-９零〇○一二三四五六七八九十百千万两壹贰叁肆伍陆柒捌玖拾佰仟萬]+';
-  const unit = r'[章节節卷回部篇集话話幕]';
+  const number = r'[0-9０-９零〇○一二三四五六七八九十百千万两壹贰叁肆伍陆柒捌玖拾佰仟]+';
+  const unit = r'[章节篇卷回部集话幕]';
 
   String? chapterTitle(String raw) {
-    var line = raw.trim();
+    var line = raw.replaceFirst('\uFEFF', '').trim();
     if (line.startsWith('[::]')) {
       final title = line.substring(4).trim();
       return title.isEmpty ? null : title;
     }
-
     while (line.startsWith('#')) {
       line = line.substring(1).trimLeft();
     }
-    if (line.isEmpty || line.length > 70) {
-      return null;
-    }
+    if (line.isEmpty || line.length > 80) return null;
 
     final compact = line.replaceAll(RegExp(r'\s+'), '');
-    final leadingChapter = RegExp('^第\\s*$number\\s*$unit').firstMatch(line);
-    if (leadingChapter != null) {
-      final rest = line.substring(leadingChapter.end);
-      final compactRest = rest.replaceAll(RegExp(r'\s+'), '');
-      final hasSeparator =
-          rest.isEmpty || RegExp(r'^[\s　:：、.．-]').hasMatch(rest);
-      if (!hasSeparator && RegExp(r'^(的|时|时候|后|前|里|中)').hasMatch(compactRest)) {
-        return null;
-      }
+    final sentenceEnd = RegExp(r'[。！？!?；;，,、]$').hasMatch(line);
+    if (RegExp('^第$number$unit\$').hasMatch(compact)) return line;
+    if (RegExp('^第$number$unit.{1,60}\$').hasMatch(compact) && !sentenceEnd) {
+      return line;
     }
-
-    final hasChapterToken = RegExp(
-      '(^|[\\s　])第\\s*$number\\s*$unit',
-    ).hasMatch(line);
-    final endsLikeSentence = RegExp(r'[。！？!?；;，,]$').hasMatch(line);
-    if (RegExp('^第$number$unit\$').hasMatch(compact) ||
-        (RegExp('^第$number$unit.{1,60}\$').hasMatch(compact) &&
-            !endsLikeSentence) ||
-        RegExp(r'^(序章|楔子|引子|前言|序言|尾声|后记|终章|大结局)$').hasMatch(compact) ||
-        RegExp(
-          r'^(番外|外传|间章|同人|附录|作品相关|作者的话|设定集|上架感言|完本感言).{0,60}$',
-        ).hasMatch(line) ||
-        (hasChapterToken && !endsLikeSentence) ||
-        RegExp(
-          r'^(chapter|part|book|volume)\s+([0-9]+|[ivxlcdm]+)\b.{0,60}$',
-          caseSensitive: false,
-        ).hasMatch(line) ||
-        RegExp(r'^\d{1,4}\s*[、.．。:：-]\s*.{1,60}$').hasMatch(line)) {
+    if (RegExp('^[卷部篇]$number.{0,60}\$').hasMatch(compact) && !sentenceEnd) {
+      return line;
+    }
+    if (RegExp('^正文.*第$number$unit.{1,60}\$').hasMatch(compact) &&
+        !sentenceEnd) {
+      return line;
+    }
+    if (RegExp(r'^(序章|楔子|引子|前言|序言|正文|终章|尾声|后记|大结局)$').hasMatch(compact)) {
+      return line;
+    }
+    if (RegExp(r'^(番外|番外篇|外传|间章|同人|附录|作品相关).{0,60}$').hasMatch(compact) &&
+        !sentenceEnd) {
+      return line;
+    }
+    if (RegExp(
+      r'^(chapter|part|book|volume)\s+([0-9]+|[ivxlcdm]+)\b.{0,60}$',
+      caseSensitive: false,
+    ).hasMatch(line)) {
+      return line;
+    }
+    if (RegExp(r'^[0-9０-９]{1,4}$').hasMatch(compact)) return line;
+    if (RegExp(r'^[0-9０-９]{1,4}\s*[、.．。:：-]\s*.{1,60}$').hasMatch(line) &&
+        !sentenceEnd) {
       return line;
     }
     return null;
   }
 
   bool numberedTitle(String title) {
-    return RegExp('第\\s*$number\\s*$unit').hasMatch(title) ||
+    final compact = title.replaceAll(RegExp(r'\s+'), '');
+    return RegExp('^第$number$unit').hasMatch(compact) ||
+        RegExp('^[卷部篇]$number').hasMatch(compact) ||
+        RegExp('^正文.*第$number$unit').hasMatch(compact) ||
         RegExp(
           r'^(chapter|part|book|volume)\s+([0-9]+|[ivxlcdm]+)\b',
           caseSensitive: false,
         ).hasMatch(title) ||
-        RegExp(r'^\d{1,4}\s*[、.．。:：-]').hasMatch(title);
+        RegExp(r'^[0-9０-９]{1,4}([、.．。:：-].*)?$').hasMatch(compact);
   }
 
   List<({String title, int line})> dropCatalogDuplicates(

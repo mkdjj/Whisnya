@@ -49,7 +49,25 @@ The APK will be generated at:
 build/app/outputs/flutter-apk/app-release.apk
 ```
 
-For public distribution, configure your own Android signing key first.
+Current release version is `1.2.1+6`. Keep both `versionName` and
+`versionCode` increasing for every public release. The Android package name is
+`com.mkdjj.whisnya`.
+
+For public distribution, configure your own Android signing key first:
+
+```powershell
+keytool -genkey -v -keystore android/whisnya-release.jks -storetype JKS -keyalg RSA -keysize 2048 -validity 10000 -alias whisnya
+Copy-Item android/key.properties.example android/key.properties
+```
+
+Then edit `android/key.properties` with your real passwords. Both
+`android/key.properties` and `.jks` files are ignored by git.
+
+Recommended release asset name:
+
+```text
+Whisnya-android-v1.2.1+6-release.apk
+```
 
 ## Other Platforms
 
@@ -66,6 +84,12 @@ build/windows/x64/runner/Release/
 ```
 
 Ship the whole `Release` folder, not only the `.exe`.
+
+Recommended Windows release asset name:
+
+```text
+Whisnya-windows-x64-v1.2.1+6.zip
+```
 
 Generate iOS or macOS platform files, then build on macOS with Xcode installed:
 
@@ -114,4 +138,4 @@ and API configuration are stored locally by default. After you configure a third
 API endpoint, request content is sent to that model provider when you chat or summarize.
 
 Do not publicly share backups that contain API keys, chat records, novel text, or
-other private data. Local API key encryption or system secure storage is a future TODO.
+other private data.

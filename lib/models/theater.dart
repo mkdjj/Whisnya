@@ -451,6 +451,28 @@ class TheaterMessage {
 
   bool get isUser => speakerType == TheaterSpeakerType.user;
 
+  TheaterMessage copyWith({
+    String? content,
+    bool? isError,
+    String? errorMessage,
+  }) {
+    return TheaterMessage(
+      id: id,
+      sessionId: sessionId,
+      round: round,
+      speakerType: speakerType,
+      speakerId: speakerId,
+      speakerName: speakerName,
+      content: content ?? this.content,
+      endpointId: endpointId,
+      endpointName: endpointName,
+      model: model,
+      isError: isError ?? this.isError,
+      errorMessage: errorMessage ?? this.errorMessage,
+      time: time,
+    );
+  }
+
   factory TheaterMessage.fromJson(Map<String, dynamic> json) {
     return TheaterMessage(
       id: json['id'] as String? ?? '',

@@ -18,6 +18,7 @@ import '../services/local_storage_service.dart';
 import '../utils/app_i18n.dart';
 import '../utils/page_layout.dart';
 import '../utils/password_lock.dart';
+import '../widgets/message_content.dart';
 import 'image_crop_screen.dart';
 
 class TheaterListScreen extends StatefulWidget {
@@ -220,9 +221,10 @@ class TheaterListScreenState extends State<TheaterListScreen> {
             child: Text(context.t('取消')),
           ),
           FilledButton(
-            onPressed: () {
+            onPressed: () async {
+              final password = controller.text;
               final ok = PasswordLock.verify(
-                controller.text,
+                password,
                 widget.settings.privacyPasswordSalt,
                 widget.settings.privacyPasswordHash,
               );
@@ -230,6 +232,11 @@ class TheaterListScreenState extends State<TheaterListScreen> {
                 _showSnack('密码不正确');
                 return;
               }
+              await widget.storage.upgradePrivacyPasswordHashIfNeeded(
+                widget.settings,
+                password,
+              );
+              if (!context.mounted) return;
               Navigator.of(context).pop(true);
             },
             child: Text(context.t('确认')),
@@ -1145,6 +1152,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   var _isGenerating = false;
   var _isSummarizing = false;
   var _generationId = 0;
+  AiCancelToken? _cancelToken;
 
   @override
   void initState() {
@@ -1155,6 +1163,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
 
   @override
   void dispose() {
+    _cancelToken?.cancel();
     _inputController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -1210,27 +1219,34 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
 
   Future<void> _generateReplies(int round) async {
     final generationId = ++_generationId;
+    final cancelToken = AiCancelToken();
+    _cancelToken = cancelToken;
     try {
-      await _updateRollingSummary(generationId);
+      await _updateRollingSummary(generationId, cancelToken);
       if (!mounted || generationId != _generationId) return;
       switch (_session.apiMode) {
         case TheaterApiMode.singleApi:
-          await _generateSingleApi(round, generationId);
+          await _generateSingleApi(round, generationId, cancelToken);
         case TheaterApiMode.multiApi:
           if (_session.multiApiReplyMode == TheaterMultiApiReplyMode.parallel) {
-            await _generateParallel(round, generationId);
+            await _generateParallel(round, generationId, cancelToken);
           } else {
-            await _generateSequential(round, generationId);
+            await _generateSequential(round, generationId, cancelToken);
           }
       }
     } finally {
+      if (identical(_cancelToken, cancelToken)) _cancelToken = null;
       if (mounted && generationId == _generationId) {
         setState(() => _isGenerating = false);
       }
     }
   }
 
-  Future<void> _generateSingleApi(int round, int generationId) async {
+  Future<void> _generateSingleApi(
+    int round,
+    int generationId,
+    AiCancelToken cancelToken,
+  ) async {
     final endpoint = _apiConfig.effectiveEndpoint(_session.singleEndpointId);
     final error = _validateEndpoint(endpoint);
     if (error != null) {
@@ -1241,7 +1257,8 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
       await _appendSystemError('没有可自动回复的角色', round);
       return;
     }
-    final raw = await widget.aiService.sendMessage(
+    var raw = '';
+    await for (final chunk in widget.aiService.streamMessage(
       apiKey: endpoint!.apiKey,
       baseUrl: endpoint.baseUrl,
       model: endpoint.model,
@@ -1250,7 +1267,11 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
         novelSummary: _novelSummary,
         messages: _recentMessages(),
       ),
-    );
+      cancelToken: cancelToken,
+    )) {
+      if (!mounted || generationId != _generationId) return;
+      raw += chunk;
+    }
     final drafts = PromptBuilder.parseTheaterReplies(raw);
     if (drafts.isEmpty) {
       await _appendSystemError('生成失败，可重试', round);
@@ -1273,18 +1294,31 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     await _saveMessages();
   }
 
-  Future<void> _generateSequential(int round, int generationId) async {
+  Future<void> _generateSequential(
+    int round,
+    int generationId,
+    AiCancelToken cancelToken,
+  ) async {
     final participants = [..._session.aiParticipants]..shuffle(Random());
     for (final participant in participants) {
       if (!mounted || generationId != _generationId) return;
-      await _generateForParticipant(participant, round, generationId);
+      await _generateForParticipant(
+        participant,
+        round,
+        generationId,
+        cancelToken,
+      );
     }
   }
 
-  Future<void> _generateParallel(int round, int generationId) async {
+  Future<void> _generateParallel(
+    int round,
+    int generationId,
+    AiCancelToken cancelToken,
+  ) async {
     await Future.wait([
       for (final participant in _session.aiParticipants)
-        _generateForParticipant(participant, round, generationId),
+        _generateForParticipant(participant, round, generationId, cancelToken),
     ]);
   }
 
@@ -1292,6 +1326,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     TheaterParticipant participant,
     int round,
     int generationId,
+    AiCancelToken cancelToken,
   ) async {
     final endpoint = _apiConfig.effectiveEndpoint(participant.endpointId);
     final error = _validateEndpoint(endpoint);
@@ -1299,9 +1334,20 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
       await _appendRoleError(participant, error, round);
       return;
     }
+    final placeholder = _roleMessage(
+      participant,
+      '',
+      round,
+      endpoint: endpoint!,
+    );
     try {
-      final reply = await widget.aiService.sendMessage(
-        apiKey: endpoint!.apiKey,
+      if (!mounted || generationId != _generationId) return;
+      setState(() => _messages = [..._messages, placeholder]);
+      _scrollToEnd();
+
+      var reply = '';
+      await for (final chunk in widget.aiService.streamMessage(
+        apiKey: endpoint.apiKey,
         baseUrl: endpoint.baseUrl,
         model: endpoint.model,
         messages: PromptBuilder.buildTheaterParticipantRequest(
@@ -1310,18 +1356,24 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
           novelSummary: _novelSummary,
           messages: _recentMessages(),
         ),
-      );
+        cancelToken: cancelToken,
+      )) {
+        if (!mounted || generationId != _generationId) return;
+        reply += chunk;
+        setState(() {
+          _replaceMessage(placeholder.id, placeholder.copyWith(content: reply));
+        });
+        _scrollToEnd();
+      }
+      if (reply.trim().isEmpty) {
+        throw AiException('API 没有返回可用回复。');
+      }
       if (!mounted || generationId != _generationId) return;
-      setState(() {
-        _messages = [
-          ..._messages,
-          _roleMessage(participant, reply, round, endpoint: endpoint),
-        ];
-      });
       await _saveMessages();
       _scrollToEnd();
     } catch (error) {
       if (!mounted || generationId != _generationId) return;
+      setState(() => _removeMessage(placeholder.id));
       await _appendRoleError(participant, error.toString(), round);
     }
   }
@@ -1346,6 +1398,18 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
       model: endpoint.model,
       time: now,
     );
+  }
+
+  void _replaceMessage(String id, TheaterMessage message) {
+    final index = _messages.indexWhere((item) => item.id == id);
+    if (index < 0) return;
+    final next = [..._messages];
+    next[index] = message;
+    _messages = next;
+  }
+
+  void _removeMessage(String id) {
+    _messages = _messages.where((item) => item.id != id).toList();
   }
 
   TheaterParticipant? _matchParticipant(String name) {
@@ -1421,21 +1485,32 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     );
     if (participant.id.isEmpty) return;
     final generationId = ++_generationId;
+    final cancelToken = AiCancelToken();
+    _cancelToken = cancelToken;
     setState(() {
       _isGenerating = true;
       _messages = _messages.where((item) => item.id != message.id).toList();
     });
     await _saveMessages();
     try {
-      await _generateForParticipant(participant, message.round, generationId);
+      await _generateForParticipant(
+        participant,
+        message.round,
+        generationId,
+        cancelToken,
+      );
     } finally {
+      if (identical(_cancelToken, cancelToken)) _cancelToken = null;
       if (mounted && generationId == _generationId) {
         setState(() => _isGenerating = false);
       }
     }
   }
 
-  Future<void> _updateRollingSummary(int generationId) async {
+  Future<void> _updateRollingSummary(
+    int generationId,
+    AiCancelToken cancelToken,
+  ) async {
     final recentLimit = _session.recentMessageLimit;
     final buffer = _session.participantUnitCount;
     if (_messages.length <= recentLimit + buffer) return;
@@ -1469,6 +1544,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
             ),
           },
         ],
+        cancelToken: cancelToken,
       );
       if (!mounted || generationId != _generationId) return;
       await _saveSession(
@@ -1514,6 +1590,8 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
 
   void _stopGeneration() {
     if (!_isGenerating) return;
+    _cancelToken?.cancel();
+    _cancelToken = null;
     _generationId++;
     setState(() => _isGenerating = false);
   }
@@ -1887,18 +1965,22 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     final participants = {
       for (final item in _session.participants) item.id: item,
     };
+    final showTyping =
+        _isGenerating &&
+        (_messages.isEmpty ||
+            _messages.last.speakerType != TheaterSpeakerType.role);
     return AdaptivePage(
       child: ListView.builder(
         controller: _scrollController,
         reverse: true,
         padding: const EdgeInsets.fromLTRB(0, 12, 0, 16),
-        itemCount: _messages.length + (_isGenerating ? 1 : 0),
+        itemCount: _messages.length + (showTyping ? 1 : 0),
         itemBuilder: (context, index) {
-          if (_isGenerating && index == 0) {
+          if (showTyping && index == 0) {
             return const _TheaterTypingBubble();
           }
           final messageIndex =
-              _messages.length - 1 - (index - (_isGenerating ? 1 : 0));
+              _messages.length - 1 - (index - (showTyping ? 1 : 0));
           final message = _messages[messageIndex];
           return _TheaterMessageBubble(
             message: message,
@@ -2177,12 +2259,7 @@ class _TheaterMessageBubble extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 8),
-              SelectableText(
-                message.content,
-                style: chatTextColor == null
-                    ? null
-                    : TextStyle(color: Color(chatTextColor!)),
-              ),
+              MessageContent(text: message.content, textColor: chatTextColor),
               const SizedBox(height: 4),
               Row(
                 mainAxisSize: MainAxisSize.min,

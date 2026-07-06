@@ -634,10 +634,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 return;
               }
               final salt = PasswordLock.newSalt();
+              final recoveryAnswerHash =
+                  PasswordLock.needsRehash(_settings.recoveryAnswerHash)
+                  ? PasswordLock.hash(answer, _settings.recoveryAnswerSalt)
+                  : _settings.recoveryAnswerHash;
               Navigator.of(context).pop(
                 _settings.copyWith(
                   privacyPasswordSalt: salt,
                   privacyPasswordHash: PasswordLock.hash(password, salt),
+                  recoveryAnswerHash: recoveryAnswerHash,
                 ),
               );
             },

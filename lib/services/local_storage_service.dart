@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../models/api_config.dart';
@@ -13,6 +14,7 @@ import '../models/chat_session.dart';
 import '../models/chat_summary.dart';
 import '../models/novel_book.dart';
 import '../models/theater.dart';
+import '../utils/password_lock.dart';
 import '../utils/role_import_parser.dart';
 
 String restoreAppDataPath(String path, String appDataPath) {
@@ -83,9 +85,63 @@ class StorageException implements Exception {
   String toString() => message;
 }
 
+Future<void> validateBackupDirectory(Directory directory) async {
+  final separator = Platform.pathSeparator;
+  final manifest = File('${directory.path}${separator}backup_manifest.json');
+  if (!await manifest.exists()) {
+    throw StorageException('备份文件缺少 backup_manifest.json');
+  }
+  final manifestJson = await _readBackupJson(manifest);
+  if (manifestJson is! Map<String, dynamic>) {
+    throw StorageException('备份清单格式异常');
+  }
+
+  Future<void> optionalJson(String name, bool Function(dynamic) isValid) async {
+    final file = File('${directory.path}$separator$name');
+    if (!await file.exists()) return;
+    final decoded = await _readBackupJson(file);
+    if (!isValid(decoded)) {
+      throw StorageException('备份文件 $name 格式异常');
+    }
+  }
+
+  await optionalJson('settings.json', (value) => value is Map<String, dynamic>);
+  await optionalJson(
+    'api_config.json',
+    (value) => value is Map<String, dynamic>,
+  );
+  await optionalJson('characters.json', (value) => value is List);
+  await optionalJson('novels.json', (value) => value is List);
+  await optionalJson('theater_sessions.json', (value) => value is List);
+}
+
+Future<dynamic> _readBackupJson(File file) async {
+  try {
+    return jsonDecode(await file.readAsString());
+  } on FormatException {
+    throw StorageException('备份文件 JSON 异常：${file.path}');
+  } on FileSystemException catch (error) {
+    throw StorageException('读取备份文件失败：${error.message}');
+  }
+}
+
 class LocalStorageService {
+  LocalStorageService({FlutterSecureStorage? secureStorage})
+    : _secureStorage = secureStorage ?? const FlutterSecureStorage();
+
+  static const _secureApiKeyIndexKey = 'whisnya_api_endpoint_ids';
+  static const _secureApiKeyPrefix = 'whisnya_api_key_';
+
+  final FlutterSecureStorage _secureStorage;
   Directory? _appDataDirectory;
   Future<void> _writeQueue = Future.value();
+  final _recoveryMessages = <String>[];
+
+  List<String> takeRecoveryMessages() {
+    final messages = List<String>.from(_recoveryMessages);
+    _recoveryMessages.clear();
+    return messages;
+  }
 
   Future<Directory> get appDataDirectory async {
     if (_appDataDirectory != null) {
@@ -96,36 +152,32 @@ class LocalStorageService {
     final directory = Directory(
       '${documents.path}${Platform.pathSeparator}app_data',
     );
-    if (!await directory.exists()) {
-      await directory.create(recursive: true);
-    }
-    await Directory(
-      '${directory.path}${Platform.pathSeparator}chats',
-    ).create(recursive: true);
-    await Directory(
-      '${directory.path}${Platform.pathSeparator}summaries',
-    ).create(recursive: true);
-    await Directory(
-      '${directory.path}${Platform.pathSeparator}media',
-    ).create(recursive: true);
-    await Directory(
-      '${directory.path}${Platform.pathSeparator}novels',
-    ).create(recursive: true);
-    await Directory(
-      '${directory.path}${Platform.pathSeparator}novel_chats',
-    ).create(recursive: true);
-    await Directory(
-      '${directory.path}${Platform.pathSeparator}novel_summary_cache',
-    ).create(recursive: true);
-    await Directory(
-      '${directory.path}${Platform.pathSeparator}theater_messages',
-    ).create(recursive: true);
+    await _ensureAppDataDirectories(directory);
     _appDataDirectory = directory;
     return directory;
   }
 
   Future<void> ensureReady() async {
     await appDataDirectory;
+  }
+
+  Future<void> _ensureAppDataDirectories(Directory directory) async {
+    if (!await directory.exists()) {
+      await directory.create(recursive: true);
+    }
+    for (final name in const [
+      'chats',
+      'summaries',
+      'media',
+      'novels',
+      'novel_chats',
+      'novel_summary_cache',
+      'theater_messages',
+    ]) {
+      await Directory(
+        '${directory.path}${Platform.pathSeparator}$name',
+      ).create(recursive: true);
+    }
   }
 
   Future<AppSettings> loadSettings() async {
@@ -145,17 +197,119 @@ class LocalStorageService {
     await _writeJson(await _settingsFile(), settings.toJson());
   }
 
+  Future<AppSettings?> upgradePrivacyPasswordHashIfNeeded(
+    AppSettings settings,
+    String password,
+  ) async {
+    if (!settings.hasPrivacyPassword ||
+        !PasswordLock.needsRehash(settings.privacyPasswordHash)) {
+      return null;
+    }
+    final next = settings.copyWith(
+      privacyPasswordHash: PasswordLock.hash(
+        password,
+        settings.privacyPasswordSalt,
+      ),
+    );
+    await saveSettings(next);
+    return next;
+  }
+
   Future<ApiConfig> loadApiConfig() async {
     final file = await _apiConfigFile();
     final decoded = await _readJson(file, ApiConfig.defaults().toJson());
     if (decoded is! Map<String, dynamic>) {
       throw StorageException('API 配置文件异常：${file.path}');
     }
-    return ApiConfig.fromJson(decoded);
+    var config = ApiConfig.fromJson(decoded);
+    if (_hasApiKeys(config)) {
+      await _writeSecureApiKeys(config);
+      config = _configWithoutApiKeys(config);
+      await _writeJson(file, config.toJson());
+    }
+    return _withSecureApiKeys(config);
   }
 
   Future<void> saveApiConfig(ApiConfig config) async {
-    await _writeJson(await _apiConfigFile(), config.toJson());
+    await _writeSecureApiKeys(config);
+    await _writeJson(
+      await _apiConfigFile(),
+      _configWithoutApiKeys(config).toJson(),
+    );
+  }
+
+  bool _hasApiKeys(ApiConfig config) {
+    return config.endpoints.any(
+      (endpoint) => endpoint.apiKey.trim().isNotEmpty,
+    );
+  }
+
+  ApiConfig _configWithoutApiKeys(ApiConfig config) {
+    return config.copyWith(
+      endpoints: [
+        for (final endpoint in config.endpoints) endpoint.copyWith(apiKey: ''),
+      ],
+    );
+  }
+
+  Future<ApiConfig> _withSecureApiKeys(ApiConfig config) async {
+    final endpoints = <AiEndpointConfig>[];
+    for (final endpoint in config.endpoints) {
+      final apiKey = await _secureStorage.read(
+        key: _secureApiKeyKey(endpoint.id),
+      );
+      endpoints.add(
+        apiKey == null ? endpoint : endpoint.copyWith(apiKey: apiKey),
+      );
+    }
+    return config.copyWith(endpoints: endpoints);
+  }
+
+  Future<void> _writeSecureApiKeys(ApiConfig config) async {
+    final previousIds = await _readSecureApiKeyIds();
+    final nextIds = <String>{};
+    for (final endpoint in config.endpoints) {
+      final apiKey = endpoint.apiKey.trim();
+      final key = _secureApiKeyKey(endpoint.id);
+      if (apiKey.isEmpty) {
+        await _secureStorage.delete(key: key);
+      } else {
+        await _secureStorage.write(key: key, value: apiKey);
+        nextIds.add(endpoint.id);
+      }
+    }
+    for (final id in previousIds.difference(nextIds)) {
+      await _secureStorage.delete(key: _secureApiKeyKey(id));
+    }
+    await _writeSecureApiKeyIds(nextIds);
+  }
+
+  Future<Set<String>> _readSecureApiKeyIds() async {
+    final raw = await _secureStorage.read(key: _secureApiKeyIndexKey);
+    if (raw == null || raw.trim().isEmpty) return <String>{};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) return decoded.whereType<String>().toSet();
+    } on FormatException {
+      return <String>{};
+    }
+    return <String>{};
+  }
+
+  Future<void> _writeSecureApiKeyIds(Set<String> ids) async {
+    if (ids.isEmpty) {
+      await _secureStorage.delete(key: _secureApiKeyIndexKey);
+      return;
+    }
+    final sorted = ids.toList()..sort();
+    await _secureStorage.write(
+      key: _secureApiKeyIndexKey,
+      value: jsonEncode(sorted),
+    );
+  }
+
+  String _secureApiKeyKey(String endpointId) {
+    return '$_secureApiKeyPrefix${base64UrlEncode(utf8.encode(endpointId))}';
   }
 
   Future<List<AppCharacter>> loadCharacters() async {
@@ -537,15 +691,18 @@ class LocalStorageService {
       final name = entity.path
           .substring(directory.path.length + 1)
           .replaceAll(Platform.pathSeparator, '/');
-      if (!includeApiKeys && name == 'api_config.json') {
+      if (name == 'api_config.json') {
         try {
           final decoded = jsonDecode(utf8.decode(bytes));
           if (decoded is Map<String, dynamic>) {
+            final exportJson = includeApiKeys
+                ? (await _withSecureApiKeys(
+                    ApiConfig.fromJson(decoded),
+                  )).toJson()
+                : redactApiKeysForExport(decoded);
             bytes = Uint8List.fromList(
               utf8.encode(
-                const JsonEncoder.withIndent(
-                  '  ',
-                ).convert(redactApiKeysForExport(decoded)),
+                const JsonEncoder.withIndent('  ').convert(exportJson),
               ),
             );
           }
@@ -560,29 +717,80 @@ class LocalStorageService {
 
   Future<void> importAllData(Uint8List bytes) async {
     final directory = await appDataDirectory;
-    if (await directory.exists()) {
-      await directory.delete(recursive: true);
-    }
-    await directory.create(recursive: true);
-    _appDataDirectory = directory;
+    final parent = directory.parent;
+    final separator = Platform.pathSeparator;
+    final stamp = DateTime.now().microsecondsSinceEpoch;
+    final temp = Directory('${parent.path}${separator}app_data_import_$stamp');
+    final backup = Directory(
+      '${parent.path}${separator}app_data_backup_$stamp',
+    );
+    Directory? movedBackup;
 
-    final archive = ZipDecoder().decodeBytes(bytes);
-    for (final file in archive.files) {
-      if (!file.isFile) {
-        continue;
+    try {
+      if (await temp.exists()) {
+        await temp.delete(recursive: true);
       }
-      final safeName = file.name.replaceAll('\\', '/');
-      if (safeName.startsWith('/') || safeName.contains('..')) {
-        continue;
+      await temp.create(recursive: true);
+
+      final archive = ZipDecoder().decodeBytes(bytes);
+      for (final file in archive.files) {
+        if (!file.isFile) {
+          continue;
+        }
+        final safeName = file.name.replaceAll('\\', '/');
+        final parts = safeName.split('/');
+        if (safeName.startsWith('/') || parts.contains('..')) {
+          continue;
+        }
+        final outPath =
+            '${temp.path}$separator${safeName.replaceAll('/', separator)}';
+        final outFile = File(outPath);
+        await outFile.parent.create(recursive: true);
+        await outFile.writeAsBytes(file.content as List<int>, flush: true);
       }
-      final outPath =
-          '${directory.path}${Platform.pathSeparator}${safeName.replaceAll('/', Platform.pathSeparator)}';
-      final outFile = File(outPath);
-      await outFile.parent.create(recursive: true);
-      await outFile.writeAsBytes(file.content as List<int>, flush: true);
+
+      await validateBackupDirectory(temp);
+
+      if (await backup.exists()) {
+        await backup.delete(recursive: true);
+      }
+      if (await directory.exists()) {
+        await directory.rename(backup.path);
+        movedBackup = backup;
+      }
+      await temp.rename(directory.path);
+      _appDataDirectory = directory;
+      await _ensureAppDataDirectories(directory);
+      await _repairRestoredAppDataPaths(directory);
+      await _migrateApiKeysFromJsonFile(await _apiConfigFile());
+      if (movedBackup != null && await movedBackup.exists()) {
+        await movedBackup.delete(recursive: true);
+      }
+    } catch (_) {
+      if (await temp.exists()) {
+        await temp.delete(recursive: true);
+      }
+      if (movedBackup != null && await movedBackup.exists()) {
+        if (await directory.exists()) {
+          await directory.delete(recursive: true);
+        }
+        await movedBackup.rename(directory.path);
+      }
+      _appDataDirectory = directory;
+      rethrow;
     }
-    await _repairRestoredAppDataPaths(directory);
-    await ensureReady();
+  }
+
+  Future<void> _migrateApiKeysFromJsonFile(File file) async {
+    if (!await file.exists()) {
+      await _writeSecureApiKeys(ApiConfig.defaults());
+      return;
+    }
+    final decoded = await _readJson(file, ApiConfig.defaults().toJson());
+    if (decoded is! Map<String, dynamic>) {
+      throw StorageException('API 配置文件异常：${file.path}');
+    }
+    await saveApiConfig(ApiConfig.fromJson(decoded));
   }
 
   Future<void> _repairRestoredAppDataPaths(Directory directory) async {
@@ -832,17 +1040,23 @@ class LocalStorageService {
     try {
       final content = await file.readAsString();
       if (content.trim().isEmpty) {
+        if (recoverOnInvalid) {
+          final backupPath = await _backupInvalidJson(file);
+          _recoveryMessages.add(_jsonRecoveryMessage(file, backupPath));
+        }
         await _writeJsonNow(file, fallback);
         return fallback;
       }
       return jsonDecode(content);
     } on FormatException catch (_) {
-      if (recoverOnInvalid) {
-        await _backupInvalidJson(file);
-        await _writeJsonNow(file, fallback);
-        return fallback;
+      final backupPath = await _backupInvalidJson(file);
+      await _writeJsonNow(file, fallback);
+      final message = _jsonRecoveryMessage(file, backupPath);
+      if (!recoverOnInvalid) {
+        throw StorageException(message);
       }
-      throw StorageException('数据文件异常，无法解析 JSON：${file.path}');
+      _recoveryMessages.add(message);
+      return fallback;
     } on FileSystemException catch (error) {
       throw StorageException('读取本地文件失败：${error.message}');
     }
@@ -876,7 +1090,11 @@ class LocalStorageService {
   ) async {
     final file = await _charactersFile();
     await _enqueueWrite(() async {
-      final decoded = await _readJsonNow(file, <dynamic>[]);
+      final decoded = await _readJsonNow(
+        file,
+        <dynamic>[],
+        recoverOnInvalid: true,
+      );
       if (decoded is! List) {
         throw StorageException('角色文件异常：${file.path}');
       }
@@ -898,7 +1116,11 @@ class LocalStorageService {
   ) async {
     final file = await _novelsFile();
     await _enqueueWrite(() async {
-      final decoded = await _readJsonNow(file, <dynamic>[]);
+      final decoded = await _readJsonNow(
+        file,
+        <dynamic>[],
+        recoverOnInvalid: true,
+      );
       if (decoded is! List) {
         throw StorageException('小说文件异常：${file.path}');
       }
@@ -917,7 +1139,11 @@ class LocalStorageService {
   ) async {
     final file = await _theaterSessionsFile();
     await _enqueueWrite(() async {
-      final decoded = await _readJsonNow(file, <dynamic>[]);
+      final decoded = await _readJsonNow(
+        file,
+        <dynamic>[],
+        recoverOnInvalid: true,
+      );
       if (decoded is! List) {
         throw StorageException('群聊文件异常：${file.path}');
       }
@@ -1043,13 +1269,18 @@ class LocalStorageService {
     return latest.millisecondsSinceEpoch == 0 ? DateTime.now() : latest;
   }
 
-  Future<void> _backupInvalidJson(File file) async {
+  String _jsonRecoveryMessage(File file, String backupPath) {
+    return '数据文件损坏：${file.path}\n已自动备份到：$backupPath\n已重建默认文件。';
+  }
+
+  Future<String> _backupInvalidJson(File file) async {
     if (!await file.exists()) {
-      return;
+      return '';
     }
     final backup = File(
       '${file.path}.broken_${DateTime.now().microsecondsSinceEpoch}',
     );
     await file.rename(backup.path);
+    return backup.path;
   }
 }

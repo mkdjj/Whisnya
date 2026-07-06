@@ -1,5 +1,5 @@
-import 'package:ai_role_chat/models/api_config.dart';
-import 'package:ai_role_chat/services/local_storage_service.dart';
+import 'package:whisnya/models/api_config.dart';
+import 'package:whisnya/services/local_storage_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

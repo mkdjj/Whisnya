@@ -1,4 +1,4 @@
-package com.local.airolechat.ai_role_chat
+package com.mkdjj.whisnya
 
 import io.flutter.embedding.android.FlutterActivity
 

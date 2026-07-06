@@ -16,6 +16,7 @@ import '../services/ai_service.dart';
 import '../services/local_storage_service.dart';
 import '../utils/app_i18n.dart';
 import '../utils/page_layout.dart';
+import '../widgets/message_content.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({
@@ -53,6 +54,7 @@ class _ChatScreenState extends State<ChatScreen> {
   var _searchResults = <int>[];
   var _activeSearchResult = 0;
   var _generationId = 0;
+  AiCancelToken? _cancelToken;
   String? _loadError;
 
   @override
@@ -65,6 +67,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    _cancelToken?.cancel();
     _toolBarTimer?.cancel();
     _inputController.dispose();
     _scrollController.dispose();
@@ -149,37 +152,60 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _requestAssistantReply(AiEndpointConfig endpoint) async {
     final generationId = ++_generationId;
+    final cancelToken = AiCancelToken();
+    _cancelToken = cancelToken;
     try {
-      await _updateRollingSummary(endpoint, generationId);
+      await _updateRollingSummary(endpoint, generationId, cancelToken);
       if (!mounted || generationId != _generationId || !_isSending) return;
 
-      final reply = await widget.aiService.sendMessage(
-        apiKey: endpoint.apiKey,
-        baseUrl: endpoint.baseUrl,
-        model: endpoint.model,
-        messages: _buildChatRequestMessages(),
-      );
-      if (!mounted || generationId != _generationId || !_isSending) return;
-
+      final requestMessages = _buildChatRequestMessages();
       final assistantMessage = ChatMessage(
         role: 'assistant',
-        content: reply,
+        content: '',
         time: DateTime.now(),
         endpointId: endpoint.id,
         endpointName: endpoint.name,
         model: endpoint.model,
       );
-
       setState(() {
         _messages = [..._messages, assistantMessage];
-        _isSending = false;
       });
+      _scrollToEnd();
+
+      var reply = '';
+      await for (final chunk in widget.aiService.streamMessage(
+        apiKey: endpoint.apiKey,
+        baseUrl: endpoint.baseUrl,
+        model: endpoint.model,
+        messages: requestMessages,
+        cancelToken: cancelToken,
+      )) {
+        if (!mounted || generationId != _generationId || !_isSending) return;
+        reply += chunk;
+        setState(() {
+          _messages = [
+            ..._messages.take(_messages.length - 1),
+            assistantMessage.copyWith(content: reply),
+          ];
+        });
+        _scrollToEnd();
+      }
+      if (reply.trim().isEmpty) {
+        throw AiException('API 没有返回可用回复。');
+      }
+      if (!mounted || generationId != _generationId || !_isSending) return;
+      setState(() => _isSending = false);
       await widget.storage.saveChat(_character.id, _messages);
       _scrollToEnd();
     } catch (error) {
       if (!mounted || generationId != _generationId) return;
-      setState(() => _isSending = false);
+      setState(() {
+        _dropEmptyAssistantTail();
+        _isSending = false;
+      });
       _showSnack(error.toString());
+    } finally {
+      if (identical(_cancelToken, cancelToken)) _cancelToken = null;
     }
   }
 
@@ -253,9 +279,23 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _stopGeneration() {
     if (!_isSending) return;
+    _cancelToken?.cancel();
+    _cancelToken = null;
     _generationId++;
-    setState(() => _isSending = false);
+    setState(() {
+      _dropEmptyAssistantTail();
+      _isSending = false;
+    });
+    unawaited(widget.storage.saveChat(_character.id, _messages));
     _showSnack('已停止生成');
+  }
+
+  void _dropEmptyAssistantTail() {
+    if (_messages.isNotEmpty &&
+        _messages.last.isAssistant &&
+        _messages.last.content.trim().isEmpty) {
+      _messages = _messages.sublist(0, _messages.length - 1);
+    }
   }
 
   int _lastUserMessageIndex() {
@@ -489,6 +529,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _updateRollingSummary(
     AiEndpointConfig endpoint,
     int generationId,
+    AiCancelToken cancelToken,
   ) async {
     if (_character.useFullChatContext) return;
 
@@ -524,6 +565,7 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           },
         ],
+        cancelToken: cancelToken,
       );
       final nextSummary = ChatSummary(
         characterId: _character.id,
@@ -1132,25 +1174,29 @@ class _ChatScreenState extends State<ChatScreen> {
               .clamp(0, _searchResults.length - 1)
               .toInt()];
 
+    final showTyping =
+        _isSending && (_messages.isEmpty || !_messages.last.isAssistant);
+
     return AdaptivePage(
       child: ListView.builder(
         controller: _scrollController,
         reverse: true,
         physics: const AlwaysScrollableScrollPhysics(),
         padding: EdgeInsets.fromLTRB(0, _topInset(context) + 12, 0, 16),
-        itemCount: _messages.length + (_isSending ? 1 : 0),
+        itemCount: _messages.length + (showTyping ? 1 : 0),
         itemBuilder: (context, index) {
-          if (_isSending && index == 0) {
+          if (showTyping && index == 0) {
             return const _TypingBubble();
           }
           final messageIndex =
-              _messages.length - 1 - (index - (_isSending ? 1 : 0));
+              _messages.length - 1 - (index - (showTyping ? 1 : 0));
           final message = _messages[messageIndex];
           return _MessageBubble(
             message: message,
             bubbleOpacity: _character.bubbleOpacity,
             chatTextColor: widget.settings.chatTextColor,
             isHighlighted: messageIndex == highlightedIndex,
+            searchQuery: _searchQuery,
             onCopy: () => _copyMessage(message),
           );
         },
@@ -1434,6 +1480,7 @@ class _MessageBubble extends StatelessWidget {
     required this.bubbleOpacity,
     required this.chatTextColor,
     required this.isHighlighted,
+    required this.searchQuery,
     required this.onCopy,
   });
 
@@ -1441,6 +1488,7 @@ class _MessageBubble extends StatelessWidget {
   final double bubbleOpacity;
   final int? chatTextColor;
   final bool isHighlighted;
+  final String searchQuery;
   final VoidCallback onCopy;
 
   @override
@@ -1477,11 +1525,10 @@ class _MessageBubble extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SelectableText(
-                message.content,
-                style: chatTextColor == null
-                    ? null
-                    : TextStyle(color: Color(chatTextColor!)),
+              MessageContent(
+                text: message.content,
+                textColor: chatTextColor,
+                highlightQuery: searchQuery,
               ),
               const SizedBox(height: 4),
               Row(

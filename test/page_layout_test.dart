@@ -1,4 +1,4 @@
-import 'package:ai_role_chat/utils/page_layout.dart';
+import 'package:whisnya/utils/page_layout.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

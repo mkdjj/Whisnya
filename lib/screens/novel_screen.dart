@@ -20,6 +20,7 @@ import '../services/novel_summary_service.dart';
 import '../utils/app_i18n.dart';
 import '../utils/page_layout.dart';
 import '../utils/password_lock.dart';
+import '../widgets/message_content.dart';
 
 class NovelScreen extends StatefulWidget {
   const NovelScreen({
@@ -206,9 +207,10 @@ class NovelScreenState extends State<NovelScreen> {
             child: Text(context.t('取消')),
           ),
           FilledButton(
-            onPressed: () {
+            onPressed: () async {
+              final password = controller.text;
               final ok = PasswordLock.verify(
-                controller.text,
+                password,
                 widget.settings.privacyPasswordSalt,
                 widget.settings.privacyPasswordHash,
               );
@@ -216,6 +218,11 @@ class NovelScreenState extends State<NovelScreen> {
                 _showSnack('密码不正确');
                 return;
               }
+              await widget.storage.upgradePrivacyPasswordHashIfNeeded(
+                widget.settings,
+                password,
+              );
+              if (!context.mounted) return;
               Navigator.of(context).pop(true);
             },
             child: Text(context.t('确认')),
@@ -491,6 +498,7 @@ class NovelReaderScreen extends StatefulWidget {
 class _NovelReaderScreenState extends State<NovelReaderScreen> {
   final _inputController = TextEditingController();
   final _chatScrollController = ScrollController();
+  final _readScrollController = ScrollController();
 
   late NovelBook _book;
   var _apiConfig = ApiConfig.defaults();
@@ -504,17 +512,23 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
   var _isBusy = false;
   var _busyText = '';
   var _isSending = false;
+  AiCancelToken? _cancelToken;
+  var _readerSearchQuery = '';
+  var _readProgress = 0.0;
   String? _error;
 
   @override
   void initState() {
     super.initState();
     _book = widget.book;
+    _readScrollController.addListener(_updateReadProgress);
     _load();
   }
 
   @override
   void dispose() {
+    _cancelToken?.cancel();
+    _readScrollController.dispose();
     _inputController.dispose();
     _chatScrollController.dispose();
     super.dispose();
@@ -539,7 +553,7 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
             apiConfig.effectiveEndpoint(_selectedEndpointId)?.id ?? '';
         _content = content;
         _readChunks = splitNovelText(content, 1600);
-        _chapters = buildNovelChapters(content);
+        _chapters = _applyManualChapterTitles(buildNovelChapters(content));
         _messages = chat.messages;
         _summaryCache = summaryCache;
         _isLoading = false;
@@ -558,6 +572,18 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
     await widget.storage.saveNovel(next);
     if (!mounted) return;
     setState(() => _book = next);
+  }
+
+  List<NovelChapter> _applyManualChapterTitles(List<NovelChapter> chapters) {
+    final titles = _book.manualChapterTitles;
+    if (titles.length != chapters.length) return chapters;
+    return [
+      for (var i = 0; i < chapters.length; i++)
+        NovelChapter(
+          title: titles[i].trim().isEmpty ? chapters[i].title : titles[i],
+          content: chapters[i].content,
+        ),
+    ];
   }
 
   Future<void> _summarizeNovel() async {
@@ -603,6 +629,25 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
     _summaryCache = cache;
 
     if (!mounted) return;
+    final cancelToken = AiCancelToken();
+    _cancelToken = cancelToken;
+    Future<String> streamText(List<Map<String, String>> messages) async {
+      var text = '';
+      await for (final chunk in widget.aiService.streamMessage(
+        apiKey: endpoint.apiKey,
+        baseUrl: endpoint.baseUrl,
+        model: endpoint.model,
+        messages: messages,
+        cancelToken: cancelToken,
+      )) {
+        text += chunk;
+      }
+      if (text.trim().isEmpty) {
+        throw AiException('API 没有返回可用回复。');
+      }
+      return text;
+    }
+
     final useEnglish = context.isEnglish;
     setState(() {
       _isBusy = true;
@@ -613,22 +658,17 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
       for (var i = startIndex; i < chunks.length; i++) {
         if (!mounted) return;
         setState(() => _busyText = '正在总结 ${i + 1} / ${chunks.length}');
-        final summary = await widget.aiService.sendMessage(
-          apiKey: endpoint.apiKey,
-          baseUrl: endpoint.baseUrl,
-          model: endpoint.model,
-          messages: [
-            {'role': 'system', 'content': '你是小说分析助手，只提炼原文信息。'},
-            {
-              'role': 'user',
-              'content': PromptBuilder.buildNovelChunkPrompt(
-                chunks[i],
-                i + 1,
-                chunks.length,
-              ),
-            },
-          ],
-        );
+        final summary = await streamText([
+          {'role': 'system', 'content': '你是小说分析助手，只提炼原文信息。'},
+          {
+            'role': 'user',
+            'content': PromptBuilder.buildNovelChunkPrompt(
+              chunks[i],
+              i + 1,
+              chunks.length,
+            ),
+          },
+        ]);
         summaries.add(summary);
         cache = cache.copyWith(
           completedSummaries: summaries,
@@ -641,18 +681,13 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
 
       if (!mounted) return;
       setState(() => _busyText = '正在合并总结并生成角色');
-      final merged = await widget.aiService.sendMessage(
-        apiKey: endpoint.apiKey,
-        baseUrl: endpoint.baseUrl,
-        model: endpoint.model,
-        messages: [
-          {'role': 'system', 'content': '你只输出可解析 JSON。'},
-          {
-            'role': 'user',
-            'content': PromptBuilder.buildNovelMergePrompt(summaries),
-          },
-        ],
-      );
+      final merged = await streamText([
+        {'role': 'system', 'content': '你只输出可解析 JSON。'},
+        {
+          'role': 'user',
+          'content': PromptBuilder.buildNovelMergePrompt(summaries),
+        },
+      ]);
 
       final result = _parseNovelResult(merged);
       final roles = result.roles.isEmpty
@@ -693,6 +728,8 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
       if (!mounted) return;
       setState(() => _isBusy = false);
       _showSnack(error.toString());
+    } finally {
+      if (identical(_cancelToken, cancelToken)) _cancelToken = null;
     }
   }
 
@@ -1372,6 +1409,17 @@ ${role.speakingStyle}
                       _chooseChapter();
                     },
                   ),
+                if (_chapters.isNotEmpty)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.edit_note_outlined),
+                    title: Text(context.t('编辑目录')),
+                    subtitle: Text(context.t('每行一个章节标题')),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      _editCatalog();
+                    },
+                  ),
                 _readerSlider(
                   label: '阅读字体大小',
                   value: _book.fontSize,
@@ -1402,6 +1450,7 @@ ${role.speakingStyle}
                     unawaited(_saveBook(_book.copyWith(lineHeight: value)));
                   },
                 ),
+                _readerThemePicker(setSheetState),
                 const Divider(),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
@@ -1646,6 +1695,92 @@ ${role.speakingStyle}
     );
   }
 
+  Widget _readerThemePicker(StateSetter setSheetState) {
+    const items = [(0, '默认'), (1, '纸白'), (2, '护眼'), (3, '夜间')];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InputDecorator(
+        decoration: InputDecoration(
+          isDense: true,
+          contentPadding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          labelText: context.t('阅读背景'),
+        ),
+        child: Wrap(
+          spacing: 8,
+          children: [
+            for (final item in items)
+              ChoiceChip(
+                label: Text(context.t(item.$2)),
+                selected: _book.readerTheme == item.$1,
+                onSelected: (_) {
+                  final next = _book.copyWith(readerTheme: item.$1);
+                  setState(() => _book = next);
+                  setSheetState(() {});
+                  unawaited(_saveBook(next));
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _editCatalog() async {
+    if (_chapters.isEmpty) return;
+    final controller = TextEditingController(
+      text: _chapters.map((chapter) => chapter.title).join('\n'),
+    );
+    final titles = await showDialog<List<String>>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(context.t('编辑目录')),
+        content: SizedBox(
+          width: 520,
+          child: TextField(
+            controller: controller,
+            minLines: 12,
+            maxLines: 18,
+            decoration: InputDecoration(helperText: context.t('每行一个章节标题')),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(context.t('取消')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(const <String>[]),
+            child: Text(context.t('重置')),
+          ),
+          FilledButton(
+            onPressed: () {
+              final lines = controller.text
+                  .split('\n')
+                  .map((line) => line.trim())
+                  .where((line) => line.isNotEmpty)
+                  .toList();
+              if (lines.length != _chapters.length) {
+                _showSnack('目录行数必须和当前章节数一致');
+                return;
+              }
+              Navigator.of(context).pop(lines);
+            },
+            child: Text(context.t('保存')),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (titles == null) return;
+    final next = _book.copyWith(manualChapterTitles: titles);
+    await _saveBook(next);
+    if (!mounted) return;
+    setState(() {
+      _book = next;
+      _chapters = _applyManualChapterTitles(buildNovelChapters(_content));
+    });
+  }
+
   Future<void> _clearNovelChat() async {
     final shouldClear = await showDialog<bool>(
       context: context,
@@ -1697,47 +1832,78 @@ ${role.speakingStyle}
     _scrollChatToEnd();
     await widget.storage.saveNovelChat(_book.id, _messages);
 
+    final requestMessages = [
+      {
+        'role': 'system',
+        'content': PromptBuilder.buildNovelChatSystemPrompt(
+          _book,
+          role,
+          _book.selectedUserRole,
+        ),
+      },
+      for (final message
+          in _messages.length > 30
+              ? _messages.sublist(_messages.length - 30)
+              : _messages)
+        if (message.isUser || message.isAssistant)
+          {'role': message.role, 'content': message.content},
+    ];
+    final assistantMessage = ChatMessage(
+      role: 'assistant',
+      content: '',
+      time: DateTime.now(),
+      endpointId: endpoint.id,
+      endpointName: endpoint.name,
+      model: endpoint.model,
+    );
+    final cancelToken = AiCancelToken();
+    _cancelToken = cancelToken;
     try {
-      final reply = await widget.aiService.sendMessage(
+      setState(() => _messages = [..._messages, assistantMessage]);
+      _scrollChatToEnd();
+
+      var reply = '';
+      await for (final chunk in widget.aiService.streamMessage(
         apiKey: endpoint.apiKey,
         baseUrl: endpoint.baseUrl,
         model: endpoint.model,
-        messages: [
-          {
-            'role': 'system',
-            'content': PromptBuilder.buildNovelChatSystemPrompt(
-              _book,
-              role,
-              _book.selectedUserRole,
-            ),
-          },
-          for (final message
-              in _messages.length > 30
-                  ? _messages.sublist(_messages.length - 30)
-                  : _messages)
-            if (message.isUser || message.isAssistant)
-              {'role': message.role, 'content': message.content},
-        ],
-      );
-      final assistantMessage = ChatMessage(
-        role: 'assistant',
-        content: reply,
-        time: DateTime.now(),
-        endpointId: endpoint.id,
-        endpointName: endpoint.name,
-        model: endpoint.model,
-      );
+        messages: requestMessages,
+        cancelToken: cancelToken,
+      )) {
+        if (!mounted) return;
+        reply += chunk;
+        setState(() {
+          _messages = [
+            ..._messages.take(_messages.length - 1),
+            assistantMessage.copyWith(content: reply),
+          ];
+        });
+        _scrollChatToEnd();
+      }
+      if (reply.trim().isEmpty) {
+        throw AiException('API 没有返回可用回复。');
+      }
       if (!mounted) return;
-      setState(() {
-        _messages = [..._messages, assistantMessage];
-        _isSending = false;
-      });
+      setState(() => _isSending = false);
       await widget.storage.saveNovelChat(_book.id, _messages);
       _scrollChatToEnd();
     } catch (error) {
       if (!mounted) return;
-      setState(() => _isSending = false);
+      setState(() {
+        _dropEmptyAssistantTail();
+        _isSending = false;
+      });
       _showSnack(error.toString());
+    } finally {
+      if (identical(_cancelToken, cancelToken)) _cancelToken = null;
+    }
+  }
+
+  void _dropEmptyAssistantTail() {
+    if (_messages.isNotEmpty &&
+        _messages.last.isAssistant &&
+        _messages.last.content.trim().isEmpty) {
+      _messages = _messages.sublist(0, _messages.length - 1);
     }
   }
 
@@ -1757,6 +1923,10 @@ ${role.speakingStyle}
         chapterIndex: index.clamp(0, _chapters.length - 1).toInt(),
       ),
     );
+    if (_readScrollController.hasClients) {
+      _readScrollController.jumpTo(0);
+    }
+    setState(() => _readProgress = 0);
   }
 
   Future<void> _chooseChapter() async {
@@ -1782,6 +1952,9 @@ ${role.speakingStyle}
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
+                trailing: _book.bookmarkedChapterIndexes.contains(index)
+                    ? const Icon(Icons.bookmark)
+                    : null,
                 onTap: () => Navigator.of(context).pop(index),
               ),
             ),
@@ -1791,6 +1964,91 @@ ${role.speakingStyle}
     );
     if (selected == null) return;
     await _setChapter(selected);
+  }
+
+  bool get _isCurrentChapterBookmarked =>
+      _book.bookmarkedChapterIndexes.contains(_safeChapterIndex);
+
+  Future<void> _toggleBookmark() async {
+    if (_chapters.isEmpty) return;
+    final bookmarks = _book.bookmarkedChapterIndexes.toSet();
+    if (!bookmarks.remove(_safeChapterIndex)) {
+      bookmarks.add(_safeChapterIndex);
+    }
+    final next = bookmarks.toList()..sort();
+    await _saveBook(_book.copyWith(bookmarkedChapterIndexes: next));
+  }
+
+  Future<void> _showReaderSearchDialog() async {
+    final controller = TextEditingController(text: _readerSearchQuery);
+    final query = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(context.t('搜索正文')),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: InputDecoration(
+            prefixIcon: const Icon(Icons.search),
+            hintText: context.t('输入关键词'),
+          ),
+          onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(''),
+            child: Text(context.t('清除')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: Text(context.t('搜索')),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (query == null) return;
+    setState(() => _readerSearchQuery = query);
+    if (query.isEmpty) return;
+
+    final lower = query.toLowerCase();
+    if (_book.readingMode == 1 && _chapters.isNotEmpty) {
+      final index = _chapters.indexWhere(
+        (chapter) =>
+            chapter.title.toLowerCase().contains(lower) ||
+            chapter.content.toLowerCase().contains(lower),
+      );
+      if (index >= 0) {
+        await _setChapter(index);
+        return;
+      }
+    } else {
+      final index = _readChunks.indexWhere(
+        (chunk) => chunk.toLowerCase().contains(lower),
+      );
+      if (index >= 0 && _readScrollController.hasClients) {
+        final max = _readScrollController.position.maxScrollExtent;
+        _readScrollController.animateTo(
+          (index * 260.0).clamp(0, max).toDouble(),
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+        );
+        return;
+      }
+    }
+    _showSnack('没有找到匹配内容');
+  }
+
+  void _updateReadProgress() {
+    if (!_readScrollController.hasClients) return;
+    final position = _readScrollController.position;
+    final max = position.maxScrollExtent;
+    final next = max <= 0
+        ? 1.0
+        : (position.pixels / max).clamp(0, 1).toDouble();
+    if ((next - _readProgress).abs() > 0.01 && mounted) {
+      setState(() => _readProgress = next);
+    }
   }
 
   Future<void> _pickChatBackground() async {
@@ -1826,6 +2084,9 @@ ${role.speakingStyle}
       );
     });
   }
+
+  bool get _showNovelTypingBubble =>
+      _isSending && (_messages.isEmpty || !_messages.last.isAssistant);
 
   void _showSnack(String message) {
     ScaffoldMessenger.of(context)
@@ -1896,62 +2157,119 @@ ${role.speakingStyle}
     if (chunks.isEmpty) {
       return Center(child: Text(context.t('小说正文为空')));
     }
+    final colors = _readerColors(context);
     final textStyle = Theme.of(context).textTheme.bodyLarge?.copyWith(
       fontSize: _book.fontSize,
       height: _book.lineHeight,
+      color: colors.text,
     );
-    return Column(
-      children: [
-        if (useChapterMode)
+    final title = useChapterMode
+        ? '${_safeChapterIndex + 1}/${_chapters.length} · ${_chapters[_safeChapterIndex].title}'
+        : '${context.t('阅读进度')} ${(_readProgress * 100).round()}%';
+    return ColoredBox(
+      color: colors.background,
+      child: Column(
+        children: [
           Material(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            color: colors.bar,
             child: SafeArea(
               bottom: false,
               child: Row(
                 children: [
-                  IconButton(
-                    tooltip: context.t('上一章'),
-                    onPressed: _safeChapterIndex == 0
-                        ? null
-                        : () => _setChapter(_safeChapterIndex - 1),
-                    icon: const Icon(Icons.chevron_left),
-                  ),
+                  if (useChapterMode)
+                    IconButton(
+                      tooltip: context.t('上一章'),
+                      onPressed: _safeChapterIndex == 0
+                          ? null
+                          : () => _setChapter(_safeChapterIndex - 1),
+                      icon: const Icon(Icons.chevron_left),
+                    ),
                   Expanded(
                     child: TextButton(
-                      onPressed: _chooseChapter,
+                      onPressed: useChapterMode ? _chooseChapter : null,
                       child: Text(
-                        _chapters[_safeChapterIndex].title,
+                        title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ),
                   IconButton(
-                    tooltip: context.t('下一章'),
-                    onPressed: _safeChapterIndex >= _chapters.length - 1
-                        ? null
-                        : () => _setChapter(_safeChapterIndex + 1),
-                    icon: const Icon(Icons.chevron_right),
+                    tooltip: context.t('搜索正文'),
+                    onPressed: _showReaderSearchDialog,
+                    icon: const Icon(Icons.search),
                   ),
+                  if (useChapterMode)
+                    IconButton(
+                      tooltip: context.t('书签'),
+                      onPressed: _toggleBookmark,
+                      icon: Icon(
+                        _isCurrentChapterBookmarked
+                            ? Icons.bookmark
+                            : Icons.bookmark_border,
+                      ),
+                    ),
+                  if (useChapterMode)
+                    IconButton(
+                      tooltip: context.t('下一章'),
+                      onPressed: _safeChapterIndex >= _chapters.length - 1
+                          ? null
+                          : () => _setChapter(_safeChapterIndex + 1),
+                      icon: const Icon(Icons.chevron_right),
+                    ),
                 ],
               ),
             ),
           ),
-        Expanded(
-          child: ListView.builder(
-            key: ValueKey(
-              useChapterMode ? 'chapter-$_safeChapterIndex' : 'continuous',
-            ),
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-            itemCount: chunks.length,
-            itemBuilder: (context, index) => Padding(
-              padding: const EdgeInsets.only(bottom: 14),
-              child: SelectableText(chunks[index], style: textStyle),
+          Expanded(
+            child: ListView.builder(
+              key: ValueKey(
+                useChapterMode ? 'chapter-$_safeChapterIndex' : 'continuous',
+              ),
+              controller: _readScrollController,
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+              itemCount: chunks.length,
+              itemBuilder: (context, index) => Padding(
+                padding: const EdgeInsets.only(bottom: 14),
+                child: _ReaderText(
+                  text: chunks[index],
+                  style: textStyle,
+                  highlightQuery: _readerSearchQuery,
+                ),
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
+  }
+
+  ({Color background, Color text, Color bar}) _readerColors(
+    BuildContext context,
+  ) {
+    final scheme = Theme.of(context).colorScheme;
+    return switch (_book.readerTheme) {
+      1 => (
+        background: const Color(0xFFFFFCF4),
+        text: const Color(0xFF222222),
+        bar: const Color(0xFFF6EEDC),
+      ),
+      2 => (
+        background: const Color(0xFFF1F5E8),
+        text: const Color(0xFF1F2A1F),
+        bar: const Color(0xFFE2EAD6),
+      ),
+      3 => (
+        background: const Color(0xFF101214),
+        text: const Color(0xFFE7E4DC),
+        bar: const Color(0xFF1A1D21),
+      ),
+      _ => (
+        background: scheme.surface,
+        text: scheme.onSurface,
+        bar: scheme.surfaceContainerHighest,
+      ),
+    };
   }
 
   Widget _buildChatMode() {
@@ -1988,9 +2306,10 @@ ${role.speakingStyle}
                       controller: _chatScrollController,
                       reverse: true,
                       padding: const EdgeInsets.fromLTRB(0, 12, 0, 12),
-                      itemCount: _messages.length + (_isSending ? 1 : 0),
+                      itemCount:
+                          _messages.length + (_showNovelTypingBubble ? 1 : 0),
                       itemBuilder: (context, index) {
-                        if (_isSending && index == 0) {
+                        if (_showNovelTypingBubble && index == 0) {
                           return _NovelBubble(
                             text: context.t('生成中'),
                             isUser: false,
@@ -1999,7 +2318,7 @@ ${role.speakingStyle}
                         final messageIndex =
                             _messages.length -
                             1 -
-                            (index - (_isSending ? 1 : 0));
+                            (index - (_showNovelTypingBubble ? 1 : 0));
                         final message = _messages[messageIndex];
                         return _NovelBubble(
                           text: message.content,
@@ -2062,6 +2381,56 @@ class _NovelAiResult {
 
   final String summary;
   final List<NovelRoleCandidate> roles;
+}
+
+class _ReaderText extends StatelessWidget {
+  const _ReaderText({
+    required this.text,
+    required this.style,
+    required this.highlightQuery,
+  });
+
+  final String text;
+  final TextStyle? style;
+  final String highlightQuery;
+
+  @override
+  Widget build(BuildContext context) {
+    final query = highlightQuery.trim();
+    if (query.isEmpty) {
+      return SelectableText(text, style: style);
+    }
+    final matches = RegExp(
+      RegExp.escape(query),
+      caseSensitive: false,
+    ).allMatches(text).toList();
+    if (matches.isEmpty) {
+      return SelectableText(text, style: style);
+    }
+
+    final highlightStyle = style?.copyWith(
+      backgroundColor: Theme.of(context).colorScheme.tertiaryContainer,
+      color: Theme.of(context).colorScheme.onTertiaryContainer,
+    );
+    var cursor = 0;
+    final spans = <TextSpan>[];
+    for (final match in matches) {
+      if (match.start > cursor) {
+        spans.add(TextSpan(text: text.substring(cursor, match.start)));
+      }
+      spans.add(
+        TextSpan(
+          text: text.substring(match.start, match.end),
+          style: highlightStyle,
+        ),
+      );
+      cursor = match.end;
+    }
+    if (cursor < text.length) {
+      spans.add(TextSpan(text: text.substring(cursor)));
+    }
+    return SelectableText.rich(TextSpan(style: style, children: spans));
+  }
 }
 
 class _NovelChatBackground extends StatelessWidget {
@@ -2137,7 +2506,7 @@ class _NovelBubble extends StatelessWidget {
                 : theme.colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(8),
           ),
-          child: SelectableText(text),
+          child: MessageContent(text: text),
         ),
       ),
     );

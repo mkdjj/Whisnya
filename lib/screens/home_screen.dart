@@ -1,8 +1,10 @@
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../models/ai_provider.dart';
 import '../models/app_character.dart';
 import '../models/app_settings.dart';
 import '../services/ai_service.dart';
@@ -10,6 +12,7 @@ import '../services/local_storage_service.dart';
 import '../utils/app_i18n.dart';
 import '../utils/page_layout.dart';
 import '../utils/password_lock.dart';
+import '../utils/role_import_parser.dart';
 import '../widgets/app_background.dart';
 import 'character_edit_screen.dart';
 import 'chat_screen.dart';
@@ -42,6 +45,7 @@ class _HomeScreenState extends State<HomeScreen> {
   var _isLoading = true;
   var _tabIndex = 0;
   var _novelGridView = false;
+  var _characterSearchQuery = '';
   String? _error;
   List<AppCharacter> _characters = const [];
 
@@ -60,11 +64,17 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       await widget.storage.ensureReady();
       final characters = await widget.storage.loadCharacters();
+      final recoveryMessages = widget.storage.takeRecoveryMessages();
       if (!mounted) return;
       setState(() {
         _characters = characters;
         _isLoading = false;
       });
+      if (recoveryMessages.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _showSnack(recoveryMessages.join('\n'));
+        });
+      }
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -90,6 +100,79 @@ class _HomeScreenState extends State<HomeScreen> {
     if (saved == true) {
       await _load();
     }
+  }
+
+  Future<void> _batchImportCharacters() async {
+    final result = await FilePicker.platform.pickFiles(
+      allowMultiple: true,
+      type: FileType.custom,
+      allowedExtensions: const ['zip', 'txt', 'md'],
+    );
+    if (result == null) return;
+
+    var imported = 0;
+    var failed = 0;
+    for (final picked in result.files) {
+      final path = picked.path;
+      if (path == null) {
+        failed++;
+        continue;
+      }
+      try {
+        final file = File(path);
+        final extension = picked.extension?.toLowerCase() ?? '';
+        if (extension == 'zip') {
+          await widget.storage.importCharacterPackage(await file.readAsBytes());
+        } else {
+          final parsed = RoleImportParser.parse(await file.readAsString());
+          if (parsed.filledCount == 0 && parsed.name.trim().isEmpty) {
+            throw const FormatException('empty role card');
+          }
+          await widget.storage.saveCharacter(
+            _characterFromParsed(parsed, _fileTitle(path)),
+          );
+        }
+        imported++;
+      } catch (_) {
+        failed++;
+      }
+    }
+
+    await _load();
+    if (!mounted) return;
+    final message = failed == 0
+        ? '已导入 $imported 个角色'
+        : '已导入 $imported 个角色，失败 $failed 个';
+    _showSnack(message);
+  }
+
+  AppCharacter _characterFromParsed(ParsedRoleFields parsed, String fallback) {
+    final now = DateTime.now();
+    return AppCharacter(
+      id: 'character_${now.microsecondsSinceEpoch}_${fallback.hashCode.abs()}',
+      name: parsed.name.trim().isEmpty ? fallback : parsed.name.trim(),
+      avatar: '',
+      backgroundImage: '',
+      backgroundImageOpacity: 1,
+      backgroundBlur: 0,
+      bubbleOpacity: 0.92,
+      inputOpacity: 0.92,
+      description: parsed.description,
+      personality: parsed.personality,
+      background: parsed.background,
+      speakingStyle: parsed.speakingStyle,
+      openingMessage: parsed.openingMessage,
+      extraPrompt: parsed.extraPrompt,
+      defaultProvider: AiProvider.deepseek,
+      createdAt: now,
+      updatedAt: now,
+      lastUsedAt: now,
+    );
+  }
+
+  String _fileTitle(String path) {
+    final name = path.split(RegExp(r'[\\/]')).last;
+    return name.replaceFirst(RegExp(r'\.[^.]+$'), '').trim();
   }
 
   Future<void> _openChat(AppCharacter character) async {
@@ -199,9 +282,10 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Text(context.t('取消')),
           ),
           FilledButton(
-            onPressed: () {
+            onPressed: () async {
+              final password = controller.text;
               final ok = PasswordLock.verify(
-                controller.text,
+                password,
                 widget.settings.privacyPasswordSalt,
                 widget.settings.privacyPasswordHash,
               );
@@ -209,6 +293,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 _showSnack('密码不正确');
                 return;
               }
+              final migrated = await widget.storage
+                  .upgradePrivacyPasswordHashIfNeeded(
+                    widget.settings,
+                    password,
+                  );
+              if (migrated != null) {
+                await widget.onSettingsChanged();
+              }
+              if (!context.mounted) return;
               Navigator.of(context).pop(true);
             },
             child: Text(context.t('确认')),
@@ -303,10 +396,21 @@ class _HomeScreenState extends State<HomeScreen> {
                 Padding(
                   padding: const EdgeInsets.only(right: 12),
                   child: Center(
-                    child: FilledButton.icon(
-                      onPressed: () => _editCharacter(),
-                      icon: const Icon(Icons.add),
-                      label: Text(context.t('新建角色')),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton.filledTonal(
+                          tooltip: context.t('批量导入'),
+                          onPressed: _batchImportCharacters,
+                          icon: const Icon(Icons.drive_folder_upload_outlined),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton.icon(
+                          onPressed: () => _editCharacter(),
+                          icon: const Icon(Icons.add),
+                          label: Text(context.t('新建角色')),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -528,121 +632,164 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
+    final characters = _filteredCharacters();
     return AdaptivePage(
-      child: ListView.separated(
-        padding: EdgeInsets.fromLTRB(0, homeListTop(context), 0, 148),
-        itemCount: _characters.length,
-        separatorBuilder: (context, index) => const SizedBox(height: 8),
-        itemBuilder: (context, index) {
-          final character = _characters[index];
-          return Card(
-            margin: EdgeInsets.zero,
-            child: ListTile(
-              leading: _CharacterAvatar(character: character),
-              title: Row(
-                children: [
-                  Flexible(child: Text(character.name)),
-                  if (character.isPinned) ...[
-                    const SizedBox(width: 6),
-                    Icon(
-                      Icons.push_pin,
-                      size: 16,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ],
-                ],
-              ),
-              subtitle: Text(
-                character.isHidden
-                    ? '******'
-                    : character.description.isEmpty
-                    ? context.t('未填写简介')
-                    : character.description,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              onTap: () => _openChat(character),
-              trailing: PopupMenuButton<_CharacterAction>(
-                onSelected: (action) {
-                  switch (action) {
-                    case _CharacterAction.edit:
-                      _editCharacter(character);
-                      break;
-                    case _CharacterAction.pin:
-                      _togglePin(character);
-                      break;
-                    case _CharacterAction.hide:
-                      _toggleHidden(character);
-                      break;
-                    case _CharacterAction.lock:
-                      _toggleLock(character);
-                      break;
-                    case _CharacterAction.delete:
-                      _deleteCharacter(character);
-                      break;
-                  }
-                },
-                itemBuilder: (context) => [
-                  PopupMenuItem(
-                    value: _CharacterAction.edit,
-                    child: ListTile(
-                      leading: const Icon(Icons.edit),
-                      title: Text(context.t('编辑角色')),
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: _CharacterAction.pin,
-                    child: ListTile(
-                      leading: Icon(
-                        character.isPinned
-                            ? Icons.push_pin
-                            : Icons.push_pin_outlined,
-                      ),
-                      title: Text(
-                        context.t(character.isPinned ? '取消置顶' : '置顶角色'),
-                      ),
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: _CharacterAction.hide,
-                    child: ListTile(
-                      leading: Icon(
-                        character.isHidden
-                            ? Icons.visibility_outlined
-                            : Icons.visibility_off_outlined,
-                      ),
-                      title: Text(
-                        context.t(character.isHidden ? '显示设定' : '隐藏设定'),
-                      ),
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: _CharacterAction.lock,
-                    child: ListTile(
-                      leading: Icon(
-                        character.isLocked
-                            ? Icons.lock_open_outlined
-                            : Icons.lock_outline,
-                      ),
-                      title: Text(
-                        context.t(character.isLocked ? '解除上锁' : '上锁'),
-                      ),
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: _CharacterAction.delete,
-                    child: ListTile(
-                      leading: const Icon(Icons.delete_outline),
-                      title: Text(context.t('删除角色')),
-                    ),
-                  ),
-                ],
-              ),
+      child: Column(
+        children: [
+          SizedBox(height: homeListTop(context)),
+          TextField(
+            decoration: InputDecoration(
+              prefixIcon: const Icon(Icons.search),
+              hintText: context.t('搜索角色'),
+              isDense: true,
             ),
-          );
-        },
+            onChanged: (value) => setState(() => _characterSearchQuery = value),
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: characters.isEmpty
+                ? Center(child: Text(context.t('没有匹配的角色')))
+                : ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(0, 0, 0, 148),
+                    itemCount: characters.length,
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final character = characters[index];
+                      return Card(
+                        margin: EdgeInsets.zero,
+                        child: ListTile(
+                          leading: _CharacterAvatar(character: character),
+                          title: Row(
+                            children: [
+                              Flexible(child: Text(character.name)),
+                              if (character.isPinned) ...[
+                                const SizedBox(width: 6),
+                                Icon(
+                                  Icons.push_pin,
+                                  size: 16,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
+                              ],
+                            ],
+                          ),
+                          subtitle: Text(
+                            character.isHidden
+                                ? '******'
+                                : character.description.isEmpty
+                                ? context.t('未填写简介')
+                                : character.description,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onTap: () => _openChat(character),
+                          trailing: PopupMenuButton<_CharacterAction>(
+                            onSelected: (action) {
+                              switch (action) {
+                                case _CharacterAction.edit:
+                                  _editCharacter(character);
+                                  break;
+                                case _CharacterAction.pin:
+                                  _togglePin(character);
+                                  break;
+                                case _CharacterAction.hide:
+                                  _toggleHidden(character);
+                                  break;
+                                case _CharacterAction.lock:
+                                  _toggleLock(character);
+                                  break;
+                                case _CharacterAction.delete:
+                                  _deleteCharacter(character);
+                                  break;
+                              }
+                            },
+                            itemBuilder: (context) => [
+                              PopupMenuItem(
+                                value: _CharacterAction.edit,
+                                child: ListTile(
+                                  leading: const Icon(Icons.edit),
+                                  title: Text(context.t('编辑角色')),
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: _CharacterAction.pin,
+                                child: ListTile(
+                                  leading: Icon(
+                                    character.isPinned
+                                        ? Icons.push_pin
+                                        : Icons.push_pin_outlined,
+                                  ),
+                                  title: Text(
+                                    context.t(
+                                      character.isPinned ? '取消置顶' : '置顶角色',
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: _CharacterAction.hide,
+                                child: ListTile(
+                                  leading: Icon(
+                                    character.isHidden
+                                        ? Icons.visibility_outlined
+                                        : Icons.visibility_off_outlined,
+                                  ),
+                                  title: Text(
+                                    context.t(
+                                      character.isHidden ? '显示设定' : '隐藏设定',
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: _CharacterAction.lock,
+                                child: ListTile(
+                                  leading: Icon(
+                                    character.isLocked
+                                        ? Icons.lock_open_outlined
+                                        : Icons.lock_outline,
+                                  ),
+                                  title: Text(
+                                    context.t(
+                                      character.isLocked ? '解除上锁' : '上锁',
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: _CharacterAction.delete,
+                                child: ListTile(
+                                  leading: const Icon(Icons.delete_outline),
+                                  title: Text(context.t('删除角色')),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
       ),
     );
+  }
+
+  List<AppCharacter> _filteredCharacters() {
+    final query = _characterSearchQuery.trim().toLowerCase();
+    if (query.isEmpty) return _characters;
+    return _characters.where((character) {
+      final visibleText = character.isHidden
+          ? character.name
+          : [
+              character.name,
+              character.description,
+              character.personality,
+              character.background,
+              character.speakingStyle,
+            ].join('\n');
+      return visibleText.toLowerCase().contains(query);
+    }).toList();
   }
 
   SystemUiOverlayStyle _overlayStyle(BuildContext context) {
