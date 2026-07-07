@@ -12,6 +12,10 @@ class AppSettings {
     this.navigationBarOpacity = 1,
     this.streamResponses = true,
     this.showReasoningContent = false,
+    this.useCustomChatSummaryItems = false,
+    this.customChatSummaryItems = defaultChatSummaryItems,
+    this.useCustomTheaterSummaryItems = false,
+    this.customTheaterSummaryItems = defaultTheaterSummaryItems,
     this.languageCode = 'system',
     this.privacyPasswordHash = '',
     this.privacyPasswordSalt = '',
@@ -30,6 +34,10 @@ class AppSettings {
   final double navigationBarOpacity;
   final bool streamResponses;
   final bool showReasoningContent;
+  final bool useCustomChatSummaryItems;
+  final List<String> customChatSummaryItems;
+  final bool useCustomTheaterSummaryItems;
+  final List<String> customTheaterSummaryItems;
   final String languageCode;
   final String privacyPasswordHash;
   final String privacyPasswordSalt;
@@ -58,6 +66,10 @@ class AppSettings {
     double? navigationBarOpacity,
     bool? streamResponses,
     bool? showReasoningContent,
+    bool? useCustomChatSummaryItems,
+    List<String>? customChatSummaryItems,
+    bool? useCustomTheaterSummaryItems,
+    List<String>? customTheaterSummaryItems,
     String? languageCode,
     String? privacyPasswordHash,
     String? privacyPasswordSalt,
@@ -82,6 +94,16 @@ class AppSettings {
       navigationBarOpacity: navigationBarOpacity ?? this.navigationBarOpacity,
       streamResponses: streamResponses ?? this.streamResponses,
       showReasoningContent: showReasoningContent ?? this.showReasoningContent,
+      useCustomChatSummaryItems:
+          useCustomChatSummaryItems ?? this.useCustomChatSummaryItems,
+      customChatSummaryItems: customChatSummaryItems == null
+          ? this.customChatSummaryItems
+          : cleanChatSummaryItems(customChatSummaryItems),
+      useCustomTheaterSummaryItems:
+          useCustomTheaterSummaryItems ?? this.useCustomTheaterSummaryItems,
+      customTheaterSummaryItems: customTheaterSummaryItems == null
+          ? this.customTheaterSummaryItems
+          : cleanTheaterSummaryItems(customTheaterSummaryItems),
       languageCode: languageCode ?? this.languageCode,
       privacyPasswordHash: privacyPasswordHash ?? this.privacyPasswordHash,
       privacyPasswordSalt: privacyPasswordSalt ?? this.privacyPasswordSalt,
@@ -112,6 +134,18 @@ class AppSettings {
       ).clamp(0, 1),
       streamResponses: json?['streamResponses'] as bool? ?? true,
       showReasoningContent: json?['showReasoningContent'] as bool? ?? false,
+      useCustomChatSummaryItems:
+          json?['useCustomChatSummaryItems'] as bool? ?? false,
+      customChatSummaryItems: cleanChatSummaryItems(
+        (json?['customChatSummaryItems'] as List?)?.whereType<String>() ??
+            defaultChatSummaryItems,
+      ),
+      useCustomTheaterSummaryItems:
+          json?['useCustomTheaterSummaryItems'] as bool? ?? false,
+      customTheaterSummaryItems: cleanTheaterSummaryItems(
+        (json?['customTheaterSummaryItems'] as List?)?.whereType<String>() ??
+            defaultTheaterSummaryItems,
+      ),
       languageCode: json?['languageCode'] as String? ?? 'system',
       privacyPasswordHash: json?['privacyPasswordHash'] as String? ?? '',
       privacyPasswordSalt: json?['privacyPasswordSalt'] as String? ?? '',
@@ -133,6 +167,10 @@ class AppSettings {
       'navigationBarOpacity': navigationBarOpacity,
       'streamResponses': streamResponses,
       'showReasoningContent': showReasoningContent,
+      'useCustomChatSummaryItems': useCustomChatSummaryItems,
+      'customChatSummaryItems': customChatSummaryItems,
+      'useCustomTheaterSummaryItems': useCustomTheaterSummaryItems,
+      'customTheaterSummaryItems': customTheaterSummaryItems,
       'languageCode': languageCode,
       'privacyPasswordHash': privacyPasswordHash,
       'privacyPasswordSalt': privacyPasswordSalt,
@@ -155,5 +193,55 @@ class AppSettings {
       return value.toDouble();
     }
     return fallback;
+  }
+
+  static const maxSummaryItems = 20;
+
+  static const defaultChatSummaryItems = [
+    '角色和用户的关系、态度等等',
+    '用户的喜好和一些提到的重要信息',
+    '角色需要记住的设定或者关系变化',
+    '这些聊天说了什么发生了什么',
+  ];
+
+  static const defaultChatSummaryItemsEn = [
+    'The relationship and attitude between the character and user',
+    'The user\'s preferences and important information they mentioned',
+    'Settings or relationship changes the character needs to remember',
+    'What was said and what happened in this chat',
+  ];
+
+  static const defaultTheaterSummaryItems = [
+    '各个角色、用户之间现在的相互关系',
+    '用户表达出来的信息/动作',
+    '这些人（包括用户）在干什么',
+    '有没有什么未完成/计划中的事',
+  ];
+
+  static const defaultTheaterSummaryItemsEn = [
+    'Current relationships among all characters and the user',
+    'Information or actions expressed by the user',
+    'What everyone, including the user, is doing',
+    'Unfinished or planned matters',
+  ];
+
+  static List<String> cleanChatSummaryItems(Iterable<String> items) {
+    return _cleanSummaryItems(items, defaultChatSummaryItems);
+  }
+
+  static List<String> cleanTheaterSummaryItems(Iterable<String> items) {
+    return _cleanSummaryItems(items, defaultTheaterSummaryItems);
+  }
+
+  static List<String> _cleanSummaryItems(
+    Iterable<String> items,
+    List<String> defaults,
+  ) {
+    final cleaned = items
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .take(maxSummaryItems)
+        .toList();
+    return cleaned.isEmpty ? List<String>.of(defaults) : cleaned;
   }
 }

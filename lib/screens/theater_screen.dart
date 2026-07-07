@@ -1552,6 +1552,8 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
             'content': PromptBuilder.buildTheaterSummaryPrompt(
               previousSummary: _session.theaterSummary,
               messages: chunk,
+              useCustomItems: widget.settings.useCustomTheaterSummaryItems,
+              customItems: widget.settings.customTheaterSummaryItems,
             ),
           },
         ],

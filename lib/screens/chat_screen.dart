@@ -330,7 +330,11 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() => _isSummarizing = true);
     try {
       final messages = _chatMessagesOnly();
-      final prompt = PromptBuilder.buildSummaryPrompt(messages);
+      final prompt = PromptBuilder.buildSummaryPrompt(
+        messages,
+        useCustomItems: widget.settings.useCustomChatSummaryItems,
+        customItems: widget.settings.customChatSummaryItems,
+      );
       final summaryText = await widget.aiService.sendMessage(
         apiKey: endpoint!.apiKey,
         baseUrl: endpoint.baseUrl,
@@ -571,6 +575,8 @@ class _ChatScreenState extends State<ChatScreen> {
             'content': PromptBuilder.buildRollingSummaryPrompt(
               previousSummary: _summary.summary,
               newMessages: nextChunk,
+              useCustomItems: widget.settings.useCustomChatSummaryItems,
+              customItems: widget.settings.customChatSummaryItems,
             ),
           },
         ],

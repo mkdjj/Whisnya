@@ -50,9 +50,23 @@ void main() {
       ChatMessage(role: 'assistant', content: '你好呀', time: DateTime(2026)),
     ]);
 
-    expect(prompt, contains('本次聊天主要内容'));
+    expect(prompt, contains('角色和用户的关系、态度等等'));
+    expect(prompt, contains('用户的喜好和一些提到的重要信息'));
     expect(prompt, contains('用户：你好'));
     expect(prompt, contains('角色：你好呀'));
+    expect(prompt, isNot(contains('本次聊天主要内容')));
+  });
+
+  test('builds custom character summary prompt items', () {
+    final prompt = PromptBuilder.buildSummaryPrompt(
+      [ChatMessage(role: 'user', content: '喜欢甜食', time: DateTime(2026))],
+      useCustomItems: true,
+      customItems: const ['  亲密度变化  ', '', '约定事项'],
+    );
+
+    expect(prompt, contains('1. 亲密度变化'));
+    expect(prompt, contains('2. 约定事项'));
+    expect(prompt, isNot(contains('角色和用户的关系、态度等等')));
   });
 
   test('builds full chat context when requested', () {
@@ -169,6 +183,50 @@ void main() {
     expect(prompt, contains('旧总结'));
     expect(prompt, contains('用户：新消息'));
     expect(prompt, contains('合并'));
+    expect(prompt, contains('角色需要记住的设定或者关系变化'));
+  });
+
+  test('builds custom rolling summary prompt items', () {
+    final prompt = PromptBuilder.buildRollingSummaryPrompt(
+      previousSummary: '旧总结',
+      newMessages: [
+        ChatMessage(role: 'assistant', content: '新回复', time: DateTime(2026)),
+      ],
+      useCustomItems: true,
+      customItems: const ['记住的承诺'],
+    );
+
+    expect(prompt, contains('1. 记住的承诺'));
+    expect(prompt, isNot(contains('这些聊天说了什么发生了什么')));
+  });
+
+  test('builds theater summary prompt default and custom items', () {
+    final message = TheaterMessage(
+      id: 'm1',
+      sessionId: 's1',
+      round: 1,
+      speakerType: TheaterSpeakerType.user,
+      speakerId: 'user',
+      speakerName: '用户',
+      content: '我去开门',
+      time: DateTime(2026),
+    );
+    final defaultPrompt = PromptBuilder.buildTheaterSummaryPrompt(
+      previousSummary: '旧群聊总结',
+      messages: [message],
+    );
+    final customPrompt = PromptBuilder.buildTheaterSummaryPrompt(
+      previousSummary: '旧群聊总结',
+      messages: [message],
+      useCustomItems: true,
+      customItems: const ['舞台站位', '下一步行动'],
+    );
+
+    expect(defaultPrompt, contains('各个角色、用户之间现在的相互关系'));
+    expect(defaultPrompt, contains('用户：我去开门'));
+    expect(customPrompt, contains('1. 舞台站位'));
+    expect(customPrompt, contains('2. 下一步行动'));
+    expect(customPrompt, isNot(contains('这些人（包括用户）在干什么')));
   });
 
   test('round trips theater session and parses single api replies', () {

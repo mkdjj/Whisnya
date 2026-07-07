@@ -756,6 +756,152 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ..showSnackBar(SnackBar(content: Text(context.t(message))));
   }
 
+  void _setCustomChatSummaryEnabled(bool value) {
+    _applySettings(
+      _settings.copyWith(
+        useCustomChatSummaryItems: value,
+        customChatSummaryItems:
+            value && _isDefaultSummaryItems(_settings.customChatSummaryItems)
+            ? _summaryDefaults(isTheater: false)
+            : _settings.customChatSummaryItems,
+      ),
+    );
+  }
+
+  void _setCustomTheaterSummaryEnabled(bool value) {
+    _applySettings(
+      _settings.copyWith(
+        useCustomTheaterSummaryItems: value,
+        customTheaterSummaryItems:
+            value &&
+                _isDefaultSummaryItems(
+                  _settings.customTheaterSummaryItems,
+                  isTheater: true,
+                )
+            ? _summaryDefaults(isTheater: true)
+            : _settings.customTheaterSummaryItems,
+      ),
+    );
+  }
+
+  Future<void> _addSummaryItem({required bool isTheater}) async {
+    final items = _summaryItems(isTheater);
+    if (items.length >= AppSettings.maxSummaryItems) {
+      _showSnack('最多 20 个总结项目');
+      return;
+    }
+    final text = await _summaryItemDialog(title: '添加项目');
+    if (text == null) return;
+    _saveSummaryItems(isTheater: isTheater, items: [...items, text]);
+  }
+
+  Future<void> _editSummaryItem({
+    required int index,
+    required bool isTheater,
+  }) async {
+    final items = _summaryItems(isTheater);
+    if (index < 0 || index >= items.length) return;
+    final text = await _summaryItemDialog(
+      title: '编辑项目',
+      initialText: items[index],
+    );
+    if (text == null) return;
+    final next = [...items]..[index] = text;
+    _saveSummaryItems(isTheater: isTheater, items: next);
+  }
+
+  void _deleteSummaryItem({required int index, required bool isTheater}) {
+    final items = _summaryItems(isTheater);
+    if (items.length <= 1) {
+      _showSnack('至少保留一个总结项目');
+      return;
+    }
+    final next = [...items]..removeAt(index);
+    _saveSummaryItems(isTheater: isTheater, items: next);
+  }
+
+  void _restoreSummaryItems({required bool isTheater}) {
+    _saveSummaryItems(
+      isTheater: isTheater,
+      items: _summaryDefaults(isTheater: isTheater),
+    );
+  }
+
+  List<String> _summaryItems(bool isTheater) {
+    return isTheater
+        ? _settings.customTheaterSummaryItems
+        : _settings.customChatSummaryItems;
+  }
+
+  void _saveSummaryItems({
+    required bool isTheater,
+    required List<String> items,
+  }) {
+    _applySettings(
+      isTheater
+          ? _settings.copyWith(customTheaterSummaryItems: items)
+          : _settings.copyWith(customChatSummaryItems: items),
+    );
+  }
+
+  List<String> _summaryDefaults({required bool isTheater}) {
+    if (isTheater) {
+      return context.isEnglish
+          ? AppSettings.defaultTheaterSummaryItemsEn
+          : AppSettings.defaultTheaterSummaryItems;
+    }
+    return context.isEnglish
+        ? AppSettings.defaultChatSummaryItemsEn
+        : AppSettings.defaultChatSummaryItems;
+  }
+
+  bool _isDefaultSummaryItems(List<String> items, {bool isTheater = false}) {
+    final zh = isTheater
+        ? AppSettings.defaultTheaterSummaryItems
+        : AppSettings.defaultChatSummaryItems;
+    final en = isTheater
+        ? AppSettings.defaultTheaterSummaryItemsEn
+        : AppSettings.defaultChatSummaryItemsEn;
+    bool same(List<String> defaults) =>
+        items.length == defaults.length &&
+        Iterable.generate(items.length).every((i) => items[i] == defaults[i]);
+    return same(zh) || same(en);
+  }
+
+  Future<String?> _summaryItemDialog({
+    required String title,
+    String initialText = '',
+  }) async {
+    final controller = TextEditingController(text: initialText);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(context.t(title)),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: 2,
+          decoration: InputDecoration(hintText: context.t('总结项目')),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(context.t('取消')),
+          ),
+          FilledButton(
+            onPressed: () {
+              final text = controller.text.trim();
+              Navigator.of(context).pop(text.isEmpty ? null : text);
+            },
+            child: Text(context.t('保存')),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    return result;
+  }
+
   @override
   Widget build(BuildContext context) {
     return _content();
@@ -805,138 +951,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onTap: _pickLanguage,
             ),
             _tile(
-              icon: Icons.dark_mode_outlined,
-              title: context.t('主题模式'),
-              subtitle: _themeLabel(_settings.themeMode),
-              onTap: _pickThemeMode,
+              icon: Icons.checkroom_outlined,
+              title: context.t('主题设置'),
+              subtitle: context.t('与界面和颜色相关的一些设置'),
+              onTap: _openThemeSettings,
             ),
             _tile(
-              icon: Icons.format_size,
-              title: context.t('全局字体大小'),
-              subtitle: '${(_settings.fontScale * 100).round()}%',
-              child: _compactSlider(
-                value: _settings.fontScale,
-                min: 0.85,
-                max: 1.3,
-                divisions: 45,
-                onChanged: (value) {
-                  _previewSettings(_settings.copyWith(fontScale: value));
-                },
-                onChangeEnd: (value) {
-                  _applySettings(_settings.copyWith(fontScale: value));
-                },
-              ),
-            ),
-            _sectionTitle(context.t('颜色')),
-            _colorTile(
-              title: context.t('主界面字体颜色'),
-              value: _settings.interfaceTextColor,
-              onTap: () => _pickColor(
-                title: context.t('主界面字体颜色'),
-                value: _settings.interfaceTextColor,
-                onChanged: (value) => _applySettings(
-                  _settings.copyWith(
-                    interfaceTextColor: value,
-                    clearInterfaceTextColor: value == null,
-                  ),
-                ),
-              ),
-            ),
-            _colorTile(
-              title: context.t('聊天字体颜色'),
-              value: _settings.chatTextColor,
-              onTap: () => _pickColor(
-                title: context.t('聊天字体颜色'),
-                value: _settings.chatTextColor,
-                onChanged: (value) => _applySettings(
-                  _settings.copyWith(
-                    chatTextColor: value,
-                    clearChatTextColor: value == null,
-                  ),
-                ),
-              ),
-            ),
-            _sectionTitle(context.t('背景')),
-            _tile(
-              icon: Icons.image_outlined,
-              title: context.t('主页和设置背景'),
-              subtitle: _settings.globalBackgroundImage.isEmpty
-                  ? context.t('未设置')
-                  : context.t('已设置'),
-              onTap: _pickBackground,
-            ),
-            _tile(
-              icon: Icons.opacity,
-              title: context.t('界面背景透明度'),
-              subtitle: '${(_settings.globalBackgroundOpacity * 100).round()}%',
-              child: _compactSlider(
-                value: _settings.globalBackgroundOpacity.clamp(0, 1).toDouble(),
-                min: 0,
-                max: 1,
-                divisions: 100,
-                onChanged: (value) {
-                  _previewSettings(
-                    _settings.copyWith(globalBackgroundOpacity: value),
-                  );
-                },
-                onChangeEnd: (value) {
-                  _applySettings(
-                    _settings.copyWith(globalBackgroundOpacity: value),
-                  );
-                },
-              ),
-            ),
-            _tile(
-              icon: Icons.blur_on,
-              title: context.t('界面背景模糊度'),
-              subtitle: _settings.globalBackgroundBlur.toStringAsFixed(0),
-              child: _compactSlider(
-                value: _settings.globalBackgroundBlur.clamp(0, 12),
-                min: 0,
-                max: 12,
-                divisions: 12,
-                onChanged: (value) {
-                  _previewSettings(
-                    _settings.copyWith(globalBackgroundBlur: value),
-                  );
-                },
-                onChangeEnd: (value) {
-                  _applySettings(
-                    _settings.copyWith(globalBackgroundBlur: value),
-                  );
-                },
-              ),
-            ),
-            _tile(
-              icon: Icons.space_bar,
-              title: context.t('底部导航栏透明度'),
-              subtitle: '${(_settings.navigationBarOpacity * 100).round()}%',
-              child: _compactSlider(
-                value: _settings.navigationBarOpacity.clamp(0, 1).toDouble(),
-                min: 0,
-                max: 1,
-                divisions: 100,
-                onChanged: (value) {
-                  _applySettings(
-                    _settings.copyWith(navigationBarOpacity: value),
-                  );
-                },
-                onChangeEnd: (value) {
-                  _applySettings(
-                    _settings.copyWith(navigationBarOpacity: value),
-                  );
-                },
-              ),
-            ),
-            _tile(
-              icon: Icons.clear,
-              title: context.t('清空界面背景'),
-              subtitle: context.t('只删除背景引用，不影响图片文件'),
-              onTap: _settings.globalBackgroundImage.isEmpty
-                  ? null
-                  : () => _applySettings(
-                      _settings.copyWith(globalBackgroundImage: ''),
-                    ),
+              icon: Icons.summarize_outlined,
+              title: context.t('聊天总结'),
+              subtitle: context.t('配置角色聊天和群聊总结项目'),
+              onTap: _openSummarySettings,
             ),
             _sectionTitle(context.t('隐私')),
             _tile(
@@ -975,6 +999,322 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
       child: Text(title, style: Theme.of(context).textTheme.titleSmall),
+    );
+  }
+
+  Future<void> _openThemeSettings() {
+    return _openSubSettingsPage(
+      title: '主题设置',
+      childrenBuilder: _themeSettingsChildren,
+    );
+  }
+
+  Future<void> _openSummarySettings() {
+    return _openSubSettingsPage(
+      title: '聊天总结',
+      childrenBuilder: _summarySettingsChildren,
+    );
+  }
+
+  Future<void> _openSubSettingsPage({
+    required String title,
+    required List<Widget> Function(VoidCallback refresh) childrenBuilder,
+  }) {
+    return Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => StatefulBuilder(
+          builder: (pageContext, setPageState) {
+            void refresh() {
+              if (mounted) setPageState(() {});
+            }
+
+            return AppBackground(
+              settings: _settings,
+              child: Scaffold(
+                backgroundColor: Colors.transparent,
+                appBar: AppBar(
+                  title: Text(pageContext.t(title)),
+                  backgroundColor: Colors.transparent,
+                  elevation: 0,
+                  scrolledUnderElevation: 0,
+                  surfaceTintColor: Colors.transparent,
+                ),
+                body: AdaptivePage(
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(0, 12, 0, 80),
+                    children: childrenBuilder(refresh),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _themeSettingsChildren(VoidCallback refresh) {
+    void preview(AppSettings settings) {
+      _previewSettings(settings);
+      refresh();
+    }
+
+    void apply(AppSettings settings) {
+      _applySettings(settings);
+      refresh();
+    }
+
+    return [
+      _tile(
+        icon: Icons.dark_mode_outlined,
+        title: context.t('主题模式'),
+        subtitle: _themeLabel(_settings.themeMode),
+        onTap: () async {
+          await _pickThemeMode();
+          refresh();
+        },
+      ),
+      _tile(
+        icon: Icons.format_size,
+        title: context.t('全局字体大小'),
+        subtitle: '${(_settings.fontScale * 100).round()}%',
+        child: _compactSlider(
+          value: _settings.fontScale,
+          min: 0.85,
+          max: 1.3,
+          divisions: 45,
+          onChanged: (value) {
+            preview(_settings.copyWith(fontScale: value));
+          },
+          onChangeEnd: (value) {
+            apply(_settings.copyWith(fontScale: value));
+          },
+        ),
+      ),
+      _colorTile(
+        title: context.t('主界面字体颜色'),
+        value: _settings.interfaceTextColor,
+        onTap: () async {
+          await _pickColor(
+            title: context.t('主界面字体颜色'),
+            value: _settings.interfaceTextColor,
+            onChanged: (value) => apply(
+              _settings.copyWith(
+                interfaceTextColor: value,
+                clearInterfaceTextColor: value == null,
+              ),
+            ),
+          );
+          refresh();
+        },
+      ),
+      _colorTile(
+        title: context.t('聊天字体颜色'),
+        value: _settings.chatTextColor,
+        onTap: () async {
+          await _pickColor(
+            title: context.t('聊天字体颜色'),
+            value: _settings.chatTextColor,
+            onChanged: (value) => apply(
+              _settings.copyWith(
+                chatTextColor: value,
+                clearChatTextColor: value == null,
+              ),
+            ),
+          );
+          refresh();
+        },
+      ),
+      _tile(
+        icon: Icons.image_outlined,
+        title: context.t('主页和设置背景'),
+        subtitle: _settings.globalBackgroundImage.isEmpty
+            ? context.t('未设置')
+            : context.t('已设置'),
+        onTap: () async {
+          await _pickBackground();
+          refresh();
+        },
+      ),
+      _tile(
+        icon: Icons.opacity,
+        title: context.t('界面背景透明度'),
+        subtitle: '${(_settings.globalBackgroundOpacity * 100).round()}%',
+        child: _compactSlider(
+          value: _settings.globalBackgroundOpacity.clamp(0, 1).toDouble(),
+          min: 0,
+          max: 1,
+          divisions: 100,
+          onChanged: (value) {
+            preview(_settings.copyWith(globalBackgroundOpacity: value));
+          },
+          onChangeEnd: (value) {
+            apply(_settings.copyWith(globalBackgroundOpacity: value));
+          },
+        ),
+      ),
+      _tile(
+        icon: Icons.blur_on,
+        title: context.t('界面背景模糊度'),
+        subtitle: _settings.globalBackgroundBlur.toStringAsFixed(0),
+        child: _compactSlider(
+          value: _settings.globalBackgroundBlur.clamp(0, 12),
+          min: 0,
+          max: 12,
+          divisions: 12,
+          onChanged: (value) {
+            preview(_settings.copyWith(globalBackgroundBlur: value));
+          },
+          onChangeEnd: (value) {
+            apply(_settings.copyWith(globalBackgroundBlur: value));
+          },
+        ),
+      ),
+      _tile(
+        icon: Icons.space_bar,
+        title: context.t('底部导航栏透明度'),
+        subtitle: '${(_settings.navigationBarOpacity * 100).round()}%',
+        child: _compactSlider(
+          value: _settings.navigationBarOpacity.clamp(0, 1).toDouble(),
+          min: 0,
+          max: 1,
+          divisions: 100,
+          onChanged: (value) {
+            apply(_settings.copyWith(navigationBarOpacity: value));
+          },
+          onChangeEnd: (value) {
+            apply(_settings.copyWith(navigationBarOpacity: value));
+          },
+        ),
+      ),
+      _tile(
+        icon: Icons.clear,
+        title: context.t('清空界面背景'),
+        subtitle: context.t('只删除背景引用，不影响图片文件'),
+        onTap: _settings.globalBackgroundImage.isEmpty
+            ? null
+            : () => apply(_settings.copyWith(globalBackgroundImage: '')),
+      ),
+    ];
+  }
+
+  List<Widget> _summarySettingsChildren(VoidCallback refresh) {
+    void refreshLater(Future<void> future) {
+      unawaited(future.then((_) => refresh()));
+    }
+
+    return [
+      _summaryItemsSection(
+        title: '角色聊天总结',
+        useCustom: _settings.useCustomChatSummaryItems,
+        items: _settings.customChatSummaryItems,
+        onToggle: (value) {
+          _setCustomChatSummaryEnabled(value);
+          refresh();
+        },
+        onAdd: () => refreshLater(_addSummaryItem(isTheater: false)),
+        onRestore: () {
+          _restoreSummaryItems(isTheater: false);
+          refresh();
+        },
+        onEdit: (index) =>
+            refreshLater(_editSummaryItem(index: index, isTheater: false)),
+        onDelete: (index) {
+          _deleteSummaryItem(index: index, isTheater: false);
+          refresh();
+        },
+      ),
+      _summaryItemsSection(
+        title: '群聊总结',
+        useCustom: _settings.useCustomTheaterSummaryItems,
+        items: _settings.customTheaterSummaryItems,
+        onToggle: (value) {
+          _setCustomTheaterSummaryEnabled(value);
+          refresh();
+        },
+        onAdd: () => refreshLater(_addSummaryItem(isTheater: true)),
+        onRestore: () {
+          _restoreSummaryItems(isTheater: true);
+          refresh();
+        },
+        onEdit: (index) =>
+            refreshLater(_editSummaryItem(index: index, isTheater: true)),
+        onDelete: (index) {
+          _deleteSummaryItem(index: index, isTheater: true);
+          refresh();
+        },
+      ),
+    ];
+  }
+
+  Widget _summaryItemsSection({
+    required String title,
+    required bool useCustom,
+    required List<String> items,
+    required ValueChanged<bool> onToggle,
+    required VoidCallback onAdd,
+    required VoidCallback onRestore,
+    required ValueChanged<int> onEdit,
+    required ValueChanged<int> onDelete,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SwitchListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+          secondary: const Icon(Icons.summarize_outlined),
+          title: Text(context.t(title)),
+          subtitle: Text(
+            useCustom ? context.t('使用自定义总结项目，最多 20 个') : context.t('使用默认总结结构'),
+          ),
+          value: useCustom,
+          onChanged: onToggle,
+        ),
+        if (useCustom) ...[
+          for (var i = 0; i < items.length; i++)
+            ListTile(
+              dense: true,
+              visualDensity: VisualDensity.compact,
+              contentPadding: const EdgeInsets.only(left: 20, right: 8),
+              leading: Text('${i + 1}.'),
+              title: Text(items[i]),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    tooltip: context.t('编辑'),
+                    onPressed: () => onEdit(i),
+                    icon: const Icon(Icons.edit_outlined),
+                  ),
+                  IconButton(
+                    tooltip: context.t('删除'),
+                    onPressed: () => onDelete(i),
+                    icon: const Icon(Icons.delete_outline),
+                  ),
+                ],
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: onAdd,
+                  icon: const Icon(Icons.add),
+                  label: Text(context.t('添加项目')),
+                ),
+                TextButton.icon(
+                  onPressed: onRestore,
+                  icon: const Icon(Icons.restore),
+                  label: Text(context.t('恢复默认')),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
     );
   }
 

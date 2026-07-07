@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'models/app_character.dart';
+import 'models/app_settings.dart';
 import 'models/chat_message.dart';
 import 'models/novel_book.dart';
 import 'models/theater.dart';
@@ -118,29 +119,41 @@ ${historySummary.isEmpty ? '暂无历史总结。' : historySummary}
     return (previousCount ~/ safeLimit) * safeLimit;
   }
 
-  static String buildSummaryPrompt(List<ChatMessage> messages) {
+  static String buildSummaryPrompt(
+    List<ChatMessage> messages, {
+    bool useCustomItems = false,
+    List<String> customItems = const [],
+  }) {
     final transcript = messages
         .map((message) {
           final roleLabel = message.isUser ? '用户' : '角色';
           return '$roleLabel：${message.content}';
         })
         .join('\n\n');
+    final items = _summaryItemsText(
+      useCustomItems: useCustomItems,
+      customItems: customItems,
+      defaults: AppSettings.defaultChatSummaryItems,
+      cleaner: AppSettings.cleanChatSummaryItems,
+    );
 
     return '''
 请总结以下聊天内容，用于下次继续对话时恢复上下文。
 
 请输出以下内容：
-1. 本次聊天主要内容。
-2. 用户提到的重要信息。
-3. 角色需要记住的设定或关系变化。
-4. 当前未完成的话题或任务。
-5. 下次聊天应该如何自然接上。
+$items
 
 要求：
-- 总结简洁清楚。
-- 保留重要信息。
-- 不要加入聊天中没有出现的新内容。
-- 不要写无关内容。
+- 本次没有单独提供已有总结时，请把聊天内容整理成新的历史总结。
+- 已有总结是旧记忆底稿，不能只总结新增内容。
+- 新增内容只能补充、修正、推进旧总结。
+- 仍然成立的信息必须保留。
+- 如果新增内容和已有总结冲突，以新增内容为准。
+- 不要编造没有出现过的信息。
+- 严格区分用户、角色、系统。
+- 不要把角色动作写成用户想法。
+- 不要把用户括号动作强行解释成心理。
+- 输出时只按上面的总结项目组织内容，不要额外增加其他项目。
 
 聊天内容如下：
 $transcript
@@ -150,6 +163,8 @@ $transcript
   static String buildRollingSummaryPrompt({
     required String previousSummary,
     required List<ChatMessage> newMessages,
+    bool useCustomItems = false,
+    List<String> customItems = const [],
   }) {
     final transcript = newMessages
         .where((message) => message.isUser || message.isAssistant)
@@ -158,6 +173,12 @@ $transcript
           return '$roleLabel：${message.content}';
         })
         .join('\n\n');
+    final items = _summaryItemsText(
+      useCustomItems: useCustomItems,
+      customItems: customItems,
+      defaults: AppSettings.defaultChatSummaryItems,
+      cleaner: AppSettings.cleanChatSummaryItems,
+    );
 
     return '''
 请把已有历史总结和新增聊天内容合并成一份新的历史总结，用于后续继续对话。
@@ -168,11 +189,20 @@ ${previousSummary.trim().isEmpty ? '暂无。' : previousSummary.trim()}
 【新增聊天内容】
 $transcript
 
+请输出以下内容：
+$items
+
 要求：
-- 保留重要事实、关系变化、用户偏好、当前未完成话题。
+- 已有总结是旧记忆底稿，不能只总结新增内容。
+- 新增内容只能补充、修正、推进旧总结。
+- 仍然成立的信息必须保留。
+- 如果新增内容和已有总结冲突，以新增内容为准。
+- 不要编造没有出现过的信息。
+- 严格区分用户、角色、系统。
+- 不要把角色动作写成用户想法。
+- 不要把用户括号动作强行解释成心理。
 - 删除重复、口水话和无关细节。
-- 不要加入聊天中没有出现的新内容。
-- 只输出合并后的总结正文。
+- 输出时只按上面的总结项目组织内容，不要额外增加其他项目。
 ''';
   }
 
@@ -263,7 +293,16 @@ ${session.participants.where((role) => role.id != participant.id).map((role) => 
   static String buildTheaterSummaryPrompt({
     required String previousSummary,
     required List<TheaterMessage> messages,
+    bool useCustomItems = false,
+    List<String> customItems = const [],
   }) {
+    final items = _summaryItemsText(
+      useCustomItems: useCustomItems,
+      customItems: customItems,
+      defaults: AppSettings.defaultTheaterSummaryItems,
+      cleaner: AppSettings.cleanTheaterSummaryItems,
+    );
+
     return '''
 请把已有群聊总结和新增群聊内容合并成一份新的群聊总结。
 
@@ -274,20 +313,32 @@ ${previousSummary.trim().isEmpty ? '暂无。' : previousSummary.trim()}
 ${_theaterMessagesText(messages)}
 
 请输出：
-1. 群聊目前发生了什么。
-2. 用户说过的重要信息。
-3. 各角色当前立场。
-4. 各角色情绪变化。
-5. 角色之间的关系变化。
-6. 当前未结束的话题。
-7. 后续对话应该如何自然接上。
+$items
 
 要求：
-- 不要编造对话中没有的信息。
-- 保留重要冲突、暧昧、敌意、误会和关系变化。
+- 已有总结是旧记忆底稿，不能只总结新增内容。
+- 新增内容只能补充、修正、推进旧总结。
+- 仍然成立的信息必须保留。
+- 如果新增内容和已有总结冲突，以新增内容为准。
+- 不要编造没有出现过的信息。
+- 严格区分用户、角色、系统。
+- 不要把角色动作写成用户想法。
+- 不要把用户括号动作强行解释成心理。
 - 尽量简洁，避免越来越长。
-- 只输出总结正文。
+- 输出时只按上面的总结项目组织内容，不要额外增加其他项目。
 ''';
+  }
+
+  static String _summaryItemsText({
+    required bool useCustomItems,
+    required List<String> customItems,
+    required List<String> defaults,
+    required List<String> Function(Iterable<String>) cleaner,
+  }) {
+    final items = useCustomItems ? cleaner(customItems) : defaults;
+    return [
+      for (var i = 0; i < items.length; i++) '${i + 1}. ${items[i]}',
+    ].join('\n');
   }
 
   static List<TheaterReplyDraft> parseTheaterReplies(String raw) {
