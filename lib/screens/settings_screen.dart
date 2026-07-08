@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -9,8 +9,10 @@ import '../models/app_settings.dart';
 import '../services/ai_service.dart';
 import '../services/local_storage_service.dart';
 import '../utils/app_i18n.dart';
+import '../utils/character_import_flow.dart';
 import '../utils/page_layout.dart';
 import '../utils/password_lock.dart';
+import '../utils/snack.dart';
 import '../widgets/app_background.dart';
 import 'api_settings_screen.dart';
 import 'image_crop_screen.dart';
@@ -46,8 +48,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void didUpdateWidget(covariant SettingsScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.settings.toJson().toString() !=
-        widget.settings.toJson().toString()) {
+    if (oldWidget.settings != widget.settings) {
       _settings = widget.settings;
     }
   }
@@ -188,14 +189,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
   }
 
-  Future<void> _importCharacterPackage() async {
-    final bytes = await _pickZipBytes();
-    if (bytes == null) return;
-
-    await _runBusy(() async {
-      final character = await widget.storage.importCharacterPackage(bytes);
-      _showSnack('已导入角色：${character.name}');
-    });
+  Future<void> _importCharacterCards() async {
+    if (_isBusy) return;
+    await showCharacterImportFlow(context: context, storage: widget.storage);
   }
 
   Future<Uint8List?> _pickZipBytes() async {
@@ -750,12 +746,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return '${now.year}${two(now.month)}${two(now.day)}_${two(now.hour)}${two(now.minute)}';
   }
 
-  void _showSnack(String message) {
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(context.t(message))));
-  }
-
   void _setCustomChatSummaryEnabled(bool value) {
     _applySettings(
       _settings.copyWith(
@@ -902,6 +892,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return result;
   }
 
+  void _showSnack(String message) {
+    context.showSnack(message);
+  }
+
   @override
   Widget build(BuildContext context) {
     return _content();
@@ -974,8 +968,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _sectionTitle(context.t('数据')),
             _tile(
               icon: Icons.archive_outlined,
-              title: context.t('导入角色包'),
-              onTap: _isBusy ? null : _importCharacterPackage,
+              title: context.t('批量导入角色卡'),
+              subtitle: context.t('支持 Whisnya 角色包和常见角色卡文件'),
+              onTap: _isBusy ? null : _importCharacterCards,
             ),
             _tile(
               icon: Icons.backup_outlined,
@@ -1028,21 +1023,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
               if (mounted) setPageState(() {});
             }
 
-            return AppBackground(
-              settings: _settings,
-              child: Scaffold(
-                backgroundColor: Colors.transparent,
-                appBar: AppBar(
-                  title: Text(pageContext.t(title)),
+            return ColoredBox(
+              color: Colors.white,
+              child: AppBackground(
+                settings: _settings,
+                child: Scaffold(
                   backgroundColor: Colors.transparent,
-                  elevation: 0,
-                  scrolledUnderElevation: 0,
-                  surfaceTintColor: Colors.transparent,
-                ),
-                body: AdaptivePage(
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(0, 12, 0, 80),
-                    children: childrenBuilder(refresh),
+                  appBar: AppBar(
+                    title: Text(pageContext.t(title)),
+                    backgroundColor: Colors.transparent,
+                    elevation: 0,
+                    scrolledUnderElevation: 0,
+                    surfaceTintColor: Colors.transparent,
+                  ),
+                  body: AdaptivePage(
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(0, 12, 0, 80),
+                      children: childrenBuilder(refresh),
+                    ),
                   ),
                 ),
               ),

@@ -1,10 +1,12 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 import '../models/api_config.dart';
 import '../services/ai_service.dart';
 import '../services/local_storage_service.dart';
 import '../utils/app_i18n.dart';
+import '../utils/confirm_dialog.dart';
 import '../utils/page_layout.dart';
+import '../utils/snack.dart';
 
 class ApiSettingsScreen extends StatefulWidget {
   const ApiSettingsScreen({
@@ -66,24 +68,13 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
   }
 
   Future<void> _deleteEndpoint(AiEndpointConfig endpoint) async {
-    final ok = await showDialog<bool>(
+    final ok = await showConfirmDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(context.t('删除 API 配置')),
-        content: Text(context.t('确定删除这个 API 配置吗？')),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(context.t('取消')),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(context.t('删除')),
-          ),
-        ],
-      ),
+      title: '删除 API 配置',
+      content: context.t('确定删除这个 API 配置吗？'),
+      confirmLabel: '删除',
     );
-    if (ok != true) return;
+    if (!ok) return;
     await _saveConfig(_config.removeEndpoint(endpoint.id), '配置已删除');
   }
 
@@ -247,9 +238,7 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
   }
 
   void _showSnack(String message) {
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(context.t(message))));
+    context.showSnack(message);
   }
 
   @override

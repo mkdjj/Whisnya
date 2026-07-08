@@ -16,9 +16,12 @@ import '../prompts.dart';
 import '../services/ai_service.dart';
 import '../services/local_storage_service.dart';
 import '../utils/app_i18n.dart';
+import '../utils/confirm_dialog.dart';
 import '../utils/page_layout.dart';
-import '../utils/password_lock.dart';
+import '../utils/privacy_password_prompt.dart';
+import '../utils/snack.dart';
 import '../widgets/message_content.dart';
+import '../widgets/setting_slider.dart';
 import 'image_crop_screen.dart';
 
 class TheaterListScreen extends StatefulWidget {
@@ -134,28 +137,15 @@ class TheaterListScreenState extends State<TheaterListScreen> {
   Future<void> _delete(TheaterSession session) async {
     if (!await _verifySessionOperation(session, '删除群聊')) return;
     if (!mounted) return;
-    final ok = await showDialog<bool>(
+    final ok = await showConfirmDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(context.t('删除群聊')),
-        content: Text(
-          context.isEnglish
-              ? 'Delete "${session.title}"? Messages will also be deleted.'
-              : '确定删除“${session.title}”吗？消息也会一起删除。',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(context.t('取消')),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(context.t('删除')),
-          ),
-        ],
-      ),
+      title: '删除群聊',
+      content: context.isEnglish
+          ? 'Delete "${session.title}"? Messages will also be deleted.'
+          : '确定删除“${session.title}”吗？消息也会一起删除。',
+      confirmLabel: '删除',
     );
-    if (ok != true) return;
+    if (!ok) return;
     await widget.storage.deleteTheaterSession(session.id);
     if (mounted) await _load();
   }
@@ -200,58 +190,16 @@ class TheaterListScreenState extends State<TheaterListScreen> {
   }
 
   Future<bool> _verifyPassword(String title) async {
-    if (!widget.settings.hasPrivacyPassword) {
-      _showSnack('请先到设置里设置隐私密码');
-      return false;
-    }
-    final controller = TextEditingController();
-    final ok = await showDialog<bool>(
+    return verifyPrivacyPassword(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(context.t(title)),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          obscureText: true,
-          decoration: InputDecoration(labelText: context.t('隐私密码')),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(context.t('取消')),
-          ),
-          FilledButton(
-            onPressed: () async {
-              final password = controller.text;
-              final ok = PasswordLock.verify(
-                password,
-                widget.settings.privacyPasswordSalt,
-                widget.settings.privacyPasswordHash,
-              );
-              if (!ok) {
-                _showSnack('密码不正确');
-                return;
-              }
-              await widget.storage.upgradePrivacyPasswordHashIfNeeded(
-                widget.settings,
-                password,
-              );
-              if (!context.mounted) return;
-              Navigator.of(context).pop(true);
-            },
-            child: Text(context.t('确认')),
-          ),
-        ],
-      ),
+      settings: widget.settings,
+      storage: widget.storage,
+      title: title,
     );
-    controller.dispose();
-    return ok == true;
   }
 
   void _showSnack(String text) {
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(context.t(text))));
+    context.showSnack(text);
   }
 
   @override
@@ -717,9 +665,7 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
   }
 
   void _showSnack(String text) {
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(context.t(text))));
+    context.showSnack(text);
   }
 
   @override
@@ -994,7 +940,7 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
           trailing: const Icon(Icons.chevron_right),
           onTap: _pickBackground,
         ),
-        _compactSlider(
+        SettingSlider(
           label: '背景图透明度',
           value: _backgroundImageOpacity,
           min: 0,
@@ -1005,7 +951,7 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
             setState(() => _backgroundImageOpacity = value);
           },
         ),
-        _compactSlider(
+        SettingSlider(
           label: '背景图模糊度',
           value: _backgroundBlur,
           min: 0,
@@ -1016,7 +962,7 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
             setState(() => _backgroundBlur = value);
           },
         ),
-        _compactSlider(
+        SettingSlider(
           label: '文本框透明度',
           value: _bubbleOpacity,
           min: 0,
@@ -1027,7 +973,7 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
             setState(() => _bubbleOpacity = value);
           },
         ),
-        _compactSlider(
+        SettingSlider(
           label: '输入框透明度',
           value: _inputOpacity,
           min: 0,
@@ -1070,44 +1016,6 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
             DropdownMenuItem(value: endpoint.id, child: Text(endpoint.name)),
         ],
         onChanged: onChanged,
-      ),
-    );
-  }
-
-  Widget _compactSlider({
-    required String label,
-    required double value,
-    required double min,
-    required double max,
-    required int divisions,
-    required String display,
-    required ValueChanged<double> onChanged,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: InputDecorator(
-        decoration: InputDecoration(
-          isDense: true,
-          contentPadding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-          labelText: context.t(label),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: SizedBox(
-                height: 32,
-                child: Slider(
-                  value: value.clamp(min, max).toDouble(),
-                  min: min,
-                  max: max,
-                  divisions: divisions,
-                  onChanged: onChanged,
-                ),
-              ),
-            ),
-            SizedBox(width: 48, child: Text(display, textAlign: TextAlign.end)),
-          ],
-        ),
       ),
     );
   }
@@ -1315,12 +1223,10 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     int round,
     int generationId,
     AiCancelToken cancelToken,
-  ) async {
-    await Future.wait([
-      for (final participant in _session.aiParticipants)
-        _generateForParticipant(participant, round, generationId, cancelToken),
-    ]);
-  }
+  ) => Future.wait([
+    for (final participant in _session.aiParticipants)
+      _generateForParticipant(participant, round, generationId, cancelToken),
+  ]);
 
   Future<void> _generateForParticipant(
     TheaterParticipant participant,
@@ -1610,24 +1516,13 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   }
 
   Future<void> _clearMessages() async {
-    final ok = await showDialog<bool>(
+    final ok = await showConfirmDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(context.t('清空群聊消息')),
-        content: Text(context.t('确定清空当前群聊消息吗？群聊总结也会清空。')),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(context.t('取消')),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(context.t('清空')),
-          ),
-        ],
-      ),
+      title: '清空群聊消息',
+      content: context.t('确定清空当前群聊消息吗？群聊总结也会清空。'),
+      confirmLabel: '清空',
     );
-    if (ok != true) return;
+    if (!ok) return;
     await widget.storage.clearTheaterMessages(_session.id);
     await _saveSession(
       _session.copyWith(
@@ -1751,8 +1646,8 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
                     ],
                   ),
                   const SizedBox(height: 14),
-                  _TheaterSheetSlider(
-                    label: context.t('背景图透明度'),
+                  SettingSlider(
+                    label: '背景图透明度',
                     value: draft.backgroundImageOpacity,
                     min: 0,
                     max: 1,
@@ -1762,9 +1657,11 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
                         preview(draft.copyWith(backgroundImageOpacity: value)),
                     onChangeEnd: (value) =>
                         apply(draft.copyWith(backgroundImageOpacity: value)),
+                    height: 26,
+                    displayWidth: 52,
                   ),
-                  _TheaterSheetSlider(
-                    label: context.t('背景图模糊度'),
+                  SettingSlider(
+                    label: '背景图模糊度',
                     value: draft.backgroundBlur,
                     min: 0,
                     max: 12,
@@ -1774,9 +1671,11 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
                         preview(draft.copyWith(backgroundBlur: value)),
                     onChangeEnd: (value) =>
                         apply(draft.copyWith(backgroundBlur: value)),
+                    height: 26,
+                    displayWidth: 52,
                   ),
-                  _TheaterSheetSlider(
-                    label: context.t('文本框透明度'),
+                  SettingSlider(
+                    label: '文本框透明度',
                     value: draft.bubbleOpacity,
                     min: 0,
                     max: 1,
@@ -1786,9 +1685,11 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
                         preview(draft.copyWith(bubbleOpacity: value)),
                     onChangeEnd: (value) =>
                         apply(draft.copyWith(bubbleOpacity: value)),
+                    height: 26,
+                    displayWidth: 52,
                   ),
-                  _TheaterSheetSlider(
-                    label: context.t('输入框透明度'),
+                  SettingSlider(
+                    label: '输入框透明度',
                     value: draft.inputOpacity,
                     min: 0,
                     max: 1,
@@ -1798,6 +1699,8 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
                         preview(draft.copyWith(inputOpacity: value)),
                     onChangeEnd: (value) =>
                         apply(draft.copyWith(inputOpacity: value)),
+                    height: 26,
+                    displayWidth: 52,
                   ),
                   const SizedBox(height: 16),
                   OutlinedButton.icon(
@@ -1876,9 +1779,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   }
 
   void _showSnack(String text) {
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(context.t(text))));
+    context.showSnack(text);
   }
 
   SystemUiOverlayStyle _overlayStyle(BuildContext context) {
@@ -2058,60 +1959,6 @@ class _TheaterSettingsInfo extends StatelessWidget {
       subtitle: subtitle == null
           ? null
           : Text(subtitle!, maxLines: 1, overflow: TextOverflow.ellipsis),
-    );
-  }
-}
-
-class _TheaterSheetSlider extends StatelessWidget {
-  const _TheaterSheetSlider({
-    required this.label,
-    required this.value,
-    required this.min,
-    required this.max,
-    required this.divisions,
-    required this.display,
-    required this.onChanged,
-    required this.onChangeEnd,
-  });
-
-  final String label;
-  final double value;
-  final double min;
-  final double max;
-  final int divisions;
-  final String display;
-  final ValueChanged<double> onChanged;
-  final ValueChanged<double> onChangeEnd;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: InputDecorator(
-        decoration: InputDecoration(
-          isDense: true,
-          contentPadding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-          labelText: label,
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: SizedBox(
-                height: 26,
-                child: Slider(
-                  value: value.clamp(min, max).toDouble(),
-                  min: min,
-                  max: max,
-                  divisions: divisions,
-                  onChanged: onChanged,
-                  onChangeEnd: onChangeEnd,
-                ),
-              ),
-            ),
-            SizedBox(width: 52, child: Text(display, textAlign: TextAlign.end)),
-          ],
-        ),
-      ),
     );
   }
 }

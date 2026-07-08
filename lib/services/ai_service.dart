@@ -148,26 +148,16 @@ class AiService {
         );
       }
 
-      var buffer = '';
-      await for (final chunk in response.stream.transform(utf8.decoder)) {
-        buffer += chunk;
-        while (true) {
-          final lineEnd = buffer.indexOf('\n');
-          if (lineEnd < 0) break;
-          final line = buffer.substring(0, lineEnd).trim();
-          buffer = buffer.substring(lineEnd + 1);
-          final text = _extractStreamText(
-            line,
-            includeReasoning: includeReasoning,
-          );
-          if (text != null) yield text;
-        }
+      await for (final line
+          in response.stream
+              .transform(utf8.decoder)
+              .transform(const LineSplitter())) {
+        final text = _extractStreamText(
+          line.trim(),
+          includeReasoning: includeReasoning,
+        );
+        if (text != null) yield text;
       }
-      final text = _extractStreamText(
-        buffer.trim(),
-        includeReasoning: includeReasoning,
-      );
-      if (text != null) yield text;
     } finally {
       cancelToken?._detach(client);
       if (cancelToken != null) client.close();

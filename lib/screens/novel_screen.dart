@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
@@ -18,9 +18,12 @@ import '../services/local_storage_service.dart';
 import '../services/novel_parser.dart';
 import '../services/novel_summary_service.dart';
 import '../utils/app_i18n.dart';
+import '../utils/confirm_dialog.dart';
 import '../utils/page_layout.dart';
-import '../utils/password_lock.dart';
+import '../utils/privacy_password_prompt.dart';
+import '../utils/snack.dart';
 import '../widgets/message_content.dart';
+import '../widgets/setting_slider.dart';
 
 class NovelScreen extends StatefulWidget {
   const NovelScreen({
@@ -185,53 +188,12 @@ class NovelScreenState extends State<NovelScreen> {
   }
 
   Future<bool> _verifyPassword(String title) async {
-    if (!widget.settings.hasPrivacyPassword) {
-      _showSnack('请先到设置里设置隐私密码');
-      return false;
-    }
-
-    final controller = TextEditingController();
-    final ok = await showDialog<bool>(
+    return verifyPrivacyPassword(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(context.t(title)),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          obscureText: true,
-          decoration: InputDecoration(labelText: context.t('隐私密码')),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(context.t('取消')),
-          ),
-          FilledButton(
-            onPressed: () async {
-              final password = controller.text;
-              final ok = PasswordLock.verify(
-                password,
-                widget.settings.privacyPasswordSalt,
-                widget.settings.privacyPasswordHash,
-              );
-              if (!ok) {
-                _showSnack('密码不正确');
-                return;
-              }
-              await widget.storage.upgradePrivacyPasswordHashIfNeeded(
-                widget.settings,
-                password,
-              );
-              if (!context.mounted) return;
-              Navigator.of(context).pop(true);
-            },
-            child: Text(context.t('确认')),
-          ),
-        ],
-      ),
+      settings: widget.settings,
+      storage: widget.storage,
+      title: title,
     );
-    controller.dispose();
-    return ok == true;
   }
 
   Future<void> _deleteBook(NovelBook book) async {
@@ -240,28 +202,15 @@ class NovelScreenState extends State<NovelScreen> {
     }
     if (!mounted) return;
 
-    final shouldDelete = await showDialog<bool>(
+    final shouldDelete = await showConfirmDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(context.t('删除小说')),
-        content: Text(
-          context.isEnglish
-              ? 'Delete "${book.title}"? Novel chats will also be deleted.'
-              : '确定删除《${book.title}》吗？小说内聊天也会一起删除。',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(context.t('取消')),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(context.t('删除')),
-          ),
-        ],
-      ),
+      title: '删除小说',
+      content: context.isEnglish
+          ? 'Delete "${book.title}"? Novel chats will also be deleted.'
+          : '确定删除《${book.title}》吗？小说内聊天也会一起删除。',
+      confirmLabel: '删除',
     );
-    if (shouldDelete != true) return;
+    if (!shouldDelete) return;
 
     await widget.storage.deleteNovel(book);
     if (!mounted) return;
@@ -270,9 +219,7 @@ class NovelScreenState extends State<NovelScreen> {
   }
 
   void _showSnack(String message) {
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(context.t(message))));
+    context.showSnack(message);
   }
 
   @override
@@ -1432,7 +1379,7 @@ ${role.speakingStyle}
                       _editCatalog();
                     },
                   ),
-                _readerSlider(
+                SettingSlider(
                   label: '阅读字体大小',
                   value: _book.fontSize,
                   min: 14,
@@ -1447,7 +1394,7 @@ ${role.speakingStyle}
                     unawaited(_saveBook(_book.copyWith(fontSize: value)));
                   },
                 ),
-                _readerSlider(
+                SettingSlider(
                   label: '阅读行距',
                   value: _book.lineHeight,
                   min: 1.2,
@@ -1599,46 +1546,6 @@ ${role.speakingStyle}
     );
   }
 
-  Widget _readerSlider({
-    required String label,
-    required double value,
-    required double min,
-    required double max,
-    required int divisions,
-    required String display,
-    required ValueChanged<double> onChanged,
-    required ValueChanged<double> onChangeEnd,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: InputDecorator(
-        decoration: InputDecoration(
-          isDense: true,
-          contentPadding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-          labelText: context.t(label),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: SizedBox(
-                height: 32,
-                child: Slider(
-                  value: value.clamp(min, max).toDouble(),
-                  min: min,
-                  max: max,
-                  divisions: divisions,
-                  onChanged: onChanged,
-                  onChangeEnd: onChangeEnd,
-                ),
-              ),
-            ),
-            SizedBox(width: 48, child: Text(display, textAlign: TextAlign.end)),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _readerThemePicker(StateSetter setSheetState) {
     const items = [(0, '默认'), (1, '纸白'), (2, '护眼'), (3, '夜间')];
     return Padding(
@@ -1726,24 +1633,13 @@ ${role.speakingStyle}
   }
 
   Future<void> _clearNovelChat() async {
-    final shouldClear = await showDialog<bool>(
+    final shouldClear = await showConfirmDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(context.t('清空小说聊天')),
-        content: Text(context.t('确定清空这本小说里的聊天记录吗？小说正文和总结不会被删除。')),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(context.t('取消')),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(context.t('清空')),
-          ),
-        ],
-      ),
+      title: '清空小说聊天',
+      content: context.t('确定清空这本小说里的聊天记录吗？小说正文和总结不会被删除。'),
+      confirmLabel: '清空',
     );
-    if (shouldClear != true) return;
+    if (!shouldClear) return;
     await widget.storage.clearNovelChat(_book.id);
     if (!mounted) return;
     setState(() => _messages = []);
@@ -2019,9 +1915,7 @@ ${role.speakingStyle}
       _isSending && (_messages.isEmpty || !_messages.last.isAssistant);
 
   void _showSnack(String message) {
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(context.t(message))));
+    context.showSnack(message);
   }
 
   @override

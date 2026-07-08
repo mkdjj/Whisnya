@@ -400,9 +400,7 @@ class LocalStorageService {
     );
   }
 
-  Future<void> clearChat(String characterId) async {
-    await saveChat(characterId, const []);
-  }
+  Future<void> clearChat(String characterId) => saveChat(characterId, const []);
 
   Future<List<NovelBook>> loadNovels() async {
     final file = await _novelsFile();
@@ -489,9 +487,8 @@ class LocalStorageService {
     );
   }
 
-  Future<void> clearNovelChat(String novelId) async {
-    await saveNovelChat(novelId, const []);
-  }
+  Future<void> clearNovelChat(String novelId) =>
+      saveNovelChat(novelId, const []);
 
   Future<ChatSummary> loadSummary(String characterId) async {
     final file = await _summaryFile(characterId);
@@ -502,9 +499,10 @@ class LocalStorageService {
     if (decoded is! Map<String, dynamic>) {
       throw StorageException('总结文件异常：${file.path}');
     }
-    return ChatSummary.fromJson(decoded).characterId.isEmpty
+    final summary = ChatSummary.fromJson(decoded);
+    return summary.characterId.isEmpty
         ? ChatSummary.empty(characterId)
-        : ChatSummary.fromJson(decoded);
+        : summary;
   }
 
   Future<void> saveSummary(ChatSummary summary) async {
@@ -572,9 +570,8 @@ class LocalStorageService {
     );
   }
 
-  Future<void> clearTheaterMessages(String sessionId) async {
-    await saveTheaterMessages(sessionId, const []);
-  }
+  Future<void> clearTheaterMessages(String sessionId) =>
+      saveTheaterMessages(sessionId, const []);
 
   Future<Uint8List> exportCharacterPackage(AppCharacter character) async {
     final archive = Archive();
@@ -1062,9 +1059,8 @@ class LocalStorageService {
     }
   }
 
-  Future<void> _writeJson(File file, dynamic data) async {
-    await _enqueueWrite(() => _writeJsonNow(file, data));
-  }
+  Future<void> _writeJson(File file, dynamic data) =>
+      _enqueueWrite(() => _writeJsonNow(file, data));
 
   Future<T> _enqueueWrite<T>(Future<T> Function() action) async {
     final write = _writeQueue.then((_) => action());

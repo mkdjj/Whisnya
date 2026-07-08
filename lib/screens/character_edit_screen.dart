@@ -1,4 +1,4 @@
-import 'dart:io';
+﻿import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +10,7 @@ import '../models/app_character.dart';
 import '../services/local_storage_service.dart';
 import '../utils/app_i18n.dart';
 import '../utils/role_import_parser.dart';
+import '../utils/snack.dart';
 import 'image_crop_screen.dart';
 
 class CharacterEditScreen extends StatefulWidget {
@@ -338,9 +339,7 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
   }
 
   void _showSnack(String message) {
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(context.t(message))));
+    context.showSnack(message);
   }
 
   @override

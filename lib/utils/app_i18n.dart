@@ -22,6 +22,17 @@ String? _dynamicEn(String text) {
   match = RegExp(r'^已导入角色：(.+)$').firstMatch(text);
   if (match != null) return 'Imported character: ${match[1]}';
 
+  match = RegExp(r'^已导入 (\d+) 个角色$').firstMatch(text);
+  if (match != null) return 'Imported ${match[1]} characters';
+
+  match = RegExp(r'^已导入 (\d+) 个，失败 (\d+) 个$').firstMatch(text);
+  if (match != null) {
+    return 'Imported ${match[1]}, failed ${match[2]}';
+  }
+
+  match = RegExp(r'^下载失败：HTTP (\d+)。$').firstMatch(text);
+  if (match != null) return 'Download failed: HTTP ${match[1]}.';
+
   match = RegExp(r'^已删除角色：(.+)$').firstMatch(text);
   if (match != null) return 'Deleted role: ${match[1]}';
 
@@ -123,6 +134,22 @@ const _en = {
   '显示书名': 'Show title',
   '新建': 'New',
   '新建角色': 'New character',
+  '导入': 'Import',
+  '选择导入方式': 'Choose import method',
+  '从文件导入角色卡': 'Import character card from file',
+  '支持 JSON / ZIP / TXT / MD': 'Supports JSON / ZIP / TXT / MD',
+  '导入 PNG 角色卡': 'Import PNG character card',
+  '支持带内嵌角色数据的 PNG 图片': 'Supports PNG images with embedded character data',
+  '从 URL 导入角色卡': 'Import character card from URL',
+  '粘贴 JSON / PNG / ZIP / TXT / MD 文件直链':
+      'Paste a direct JSON / PNG / ZIP / TXT / MD file link',
+  '支持 Whisnya 角色包、酒馆 JSON/PNG 角色卡、TXT/MD 设定文本和文件直链。':
+      'Supports Whisnya packages, Tavern JSON/PNG cards, TXT/MD character text, and direct file links.',
+  '文件直链': 'File URL',
+  '查看失败原因': 'View failure reasons',
+  '批量导入角色卡': 'Batch import character cards',
+  '支持 Whisnya 角色包和常见角色卡文件':
+      'Supports Whisnya packages and common character card files',
   '还没有角色': 'No characters yet',
   '创建第一个角色': 'Create first character',
   '重新加载': 'Reload',
@@ -299,6 +326,26 @@ const _en = {
   '总结文件异常': 'Summary file is invalid',
   '角色包缺少 character.json': 'Character package is missing character.json',
   '角色包 character.json 异常': 'Character package character.json is invalid',
+  '未识别到有效角色卡字段。': 'No valid character card fields found.',
+  '该 PNG 未检测到内嵌角色卡数据。':
+      'No embedded character card data was found in this PNG.',
+  'JPG 图片不能作为角色卡导入，请使用 JSON 或带内嵌角色数据的 PNG 角色卡。':
+      'JPG images cannot be imported as character cards. Use JSON or a PNG card with embedded character data.',
+  'ZIP 中未找到可识别的角色卡 JSON。':
+      'No recognizable character card JSON was found in the ZIP.',
+  '未识别到名称、简介、性格等角色字段。':
+      'No character fields such as name, description, or personality were found.',
+  'JSON 格式错误。': 'Invalid JSON.',
+  '角色卡 JSON 过大。': 'Character card JSON is too large.',
+  '文件过大，暂不支持导入。': 'The file is too large to import.',
+  '当前仅支持角色卡文件直链，请复制 JSON/PNG/ZIP/TXT/MD 文件下载链接。':
+      'Only direct character card file links are supported. Copy a JSON/PNG/ZIP/TXT/MD download link.',
+  '该网页未找到可导入的角色卡或提示词内容。':
+      'No importable character card or prompt content was found on this page.',
+  '请输入有效 URL。': 'Enter a valid URL.',
+  '当前仅支持 HTTP/HTTPS 文件直链。': 'Only HTTP/HTTPS direct file links are supported.',
+  '下载超时，请稍后重试。': 'Download timed out. Try again later.',
+  '无法读取文件。': 'Could not read the file.',
   '数据文件异常，无法解析 JSON': 'Data file is invalid JSON',
   '读取本地文件失败': 'Failed to read local file',
   'API 返回格式异常。': 'API response format is invalid.',

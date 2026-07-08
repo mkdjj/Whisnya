@@ -11,6 +11,7 @@ import 'package:whisnya/screens/novel_screen.dart';
 import 'package:whisnya/services/local_storage_service.dart';
 import 'package:whisnya/services/novel_parser.dart';
 import 'package:whisnya/utils/app_i18n.dart';
+import 'package:whisnya/utils/character_import_flow.dart';
 import 'package:whisnya/utils/role_import_parser.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -283,6 +284,61 @@ void main() {
     expect(parsed.speakingStyle, contains('短句'));
     expect(parsed.speakingStyle, isNot(contains('老朋友')));
     expect(parsed.openingMessage, '你终于来了。');
+  });
+
+  test('parses SillyTavern character card JSON fields', () {
+    final parsed = RoleImportParser.parseJson({
+      'spec': 'chara_card_v2',
+      'data': {
+        'name': '璃璃',
+        'description': '喜欢读书的猫娘',
+        'personality': '黏人、聪明',
+        'scenario': '住在旧书店',
+        'first_mes': '主人，今天也一起看书吗？',
+        'mes_example': '<START>\n{{char}}: 喵。',
+        'system_prompt': '保持猫娘语气',
+        'tags': ['catgirl', 'book'],
+      },
+    });
+
+    expect(parsed.name, '璃璃');
+    expect(parsed.description, contains('读书'));
+    expect(parsed.background, '住在旧书店');
+    expect(parsed.openingMessage, contains('主人'));
+    expect(parsed.extraPrompt, contains('保持猫娘语气'));
+    expect(parsed.extraPrompt, contains('catgirl'));
+  });
+
+  test('parses common root-level character card JSON fields', () {
+    final parsed = RoleImportParser.parseJson({
+      'char_name': '小夏',
+      'desc': '海边朋友',
+      'greeting': '你来了。',
+      'creator_notes': '不要编造记忆',
+    });
+
+    expect(parsed.name, '小夏');
+    expect(parsed.description, '海边朋友');
+    expect(parsed.openingMessage, '你来了。');
+    expect(parsed.extraPrompt, '不要编造记忆');
+  });
+
+  test('extracts prompt text from JSON-LD prompt pages', () {
+    final parsed = parsePromptPageHtmlForImport(r'''
+<html>
+<head><title>口语教练 | AiShort</title></head>
+<body>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"Article","headline":"口语教练","description":"练习英语口语","hasPart":{"@type":"CreativeWork","additionalType":"https://schema.org/SoftwareSourceCode","encodingFormat":"text/plain","name":"英语对话练习","text":"I want you to act as a spoken English teacher."}}
+</script>
+</body>
+</html>
+''');
+
+    expect(parsed, isNotNull);
+    expect(parsed!.name, '英语对话练习');
+    expect(parsed.description, '练习英语口语');
+    expect(parsed.extraPrompt, contains('spoken English teacher'));
   });
 
   test('does not put unlabeled text into extra prompt', () {

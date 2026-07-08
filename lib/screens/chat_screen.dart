@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 
@@ -15,8 +15,11 @@ import '../prompts.dart';
 import '../services/ai_service.dart';
 import '../services/local_storage_service.dart';
 import '../utils/app_i18n.dart';
+import '../utils/confirm_dialog.dart';
 import '../utils/page_layout.dart';
+import '../utils/snack.dart';
 import '../widgets/message_content.dart';
+import '../widgets/setting_slider.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({
@@ -367,25 +370,14 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _clearChat() async {
-    final shouldClear = await showDialog<bool>(
+    final shouldClear = await showConfirmDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(context.t('清空聊天')),
-        content: Text(context.t('确定清空当前角色的聊天记录吗？历史总结不会被删除。')),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(context.t('取消')),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(context.t('清空')),
-          ),
-        ],
-      ),
+      title: '清空聊天',
+      content: context.t('确定清空当前角色的聊天记录吗？历史总结不会被删除。'),
+      confirmLabel: '清空',
     );
 
-    if (shouldClear != true) return;
+    if (!shouldClear) return;
 
     await widget.storage.clearChat(_character.id);
     if (!mounted) return;
@@ -803,7 +795,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
                 if (!draft.useFullChatContext) ...[
                   const SizedBox(height: 8),
-                  _settingsSlider(
+                  SettingSlider(
                     label: '自动总结阈值',
                     value: draft.chatSummaryMessageLimit.toDouble(),
                     min: AppCharacter.minChatSummaryMessageLimit.toDouble(),
@@ -827,7 +819,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                 ],
                 const Divider(),
-                _settingsSlider(
+                SettingSlider(
                   label: '背景图透明度',
                   value: draft.backgroundImageOpacity,
                   min: 0,
@@ -843,7 +835,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     );
                   },
                 ),
-                _settingsSlider(
+                SettingSlider(
                   label: '背景图模糊度',
                   value: draft.backgroundBlur,
                   min: 0,
@@ -859,7 +851,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     );
                   },
                 ),
-                _settingsSlider(
+                SettingSlider(
                   label: '聊天气泡透明度',
                   value: draft.bubbleOpacity,
                   min: 0,
@@ -875,7 +867,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     );
                   },
                 ),
-                _settingsSlider(
+                SettingSlider(
                   label: '输入框透明度',
                   value: draft.inputOpacity,
                   min: 0,
@@ -956,46 +948,6 @@ class _ChatScreenState extends State<ChatScreen> {
     return context.t('速度判断：聊天很多，模型读取上下文可能明显变慢');
   }
 
-  Widget _settingsSlider({
-    required String label,
-    required double value,
-    required double min,
-    required double max,
-    required int divisions,
-    required String display,
-    required ValueChanged<double> onChanged,
-    required ValueChanged<double> onChangeEnd,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: InputDecorator(
-        decoration: InputDecoration(
-          isDense: true,
-          contentPadding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-          labelText: context.t(label),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: SizedBox(
-                height: 32,
-                child: Slider(
-                  value: value.clamp(min, max).toDouble(),
-                  min: min,
-                  max: max,
-                  divisions: divisions,
-                  onChanged: onChanged,
-                  onChangeEnd: onChangeEnd,
-                ),
-              ),
-            ),
-            SizedBox(width: 48, child: Text(display, textAlign: TextAlign.end)),
-          ],
-        ),
-      ),
-    );
-  }
-
   Future<void> _copyMessage(ChatMessage message) async {
     await Clipboard.setData(ClipboardData(text: message.content));
     if (!mounted) return;
@@ -1054,9 +1006,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _showSnack(String message) {
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(context.t(message))));
+    context.showSnack(message);
   }
 
   @override

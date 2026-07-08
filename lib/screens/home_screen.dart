@@ -1,18 +1,18 @@
-import 'dart:io';
+﻿import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../models/ai_provider.dart';
 import '../models/app_character.dart';
 import '../models/app_settings.dart';
 import '../services/ai_service.dart';
 import '../services/local_storage_service.dart';
 import '../utils/app_i18n.dart';
+import '../utils/character_import_flow.dart';
+import '../utils/confirm_dialog.dart';
 import '../utils/page_layout.dart';
-import '../utils/password_lock.dart';
-import '../utils/role_import_parser.dart';
+import '../utils/privacy_password_prompt.dart';
+import '../utils/snack.dart';
 import '../widgets/app_background.dart';
 import 'character_edit_screen.dart';
 import 'chat_screen.dart';
@@ -101,77 +101,14 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _batchImportCharacters() async {
-    final result = await FilePicker.platform.pickFiles(
-      allowMultiple: true,
-      type: FileType.custom,
-      allowedExtensions: const ['zip', 'txt', 'md'],
+  Future<void> _importCharacters() async {
+    final changed = await showCharacterImportFlow(
+      context: context,
+      storage: widget.storage,
     );
-    if (result == null) return;
-
-    var imported = 0;
-    var failed = 0;
-    for (final picked in result.files) {
-      final path = picked.path;
-      if (path == null) {
-        failed++;
-        continue;
-      }
-      try {
-        final file = File(path);
-        final extension = picked.extension?.toLowerCase() ?? '';
-        if (extension == 'zip') {
-          await widget.storage.importCharacterPackage(await file.readAsBytes());
-        } else {
-          final parsed = RoleImportParser.parse(await file.readAsString());
-          if (parsed.filledCount == 0 && parsed.name.trim().isEmpty) {
-            throw const FormatException('empty role card');
-          }
-          await widget.storage.saveCharacter(
-            _characterFromParsed(parsed, _fileTitle(path)),
-          );
-        }
-        imported++;
-      } catch (_) {
-        failed++;
-      }
+    if (changed) {
+      await _load();
     }
-
-    await _load();
-    if (!mounted) return;
-    final message = failed == 0
-        ? '已导入 $imported 个角色'
-        : '已导入 $imported 个角色，失败 $failed 个';
-    _showSnack(message);
-  }
-
-  AppCharacter _characterFromParsed(ParsedRoleFields parsed, String fallback) {
-    final now = DateTime.now();
-    return AppCharacter(
-      id: 'character_${now.microsecondsSinceEpoch}_${fallback.hashCode.abs()}',
-      name: parsed.name.trim().isEmpty ? fallback : parsed.name.trim(),
-      avatar: '',
-      backgroundImage: '',
-      backgroundImageOpacity: 1,
-      backgroundBlur: 0,
-      bubbleOpacity: 0.92,
-      inputOpacity: 0.92,
-      description: parsed.description,
-      personality: parsed.personality,
-      background: parsed.background,
-      speakingStyle: parsed.speakingStyle,
-      openingMessage: parsed.openingMessage,
-      extraPrompt: parsed.extraPrompt,
-      defaultProvider: AiProvider.deepseek,
-      createdAt: now,
-      updatedAt: now,
-      lastUsedAt: now,
-    );
-  }
-
-  String _fileTitle(String path) {
-    final name = path.split(RegExp(r'[\\/]')).last;
-    return name.replaceFirst(RegExp(r'\.[^.]+$'), '').trim();
   }
 
   Future<void> _openChat(AppCharacter character) async {
@@ -259,57 +196,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<bool> _verifyPassword(String title) async {
-    if (!widget.settings.hasPrivacyPassword) {
-      _showSnack('请先到设置里设置隐私密码');
-      return false;
-    }
-
-    final controller = TextEditingController();
-    final ok = await showDialog<bool>(
+    return verifyPrivacyPassword(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(context.t(title)),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          obscureText: true,
-          decoration: InputDecoration(labelText: context.t('隐私密码')),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(context.t('取消')),
-          ),
-          FilledButton(
-            onPressed: () async {
-              final password = controller.text;
-              final ok = PasswordLock.verify(
-                password,
-                widget.settings.privacyPasswordSalt,
-                widget.settings.privacyPasswordHash,
-              );
-              if (!ok) {
-                _showSnack('密码不正确');
-                return;
-              }
-              final migrated = await widget.storage
-                  .upgradePrivacyPasswordHashIfNeeded(
-                    widget.settings,
-                    password,
-                  );
-              if (migrated != null) {
-                await widget.onSettingsChanged();
-              }
-              if (!context.mounted) return;
-              Navigator.of(context).pop(true);
-            },
-            child: Text(context.t('确认')),
-          ),
-        ],
-      ),
+      settings: widget.settings,
+      storage: widget.storage,
+      onSettingsChanged: widget.onSettingsChanged,
+      title: title,
     );
-    controller.dispose();
-    return ok == true;
   }
 
   Future<void> _deleteCharacter(AppCharacter character) async {
@@ -318,29 +211,16 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     if (!mounted) return;
 
-    final shouldDelete = await showDialog<bool>(
+    final shouldDelete = await showConfirmDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(context.t('删除角色')),
-        content: Text(
-          context.isEnglish
-              ? 'Delete "${character.name}"? Chat history and summaries will also be deleted.'
-              : '确定删除“${character.name}”吗？聊天记录和总结也会一起删除。',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(context.t('取消')),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(context.t('删除')),
-          ),
-        ],
-      ),
+      title: '删除角色',
+      content: context.isEnglish
+          ? 'Delete "${character.name}"? Chat history and summaries will also be deleted.'
+          : '确定删除“${character.name}”吗？聊天记录和总结也会一起删除。',
+      confirmLabel: '删除',
     );
 
-    if (shouldDelete != true) return;
+    if (!shouldDelete) return;
 
     try {
       await widget.storage.deleteCharacter(character.id);
@@ -353,17 +233,15 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _showSnack(String message) {
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(context.t(message))));
-  }
-
   void _selectTab(int index) {
     setState(() => _tabIndex = index);
     if (index == 0) {
       _load();
     }
+  }
+
+  void _showSnack(String message) {
+    context.showSnack(message);
   }
 
   @override
@@ -398,10 +276,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        IconButton.filledTonal(
-                          tooltip: context.t('批量导入'),
-                          onPressed: _batchImportCharacters,
+                        FilledButton.tonalIcon(
+                          onPressed: _importCharacters,
                           icon: const Icon(Icons.drive_folder_upload_outlined),
+                          label: Text(context.t('导入')),
                         ),
                         const SizedBox(width: 8),
                         FilledButton.icon(
