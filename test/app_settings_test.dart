@@ -1,7 +1,28 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whisnya/models/app_settings.dart';
+import 'package:whisnya/models/image_crop_region.dart';
 
 void main() {
+  test('round trips background crop coordinates', () {
+    final settings = const AppSettings().copyWith(
+      globalBackgroundImage: 'original.jpg',
+      globalBackgroundRegion: ImageCropRegion.fromPixels(
+        sourceWidth: 4000,
+        sourceHeight: 3000,
+        x: 1000,
+        y: 300,
+        width: 2000,
+        height: 1500,
+      ),
+    );
+    final restored = AppSettings.fromJson(settings.toJson());
+
+    expect(restored.globalBackgroundRegion.x, 0.25);
+    expect(restored.globalBackgroundRegion.y, 0.1);
+    expect(restored.globalBackgroundRegion.width, 0.5);
+    expect(restored.globalBackgroundRegion.height, 0.5);
+  });
+
   test('round trips custom summary settings', () {
     final settings = AppSettings.fromJson(const {
       'useCustomChatSummaryItems': true,

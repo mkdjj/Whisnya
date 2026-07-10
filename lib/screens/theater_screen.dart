@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import '../models/api_config.dart';
 import '../models/app_character.dart';
 import '../models/app_settings.dart';
+import '../models/image_crop_region.dart';
 import '../models/novel_book.dart';
 import '../models/theater.dart';
 import '../prompts.dart';
@@ -20,6 +21,9 @@ import '../utils/confirm_dialog.dart';
 import '../utils/page_layout.dart';
 import '../utils/privacy_password_prompt.dart';
 import '../utils/snack.dart';
+import '../utils/theater_streaming_parser.dart';
+import '../widgets/app_background.dart';
+import '../widgets/endpoint_picker.dart';
 import '../widgets/message_content.dart';
 import '../widgets/setting_slider.dart';
 import 'image_crop_screen.dart';
@@ -88,13 +92,16 @@ class TheaterListScreenState extends State<TheaterListScreen> {
   Future<void> _open(TheaterSession session) async {
     if (!await _verifySessionOperation(session, '进入聊天')) return;
     if (!mounted) return;
+    final opened = session.copyWith(lastOpenedAt: DateTime.now());
+    await widget.storage.saveTheaterSession(opened);
+    if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => TheaterChatScreen(
           storage: widget.storage,
           aiService: widget.aiService,
           settings: widget.settings,
-          session: session,
+          session: opened,
         ),
       ),
     );
@@ -369,19 +376,21 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
   var _boundNovelId = '';
   var _avatar = '';
   var _backgroundImage = '';
+  var _backgroundImageRegion = ImageCropRegion.full;
   var _backgroundImageOpacity = 1.0;
   var _backgroundBlur = 0.0;
   var _bubbleOpacity = 0.94;
   var _inputOpacity = 0.92;
   var _topBarOpacity = 0.0;
   var _apiMode = TheaterApiMode.singleApi;
-  var _replyMode = TheaterMultiApiReplyMode.randomSequential;
+  var _replyMode = TheaterMultiApiReplyMode.turnBased;
   var _singleEndpointId = '';
   var _userParticipantId = '';
   var _keepRoundCount = 30;
   var _useCustomRounds = false;
   var _isLoading = true;
   var _isSaving = false;
+  var _speakerSequenceChanged = false;
 
   bool get _isEditing => widget.session != null;
 
@@ -400,6 +409,7 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
       _titleController.text = session.title;
       _avatar = session.avatar;
       _backgroundImage = session.backgroundImage;
+      _backgroundImageRegion = session.backgroundImageRegion;
       _backgroundImageOpacity = session.backgroundImageOpacity;
       _backgroundBlur = session.backgroundBlur;
       _bubbleOpacity = session.bubbleOpacity;
@@ -468,6 +478,7 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
 
   void _toggleAppCharacter(AppCharacter character, bool selected) {
     setState(() {
+      _speakerSequenceChanged = true;
       if (!selected) {
         _selectedParticipants.removeWhere(
           (participant) => participant.sourceCharacterId == character.id,
@@ -496,6 +507,7 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
     bool selected,
   ) {
     setState(() {
+      _speakerSequenceChanged = true;
       if (!selected) {
         _selectedParticipants.removeWhere(
           (participant) =>
@@ -532,6 +544,34 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
     });
   }
 
+  List<TheaterParticipant> get _aiParticipants => _selectedParticipants
+      .where((participant) => participant.id != _userParticipantId)
+      .toList();
+
+  void _setParticipantMuted(String participantId, bool isMuted) {
+    setState(() {
+      _speakerSequenceChanged = true;
+      _selectedParticipants = [
+        for (final participant in _selectedParticipants)
+          participant.id == participantId
+              ? participant.copyWith(isMuted: isMuted)
+              : participant,
+      ];
+    });
+  }
+
+  void _reorderParticipants(int oldIndex, int newIndex) {
+    setState(() {
+      _speakerSequenceChanged = true;
+      _selectedParticipants = reorderTheaterAiParticipants(
+        _selectedParticipants,
+        userParticipantId: _userParticipantId,
+        oldIndex: oldIndex,
+        newIndex: newIndex,
+      );
+    });
+  }
+
   bool _isDuplicateNovelExport(AppCharacter character, NovelBook book) {
     if (character.sourceType != 'novelExport') return false;
     if (character.sourceNovelId != book.id) return false;
@@ -555,7 +595,9 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
     }
     if (_apiMode == TheaterApiMode.multiApi) {
       for (final participant in _selectedParticipants) {
-        if (participant.id == _userParticipantId) continue;
+        if (participant.id == _userParticipantId || participant.isMuted) {
+          continue;
+        }
         if (!_endpointReady(participant.endpointId)) {
           _showSnack('请为每个 AI 角色选择 API 配置');
           return;
@@ -578,6 +620,9 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
       title: title,
       avatar: _avatar,
       backgroundImage: _backgroundImage,
+      backgroundImageRegion: _backgroundImage.isEmpty
+          ? ImageCropRegion.full
+          : _backgroundImageRegion,
       backgroundImageOpacity: _backgroundImageOpacity,
       backgroundBlur: _backgroundBlur,
       bubbleOpacity: _bubbleOpacity,
@@ -592,6 +637,9 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
       keepRoundCount: roundCount,
       theaterSummary: old?.theaterSummary ?? '',
       summarizedMessageCount: old?.summarizedMessageCount ?? 0,
+      nextSpeakerIndex: _speakerSequenceChanged
+          ? 0
+          : _safeNextSpeakerIndex(old?.nextSpeakerIndex ?? 0),
       participants: _selectedParticipants,
       createdAt: old?.createdAt ?? now,
       updatedAt: now,
@@ -604,6 +652,18 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
   bool _endpointReady(String id) {
     final endpoint = _apiConfig.endpointById(id);
     return endpoint != null && endpoint.enabled && endpoint.isComplete;
+  }
+
+  int _safeNextSpeakerIndex(int value) {
+    final count = _selectedParticipants
+        .where(
+          (participant) =>
+              participant.enabled &&
+              participant.id != _userParticipantId &&
+              !participant.isMuted,
+        )
+        .length;
+    return count == 0 ? 0 : value % count;
   }
 
   Future<void> _pickImage({
@@ -619,11 +679,38 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
     final path = result?.files.single.path;
     if (path == null) return;
     if (!mounted) return;
+    if (!avatar) {
+      final selection = await Navigator.of(context).push<ImageCropSelection>(
+        MaterialPageRoute(
+          builder: (_) => ImageCropScreen(
+            imagePath: path,
+            title: context.t('裁剪群聊背景'),
+            aspectRatio: aspectRatio,
+            outputWidth: outputWidth,
+            outputHeight: outputHeight,
+            renderOutput: false,
+          ),
+        ),
+      );
+      if (selection == null) return;
+      final saved = await widget.storage.saveMediaImage(
+        folder: 'theater_backgrounds',
+        characterId: 'theater_${DateTime.now().microsecondsSinceEpoch}',
+        bytes: await File(path).readAsBytes(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _backgroundImage = saved;
+        _backgroundImageRegion = selection.region;
+      });
+      return;
+    }
+
     final cropped = await Navigator.of(context).push<Uint8List>(
       MaterialPageRoute(
         builder: (_) => ImageCropScreen(
           imagePath: path,
-          title: context.t(avatar ? '裁剪群聊头像' : '裁剪群聊背景'),
+          title: context.t('裁剪群聊头像'),
           aspectRatio: aspectRatio,
           outputWidth: outputWidth,
           outputHeight: outputHeight,
@@ -632,17 +719,13 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
     );
     if (cropped == null) return;
     final saved = await widget.storage.saveMediaImage(
-      folder: avatar ? 'theater_avatars' : 'theater_backgrounds',
+      folder: 'theater_avatars',
       characterId: 'theater_${DateTime.now().microsecondsSinceEpoch}',
       bytes: cropped,
     );
     if (!mounted) return;
     setState(() {
-      if (avatar) {
-        _avatar = saved;
-      } else {
-        _backgroundImage = saved;
-      }
+      _avatar = saved;
     });
   }
 
@@ -707,6 +790,7 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
                   ? null
                   : (value) {
                       setState(() {
+                        _speakerSequenceChanged = true;
                         _boundNovelId = value ?? '';
                         _selectedParticipants.clear();
                         _userParticipantId = '';
@@ -785,8 +869,10 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
                     child: Text(participant.name),
                   ),
               ],
-              onChanged: (value) =>
-                  setState(() => _userParticipantId = value ?? ''),
+              onChanged: (value) => setState(() {
+                _speakerSequenceChanged = true;
+                _userParticipantId = value ?? '';
+              }),
             ),
             const SizedBox(height: 16),
             _sectionTitle('API 模式'),
@@ -824,21 +910,30 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
                     value: TheaterMultiApiReplyMode.parallel,
                     label: Text(context.t('并行回复')),
                   ),
+                  ButtonSegment(
+                    value: TheaterMultiApiReplyMode.turnBased,
+                    label: Text(context.t('轮流发言')),
+                  ),
                 ],
                 selected: {_replyMode},
                 onSelectionChanged: (values) =>
                     setState(() => _replyMode = values.first),
               ),
-              const SizedBox(height: 12),
-              for (final participant in _selectedParticipants)
-                if (participant.id != _userParticipantId)
-                  _endpointPicker(
-                    label: participant.name,
-                    value: participant.endpointId,
-                    onChanged: (value) =>
-                        _setParticipantEndpoint(participant.id, value ?? ''),
-                  ),
+              const SizedBox(height: 8),
+              Text(
+                context.t(
+                  _replyMode == TheaterMultiApiReplyMode.turnBased
+                      ? '角色按照顺序逐个回复，后一个角色可以看到前一个角色刚生成的内容。'
+                      : _replyMode == TheaterMultiApiReplyMode.parallel
+                      ? '多个角色同时生成，速度快，但无法读取本轮其他角色刚生成的内容。'
+                      : '角色按随机顺序逐个回复。',
+                ),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             ],
+            const SizedBox(height: 12),
+            _sectionTitle('参与角色'),
+            _participantSettings(),
             const SizedBox(height: 16),
             _sectionTitle('上下文保留轮数'),
             Wrap(
@@ -988,9 +1083,86 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
           Align(
             alignment: Alignment.centerLeft,
             child: TextButton.icon(
-              onPressed: () => setState(() => _backgroundImage = ''),
+              onPressed: () => setState(() {
+                _backgroundImage = '';
+                _backgroundImageRegion = ImageCropRegion.full;
+              }),
               icon: const Icon(Icons.clear),
               label: Text(context.t('清除聊天背景')),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _participantSettings() {
+    final participants = _aiParticipants;
+    final canReorder =
+        _apiMode == TheaterApiMode.multiApi &&
+        _replyMode == TheaterMultiApiReplyMode.turnBased;
+    if (!canReorder) {
+      return Column(
+        children: [
+          for (var i = 0; i < participants.length; i++)
+            _participantSettingRow(participants[i], i, draggable: false),
+        ],
+      );
+    }
+    return ReorderableListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      buildDefaultDragHandles: false,
+      itemCount: participants.length,
+      onReorderItem: _reorderParticipants,
+      itemBuilder: (context, index) =>
+          _participantSettingRow(participants[index], index, draggable: true),
+    );
+  }
+
+  Widget _participantSettingRow(
+    TheaterParticipant participant,
+    int index, {
+    required bool draggable,
+  }) {
+    return Row(
+      key: ValueKey('participant-setting:${participant.id}'),
+      children: [
+        Expanded(
+          child: _apiMode == TheaterApiMode.multiApi
+              ? _endpointPicker(
+                  label: participant.name,
+                  value: participant.endpointId,
+                  onChanged: (value) =>
+                      _setParticipantEndpoint(participant.id, value ?? ''),
+                )
+              : ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(participant.name),
+                ),
+        ),
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              context.t('允许发言'),
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
+            Switch(
+              value: !participant.isMuted,
+              onChanged: (value) =>
+                  _setParticipantMuted(participant.id, !value),
+            ),
+          ],
+        ),
+        if (draggable)
+          ReorderableDragStartListener(
+            index: index,
+            child: Tooltip(
+              message: context.t('拖动调整发言顺序'),
+              child: const Padding(
+                padding: EdgeInsets.all(12),
+                child: Icon(Icons.drag_handle),
+              ),
             ),
           ),
       ],
@@ -1125,21 +1297,63 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     await _generateReplies(round);
   }
 
-  Future<void> _generateReplies(int round) async {
+  Future<void> _continueGenerate() async {
+    if (_isGenerating) return;
+    if (_messages.isEmpty) {
+      context.showSnack('请先输入第一句话');
+      return;
+    }
+    if (_session.aiParticipants.isEmpty) {
+      context.showSnack('没有可自动回复的角色');
+      return;
+    }
+    final round = _messages.last.round + 1;
+    setState(() => _isGenerating = true);
+    await _generateReplies(round, continueOnly: true);
+  }
+
+  Future<void> _generateReplies(int round, {bool continueOnly = false}) async {
     final generationId = ++_generationId;
     final cancelToken = AiCancelToken();
     _cancelToken = cancelToken;
     try {
-      await _updateRollingSummary(generationId, cancelToken);
+      final summaryUpdated = await _updateRollingSummary(
+        generationId,
+        cancelToken,
+      );
       if (!mounted || generationId != _generationId) return;
       switch (_session.apiMode) {
         case TheaterApiMode.singleApi:
-          await _generateSingleApi(round, generationId, cancelToken);
+          await _generateSingleApi(
+            round,
+            generationId,
+            cancelToken,
+            summaryUpdated: summaryUpdated,
+          );
         case TheaterApiMode.multiApi:
-          if (_session.multiApiReplyMode == TheaterMultiApiReplyMode.parallel) {
-            await _generateParallel(round, generationId, cancelToken);
-          } else {
-            await _generateSequential(round, generationId, cancelToken);
+          switch (_session.multiApiReplyMode) {
+            case TheaterMultiApiReplyMode.parallel:
+              await _generateParallel(
+                round,
+                generationId,
+                cancelToken,
+                summaryUpdated: summaryUpdated,
+              );
+            case TheaterMultiApiReplyMode.randomSequential:
+              await _generateSequential(
+                round,
+                generationId,
+                cancelToken,
+                summaryUpdated: summaryUpdated,
+              );
+            case TheaterMultiApiReplyMode.turnBased:
+              await _generateTurnBased(
+                round,
+                generationId,
+                cancelToken,
+                oneParticipant: continueOnly,
+                summaryUpdated: summaryUpdated,
+              );
           }
       }
     } finally {
@@ -1153,8 +1367,9 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   Future<void> _generateSingleApi(
     int round,
     int generationId,
-    AiCancelToken cancelToken,
-  ) async {
+    AiCancelToken cancelToken, {
+    required bool summaryUpdated,
+  }) async {
     final endpoint = _apiConfig.effectiveEndpoint(_session.singleEndpointId);
     final error = _validateEndpoint(endpoint);
     if (error != null) {
@@ -1165,48 +1380,169 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
       await _appendSystemError('没有可自动回复的角色', round);
       return;
     }
-    var raw = '';
-    await for (final chunk in widget.aiService.streamMessage(
-      apiKey: endpoint!.apiKey,
-      baseUrl: endpoint.baseUrl,
-      model: endpoint.model,
-      messages: PromptBuilder.buildTheaterSingleApiRequest(
+    final parser = TheaterStreamingParser();
+    final rawBackup = StringBuffer();
+    final pending = <String, String>{};
+    final streamResponses = widget.settings.streamResponses;
+    TheaterMessage? currentMessage;
+    Timer? refreshTimer;
+    var validMessages = 0;
+
+    void flushPending() {
+      refreshTimer?.cancel();
+      refreshTimer = null;
+      if (pending.isEmpty || !mounted || generationId != _generationId) {
+        pending.clear();
+        return;
+      }
+      final updates = Map<String, String>.from(pending);
+      pending.clear();
+      setState(() {
+        for (final entry in updates.entries) {
+          final index = _messages.indexWhere((item) => item.id == entry.key);
+          if (index < 0) continue;
+          final message = _messages[index];
+          _replaceMessage(
+            entry.key,
+            message.copyWith(content: message.content + entry.value),
+          );
+        }
+      });
+    }
+
+    void handleEvents(List<TheaterStreamEvent> events) {
+      for (final event in events) {
+        switch (event) {
+          case TheaterSpeakerStarted(:final speaker):
+            flushPending();
+            final participant = _matchParticipant(speaker);
+            currentMessage = participant == null
+                ? null
+                : _roleMessage(participant, '', round, endpoint: endpoint!);
+            if (streamResponses && currentMessage != null) {
+              setState(() => _messages = [..._messages, currentMessage!]);
+            }
+          case TheaterContentDelta(:final delta):
+            final message = currentMessage;
+            if (!streamResponses || message == null || delta.isEmpty) continue;
+            pending.update(
+              message.id,
+              (value) => value + delta,
+              ifAbsent: () => delta,
+            );
+            refreshTimer ??= Timer(
+              const Duration(milliseconds: 30),
+              flushPending,
+            );
+          case TheaterMessageCompleted(:final content):
+            flushPending();
+            final message = currentMessage;
+            currentMessage = null;
+            if (message == null) continue;
+            final finalContent = content.trim();
+            if (finalContent.isEmpty) {
+              if (streamResponses) setState(() => _removeMessage(message.id));
+              continue;
+            }
+            final completed = message.copyWith(content: finalContent);
+            setState(() {
+              if (streamResponses) {
+                _replaceMessage(message.id, completed);
+              } else {
+                _messages = [..._messages, completed];
+              }
+            });
+            validMessages++;
+        }
+      }
+    }
+
+    try {
+      final requestMessages = PromptBuilder.buildTheaterSingleApiRequest(
         session: _session,
         novelSummary: _novelSummary,
         messages: _recentMessages(),
-      ),
-      cancelToken: cancelToken,
-    )) {
-      if (!mounted || generationId != _generationId) return;
-      raw += chunk;
-    }
-    final drafts = PromptBuilder.parseTheaterReplies(raw);
-    if (drafts.isEmpty) {
-      await _appendSystemError('生成失败，可重试', round);
-      return;
-    }
-    final next = <TheaterMessage>[];
-    for (final draft in drafts) {
-      final participant = _matchParticipant(draft.speaker);
-      if (participant == null) continue;
-      next.add(
-        _roleMessage(participant, draft.content, round, endpoint: endpoint),
       );
+      await for (final chunk in widget.aiService.streamMessage(
+        apiKey: endpoint!.apiKey,
+        baseUrl: endpoint.baseUrl,
+        model: endpoint.model,
+        messages: requestMessages,
+        cancelToken: cancelToken,
+        includeReasoning: widget.settings.showReasoningContent,
+        maxTokens: 1200,
+        onUsage: (usage) => unawaited(
+          widget.storage.recordAiUsage(
+            requestType: 'theater',
+            model: endpoint.model,
+            usage: usage,
+            messages: requestMessages,
+            summaryUpdated: summaryUpdated,
+          ),
+        ),
+      )) {
+        if (!mounted || generationId != _generationId) return;
+        rawBackup.write(chunk);
+        handleEvents(parser.addChunk(chunk));
+      }
+      handleEvents(parser.finish());
+      if (!mounted || generationId != _generationId) return;
+
+      if (validMessages == 0) {
+        final fallback = <TheaterMessage>[];
+        try {
+          for (final draft in PromptBuilder.parseTheaterReplies(
+            rawBackup.toString(),
+          )) {
+            final participant = _matchParticipant(draft.speaker);
+            if (participant != null) {
+              fallback.add(
+                _roleMessage(
+                  participant,
+                  draft.content,
+                  round,
+                  endpoint: endpoint,
+                ),
+              );
+            }
+          }
+        } on FormatException {
+          // Fall through to the visible format error below.
+        }
+        if (fallback.isEmpty) {
+          await _appendSystemError('模型没有按群聊格式输出，可重试', round);
+          return;
+        }
+        setState(() => _messages = [..._messages, ...fallback]);
+      }
+      await _saveMessages();
+    } catch (error) {
+      if (!mounted || generationId != _generationId) return;
+      await _appendSystemError(error.toString(), round);
+    } finally {
+      refreshTimer?.cancel();
+      if (mounted && generationId == _generationId) {
+        flushPending();
+        setState(() {
+          _messages = _messages
+              .where(
+                (message) =>
+                    message.speakerType != TheaterSpeakerType.role ||
+                    message.content.trim().isNotEmpty,
+              )
+              .toList();
+        });
+        await _saveMessages();
+      }
     }
-    if (next.isEmpty) {
-      await _appendSystemError('生成失败，可重试', round);
-      return;
-    }
-    if (!mounted || generationId != _generationId) return;
-    setState(() => _messages = [..._messages, ...next]);
-    await _saveMessages();
   }
 
   Future<void> _generateSequential(
     int round,
     int generationId,
-    AiCancelToken cancelToken,
-  ) async {
+    AiCancelToken cancelToken, {
+    required bool summaryUpdated,
+  }) async {
     final participants = [..._session.aiParticipants]..shuffle(Random());
     for (final participant in participants) {
       if (!mounted || generationId != _generationId) return;
@@ -1215,6 +1551,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
         round,
         generationId,
         cancelToken,
+        summaryUpdated: summaryUpdated,
       );
     }
   }
@@ -1222,18 +1559,28 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   Future<void> _generateParallel(
     int round,
     int generationId,
-    AiCancelToken cancelToken,
-  ) => Future.wait([
+    AiCancelToken cancelToken, {
+    required bool summaryUpdated,
+  }) => Future.wait([
     for (final participant in _session.aiParticipants)
-      _generateForParticipant(participant, round, generationId, cancelToken),
+      _generateForParticipant(
+        participant,
+        round,
+        generationId,
+        cancelToken,
+        summaryUpdated: summaryUpdated,
+      ),
   ]);
 
   Future<void> _generateForParticipant(
     TheaterParticipant participant,
     int round,
     int generationId,
-    AiCancelToken cancelToken,
-  ) async {
+    AiCancelToken cancelToken, {
+    bool summaryUpdated = false,
+    int maxTokens = 800,
+  }) async {
+    if (participant.isMuted) return;
     final endpoint = _apiConfig.effectiveEndpoint(participant.endpointId);
     final error = _validateEndpoint(endpoint);
     if (error != null) {
@@ -1254,18 +1601,29 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
       }
 
       var reply = '';
+      final requestMessages = PromptBuilder.buildTheaterParticipantRequest(
+        session: _session,
+        participant: participant,
+        novelSummary: _novelSummary,
+        messages: _recentMessages(),
+      );
       await for (final chunk in widget.aiService.streamMessage(
         apiKey: endpoint.apiKey,
         baseUrl: endpoint.baseUrl,
         model: endpoint.model,
-        messages: PromptBuilder.buildTheaterParticipantRequest(
-          session: _session,
-          participant: participant,
-          novelSummary: _novelSummary,
-          messages: _recentMessages(),
-        ),
+        messages: requestMessages,
         cancelToken: cancelToken,
         includeReasoning: widget.settings.showReasoningContent,
+        maxTokens: maxTokens,
+        onUsage: (usage) => unawaited(
+          widget.storage.recordAiUsage(
+            requestType: 'theater',
+            model: endpoint.model,
+            usage: usage,
+            messages: requestMessages,
+            summaryUpdated: summaryUpdated,
+          ),
+        ),
       )) {
         if (!mounted || generationId != _generationId) return;
         reply += chunk;
@@ -1329,8 +1687,103 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     _messages = _messages.where((item) => item.id != id).toList();
   }
 
+  Future<void> _generateTurnBased(
+    int round,
+    int generationId,
+    AiCancelToken cancelToken, {
+    required bool oneParticipant,
+    required bool summaryUpdated,
+  }) async {
+    final participants = _session.aiParticipants;
+    if (participants.isEmpty) {
+      await _appendSystemError('没有可自动回复的角色', round);
+      return;
+    }
+    final start = _session.nextSpeakerIndex % participants.length;
+    final count = oneParticipant ? 1 : participants.length;
+    for (var offset = 0; offset < count; offset++) {
+      if (!mounted || generationId != _generationId) return;
+      final index = (start + offset) % participants.length;
+      await _generateForParticipant(
+        participants[index],
+        round,
+        generationId,
+        cancelToken,
+        summaryUpdated: summaryUpdated,
+      );
+      if (!mounted || generationId != _generationId) return;
+      await _saveSession(
+        _session.copyWith(
+          nextSpeakerIndex: (index + 1) % participants.length,
+          updatedAt: DateTime.now(),
+        ),
+      );
+    }
+  }
+
+  Future<void> _deleteTheaterMessage(String id) async {
+    setState(() => _removeMessage(id));
+    await _saveMessages();
+  }
+
+  Future<void> _toggleParticipantMuted(TheaterParticipant participant) async {
+    if (_isGenerating) return;
+    final current = _session.participants.firstWhere(
+      (item) => item.id == participant.id,
+      orElse: () => participant,
+    );
+    await _saveSession(
+      _session.copyWith(
+        participants: [
+          for (final item in _session.participants)
+            item.id == current.id
+                ? item.copyWith(isMuted: !current.isMuted)
+                : item,
+        ],
+        nextSpeakerIndex: 0,
+        updatedAt: DateTime.now(),
+      ),
+    );
+  }
+
+  Future<void> _generateOneMoreForParticipant(
+    TheaterParticipant participant,
+  ) async {
+    if (_isGenerating) return;
+    final current = _session.participants.firstWhere(
+      (item) => item.id == participant.id,
+      orElse: () => participant,
+    );
+    if (current.isMuted) {
+      context.showSnack('该角色已被禁言，请前往群聊设置取消禁言。');
+      return;
+    }
+    final generationId = ++_generationId;
+    final cancelToken = AiCancelToken();
+    _cancelToken = cancelToken;
+    final round = _messages.isEmpty ? 1 : _messages.last.round;
+    setState(() => _isGenerating = true);
+    try {
+      await _generateForParticipant(
+        current,
+        round,
+        generationId,
+        cancelToken,
+        maxTokens: 600,
+      );
+    } finally {
+      if (identical(_cancelToken, cancelToken)) _cancelToken = null;
+      if (mounted && generationId == _generationId) {
+        setState(() => _isGenerating = false);
+      }
+    }
+  }
+
   TheaterParticipant? _matchParticipant(String name) {
-    final normalized = name.trim();
+    final normalized = name.trim().replaceAll(
+      RegExp(r'''^["'“”‘’]+|["'“”‘’]+$'''),
+      '',
+    );
     for (final participant in _session.aiParticipants) {
       if (participant.name.trim() == normalized) return participant;
     }
@@ -1401,6 +1854,10 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
       ),
     );
     if (participant.id.isEmpty) return;
+    if (participant.isMuted) {
+      context.showSnack('该角色已被禁言，请前往群聊设置取消禁言。');
+      return;
+    }
     final generationId = ++_generationId;
     final cancelToken = AiCancelToken();
     _cancelToken = cancelToken;
@@ -1424,18 +1881,20 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     }
   }
 
-  Future<void> _updateRollingSummary(
+  Future<bool> _updateRollingSummary(
     int generationId,
     AiCancelToken cancelToken,
   ) async {
-    final recentLimit = _session.recentMessageLimit;
-    final buffer = _session.participantUnitCount;
-    if (_messages.length <= recentLimit + buffer) return;
-    final summarizeUntil = _messages.length - recentLimit;
+    final summarizeUntil = PromptBuilder.theaterSummaryEndIndex(
+      messages: _messages,
+      summarizedMessageCount: _session.summarizedMessageCount,
+      messageBatchSize: _session.recentMessageLimit,
+      roundBatchSize: _session.keepRoundCount,
+    );
     final summarizedCount = _session.summarizedMessageCount
         .clamp(0, summarizeUntil)
         .toInt();
-    if (summarizedCount >= summarizeUntil) return;
+    if (summarizedCount >= summarizeUntil) return false;
     final aiParticipants = _session.aiParticipants;
     final endpointId = _session.apiMode == TheaterApiMode.singleApi
         ? _session.singleEndpointId
@@ -1443,48 +1902,59 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
         ? ''
         : aiParticipants.first.endpointId;
     final endpoint = _apiConfig.effectiveEndpoint(endpointId);
-    if (_validateEndpoint(endpoint) != null) return;
+    if (_validateEndpoint(endpoint) != null) return false;
     final chunk = _messages.sublist(summarizedCount, summarizeUntil);
     setState(() => _isSummarizing = true);
     try {
+      final summaryMessages = [
+        {'role': 'system', 'content': '你负责总结群聊记录，并只输出总结内容。'},
+        {
+          'role': 'user',
+          'content': PromptBuilder.buildTheaterSummaryPrompt(
+            previousSummary: _session.theaterSummary,
+            messages: chunk,
+            useCustomItems: widget.settings.useCustomTheaterSummaryItems,
+            customItems: widget.settings.customTheaterSummaryItems,
+          ),
+        },
+      ];
       final summary = await widget.aiService.sendMessage(
         apiKey: endpoint!.apiKey,
         baseUrl: endpoint.baseUrl,
         model: endpoint.model,
-        messages: [
-          {'role': 'system', 'content': '你负责总结群聊记录，并只输出总结内容。'},
-          {
-            'role': 'user',
-            'content': PromptBuilder.buildTheaterSummaryPrompt(
-              previousSummary: _session.theaterSummary,
-              messages: chunk,
-              useCustomItems: widget.settings.useCustomTheaterSummaryItems,
-              customItems: widget.settings.customTheaterSummaryItems,
-            ),
-          },
-        ],
+        messages: summaryMessages,
         cancelToken: cancelToken,
+        maxTokens: 800,
+        onUsage: (usage) => unawaited(
+          widget.storage.recordAiUsage(
+            requestType: 'theaterSummary',
+            model: endpoint.model,
+            usage: usage,
+            messages: summaryMessages,
+            summaryUpdated: true,
+          ),
+        ),
       );
-      if (!mounted || generationId != _generationId) return;
+      if (!mounted || generationId != _generationId) return false;
       await _saveSession(
         _session.copyWith(
-          theaterSummary: summary,
+          theaterSummary: PromptBuilder.limitSummary(summary, 1500),
           summarizedMessageCount: summarizeUntil,
           updatedAt: DateTime.now(),
         ),
       );
+      return true;
     } catch (_) {
-      return;
+      return false;
     } finally {
       if (mounted) setState(() => _isSummarizing = false);
     }
   }
 
   List<TheaterMessage> _recentMessages() {
-    final start = max(
-      _session.summarizedMessageCount,
-      _messages.length - _session.recentMessageLimit,
-    );
+    final start = _session.summarizedMessageCount
+        .clamp(0, _messages.length)
+        .toInt();
     return _messages.skip(start).toList();
   }
 
@@ -1512,7 +1982,17 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     _cancelToken?.cancel();
     _cancelToken = null;
     _generationId++;
-    setState(() => _isGenerating = false);
+    setState(() {
+      _messages = _messages
+          .where(
+            (message) =>
+                message.speakerType != TheaterSpeakerType.role ||
+                message.content.trim().isNotEmpty,
+          )
+          .toList();
+      _isGenerating = false;
+    });
+    unawaited(_saveMessages());
   }
 
   Future<void> _clearMessages() async {
@@ -1614,6 +2094,23 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
                     icon: Icons.memory_outlined,
                     title: context.t('当前模型'),
                     subtitle: _currentModelLabel(),
+                    onTap: draft.apiMode == TheaterApiMode.singleApi
+                        ? () async {
+                            final endpointId = await showEndpointPicker(
+                              context: context,
+                              endpoints: _apiConfig.enabledEndpoints,
+                              selectedId: draft.singleEndpointId,
+                            );
+                            if (endpointId != null) {
+                              apply(
+                                draft.copyWith(singleEndpointId: endpointId),
+                              );
+                            }
+                          }
+                        : () {
+                            openEditor = true;
+                            Navigator.of(context).pop();
+                          },
                   ),
                   _TheaterSettingsInfo(
                     icon: Icons.history_toggle_off,
@@ -1799,6 +2296,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     final hasBackground = _session.backgroundImage.trim().isNotEmpty;
     return _TheaterBackground(
       imagePath: _session.backgroundImage,
+      region: _session.backgroundImageRegion,
       opacity: _session.backgroundImageOpacity,
       blur: _session.backgroundBlur,
       child: Scaffold(
@@ -1847,6 +2345,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
               isGenerating: _isGenerating,
               hasBackground: hasBackground,
               inputOpacity: _session.inputOpacity,
+              onContinue: _continueGenerate,
               onSend: _send,
               onStop: _stopGeneration,
             ),
@@ -1880,13 +2379,31 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
           final messageIndex =
               _messages.length - 1 - (index - (showTyping ? 1 : 0));
           final message = _messages[messageIndex];
-          return _TheaterMessageBubble(
-            message: message,
-            participant: participants[message.speakerId],
-            bubbleOpacity: _session.bubbleOpacity,
-            chatTextColor: widget.settings.chatTextColor,
-            onCopy: () => _copy(message),
-            onRetry: message.isError ? () => _retry(message) : null,
+          final participant = participants[message.speakerId];
+          final canControlRole =
+              message.speakerType == TheaterSpeakerType.role &&
+              participant != null &&
+              !_isGenerating;
+          final onMute = canControlRole
+              ? () => _toggleParticipantMuted(participant)
+              : null;
+          final onSpeakAgain = canControlRole
+              ? () => _generateOneMoreForParticipant(participant)
+              : null;
+          return RepaintBoundary(
+            child: _TheaterMessageBubble(
+              message: message,
+              participant: participant,
+              bubbleOpacity: _session.bubbleOpacity,
+              chatTextColor: widget.settings.chatTextColor,
+              onCopy: () => _copy(message),
+              onDelete: _isGenerating
+                  ? null
+                  : () => _deleteTheaterMessage(message.id),
+              onMute: onMute,
+              onSpeakAgain: onSpeakAgain,
+              onRetry: message.isError ? () => _retry(message) : null,
+            ),
           );
         },
       ),
@@ -1897,12 +2414,14 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
 class _TheaterBackground extends StatelessWidget {
   const _TheaterBackground({
     required this.imagePath,
+    required this.region,
     required this.opacity,
     required this.blur,
     required this.child,
   });
 
   final String imagePath;
+  final ImageCropRegion region;
   final double opacity;
   final double blur;
   final Widget child;
@@ -1920,11 +2439,7 @@ class _TheaterBackground extends StatelessWidget {
           opacity: alpha,
           child: ImageFiltered(
             imageFilter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-            child: Image.file(
-              File(path),
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => const SizedBox.shrink(),
-            ),
+            child: croppedFileImage(context, File(path), region: region),
           ),
         ),
         DecoratedBox(
@@ -1943,11 +2458,13 @@ class _TheaterSettingsInfo extends StatelessWidget {
     required this.icon,
     required this.title,
     this.subtitle,
+    this.onTap,
   });
 
   final IconData icon;
   final String title;
   final String? subtitle;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1956,6 +2473,8 @@ class _TheaterSettingsInfo extends StatelessWidget {
       contentPadding: EdgeInsets.zero,
       leading: Icon(icon),
       title: Text(title),
+      trailing: onTap == null ? null : const Icon(Icons.chevron_right),
+      onTap: onTap,
       subtitle: subtitle == null
           ? null
           : Text(subtitle!, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -1969,6 +2488,7 @@ class _TheaterInputComposer extends StatelessWidget {
     required this.isGenerating,
     required this.hasBackground,
     required this.inputOpacity,
+    required this.onContinue,
     required this.onSend,
     required this.onStop,
   });
@@ -1977,6 +2497,7 @@ class _TheaterInputComposer extends StatelessWidget {
   final bool isGenerating;
   final bool hasBackground;
   final double inputOpacity;
+  final VoidCallback onContinue;
   final VoidCallback onSend;
   final VoidCallback onStop;
 
@@ -2004,6 +2525,11 @@ class _TheaterInputComposer extends StatelessWidget {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
+                  IconButton(
+                    tooltip: context.t('让角色继续聊'),
+                    onPressed: isGenerating ? null : onContinue,
+                    icon: const Icon(Icons.play_arrow),
+                  ),
                   Expanded(
                     child: TextField(
                       controller: controller,
@@ -2024,10 +2550,17 @@ class _TheaterInputComposer extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  IconButton.filled(
-                    tooltip: context.t(isGenerating ? '停止生成' : '发送'),
-                    onPressed: isGenerating ? onStop : onSend,
-                    icon: Icon(isGenerating ? Icons.stop : Icons.send),
+                  ValueListenableBuilder<TextEditingValue>(
+                    valueListenable: controller,
+                    builder: (context, value, _) => IconButton.filled(
+                      tooltip: context.t(isGenerating ? '停止生成' : '发送'),
+                      onPressed: isGenerating
+                          ? onStop
+                          : value.text.trim().isEmpty
+                          ? null
+                          : onSend,
+                      icon: Icon(isGenerating ? Icons.stop : Icons.send),
+                    ),
                   ),
                 ],
               ),
@@ -2046,6 +2579,9 @@ class _TheaterMessageBubble extends StatelessWidget {
     required this.bubbleOpacity,
     required this.chatTextColor,
     required this.onCopy,
+    this.onDelete,
+    this.onMute,
+    this.onSpeakAgain,
     this.onRetry,
   });
 
@@ -2054,6 +2590,9 @@ class _TheaterMessageBubble extends StatelessWidget {
   final double bubbleOpacity;
   final int? chatTextColor;
   final VoidCallback onCopy;
+  final VoidCallback? onDelete;
+  final VoidCallback? onMute;
+  final VoidCallback? onSpeakAgain;
   final VoidCallback? onRetry;
 
   @override
@@ -2086,18 +2625,56 @@ class _TheaterMessageBubble extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
-                mainAxisSize: MainAxisSize.min,
                 children: [
                   _TheaterAvatar(
                     participant: participant,
                     name: message.speakerName,
                   ),
                   const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      message.speakerName,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.labelLarge,
+                  Expanded(
+                    child: Wrap(
+                      spacing: 4,
+                      runSpacing: 2,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
+                          message.speakerName,
+                          style: theme.textTheme.labelLarge,
+                        ),
+                        if (message.speakerType == TheaterSpeakerType.role) ...[
+                          TextButton.icon(
+                            style: TextButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                              ),
+                            ),
+                            onPressed: onMute,
+                            icon: Icon(
+                              participant?.isMuted == true
+                                  ? Icons.volume_off_outlined
+                                  : Icons.volume_up_outlined,
+                              size: 17,
+                            ),
+                            label: Text(
+                              context.t(
+                                participant?.isMuted == true ? '已禁言' : '未禁言',
+                              ),
+                            ),
+                          ),
+                          TextButton.icon(
+                            style: TextButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                              ),
+                            ),
+                            onPressed: onSpeakAgain,
+                            icon: const Icon(Icons.replay, size: 17),
+                            label: Text(context.isEnglish ? 'Next' : '继续'),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 ],
@@ -2127,6 +2704,12 @@ class _TheaterMessageBubble extends StatelessWidget {
                     visualDensity: VisualDensity.compact,
                     onPressed: onCopy,
                     icon: const Icon(Icons.copy, size: 16),
+                  ),
+                  IconButton(
+                    tooltip: context.t('删除消息'),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: onDelete,
+                    icon: const Icon(Icons.delete_outline, size: 16),
                   ),
                   if (onRetry != null)
                     TextButton.icon(

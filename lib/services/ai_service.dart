@@ -3,6 +3,10 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../models/ai_usage.dart';
+
+export '../models/ai_usage.dart' show AiUsage;
+
 class AiException implements Exception {
   AiException(this.message);
 
@@ -48,8 +52,11 @@ class AiService {
     required String model,
     required List<Map<String, String>> messages,
     AiCancelToken? cancelToken,
+    int? maxTokens,
+    void Function(AiUsage usage)? onUsage,
   }) async {
     _validateConfig(apiKey: apiKey, baseUrl: baseUrl, model: model);
+    _validateMaxTokens(maxTokens);
 
     final uri = buildChatCompletionsUri(baseUrl);
     final client = cancelToken == null ? _client : http.Client();
@@ -67,6 +74,7 @@ class AiService {
               'model': model.trim(),
               'messages': messages,
               'temperature': 0.8,
+              'max_tokens': ?maxTokens,
             }),
           )
           .timeout(const Duration(seconds: 90));
@@ -86,6 +94,7 @@ class AiService {
       if (decoded is! Map<String, dynamic>) {
         throw AiException('API 返回格式异常。');
       }
+      onUsage?.call(AiUsage.fromJson(decoded['usage']));
 
       final choices = decoded['choices'];
       if (choices is List && choices.isNotEmpty) {
@@ -119,8 +128,11 @@ class AiService {
     required List<Map<String, String>> messages,
     AiCancelToken? cancelToken,
     bool includeReasoning = false,
+    int? maxTokens,
+    void Function(AiUsage usage)? onUsage,
   }) async* {
     _validateConfig(apiKey: apiKey, baseUrl: baseUrl, model: model);
+    _validateMaxTokens(maxTokens);
 
     final uri = buildChatCompletionsUri(baseUrl);
     final client = cancelToken == null ? _client : http.Client();
@@ -136,6 +148,7 @@ class AiService {
           'messages': messages,
           'temperature': 0.8,
           'stream': true,
+          'max_tokens': ?maxTokens,
         });
       final response = await client
           .send(request)
@@ -148,6 +161,7 @@ class AiService {
         );
       }
 
+      var usageReported = false;
       await for (final line
           in response.stream
               .transform(utf8.decoder)
@@ -155,9 +169,16 @@ class AiService {
         final text = _extractStreamText(
           line.trim(),
           includeReasoning: includeReasoning,
+          onUsage: onUsage == null
+              ? null
+              : (usage) {
+                  usageReported = true;
+                  onUsage(usage);
+                },
         );
         if (text != null) yield text;
       }
+      if (!usageReported) onUsage?.call(const AiUsage());
     } finally {
       cancelToken?._detach(client);
       if (cancelToken != null) client.close();
@@ -199,6 +220,12 @@ class AiService {
     }
   }
 
+  void _validateMaxTokens(int? maxTokens) {
+    if (maxTokens != null && maxTokens <= 0) {
+      throw AiException('maxTokens 必须大于 0。');
+    }
+  }
+
   String _extractError(String body) {
     try {
       final decoded = jsonDecode(body);
@@ -221,13 +248,20 @@ class AiService {
     return body.length > 300 ? '${body.substring(0, 300)}...' : body;
   }
 
-  String? _extractStreamText(String line, {bool includeReasoning = false}) {
+  String? _extractStreamText(
+    String line, {
+    bool includeReasoning = false,
+    void Function(AiUsage usage)? onUsage,
+  }) {
     if (line.isEmpty) return null;
     final payload = line.startsWith('data:') ? line.substring(5).trim() : line;
     if (payload.isEmpty || payload == '[DONE]') return null;
     try {
       final decoded = jsonDecode(payload);
       if (decoded is! Map<String, dynamic>) return null;
+      if (decoded.containsKey('usage')) {
+        onUsage?.call(AiUsage.fromJson(decoded['usage']));
+      }
       final choices = decoded['choices'];
       if (choices is! List || choices.isEmpty) return null;
       final first = choices.first;

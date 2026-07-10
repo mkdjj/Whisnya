@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../models/app_settings.dart';
+import '../models/image_crop_region.dart';
 import '../services/ai_service.dart';
 import '../services/local_storage_service.dart';
 import '../utils/app_i18n.dart';
@@ -103,7 +104,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final outputWidth = aspectRatio >= 1 ? 1920 : 1080;
     final outputHeight = (outputWidth / aspectRatio).round();
 
-    final cropped = await Navigator.of(context).push<Uint8List>(
+    final selection = await Navigator.of(context).push<ImageCropSelection>(
       MaterialPageRoute(
         builder: (_) => ImageCropScreen(
           imagePath: sourcePath!,
@@ -111,19 +112,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
           aspectRatio: aspectRatio,
           outputWidth: outputWidth,
           outputHeight: outputHeight,
+          renderOutput: false,
         ),
       ),
     );
-    if (cropped == null) {
+    if (selection == null) {
       return;
     }
 
     final path = await widget.storage.saveMediaImage(
       folder: 'global',
       characterId: 'app',
-      bytes: cropped,
+      bytes: picked.bytes ?? await File(sourcePath).readAsBytes(),
     );
-    _applySettings(_settings.copyWith(globalBackgroundImage: path));
+    _applySettings(
+      _settings.copyWith(
+        globalBackgroundImage: path,
+        globalBackgroundRegion: selection.region,
+      ),
+    );
   }
 
   Future<void> _exportAllData() async {
@@ -1191,7 +1198,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         subtitle: context.t('只删除背景引用，不影响图片文件'),
         onTap: _settings.globalBackgroundImage.isEmpty
             ? null
-            : () => apply(_settings.copyWith(globalBackgroundImage: '')),
+            : () => apply(
+                _settings.copyWith(
+                  globalBackgroundImage: '',
+                  globalBackgroundRegion: ImageCropRegion.full,
+                ),
+              ),
       ),
     ];
   }

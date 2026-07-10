@@ -58,6 +58,7 @@ class NovelBook {
     this.chatBackgroundImage = '',
     this.chatBackgroundOpacity = 1,
     this.chatBackgroundBlur = 0,
+    this.lastOpenedAt,
   });
 
   final String id;
@@ -80,8 +81,11 @@ class NovelBook {
   final String chatBackgroundImage;
   final double chatBackgroundOpacity;
   final double chatBackgroundBlur;
+  final DateTime? lastOpenedAt;
   final DateTime createdAt;
   final DateTime updatedAt;
+
+  DateTime get lastOpenedSortTime => lastOpenedAt ?? updatedAt;
 
   NovelRoleCandidate? get selectedRole {
     if (selectedRoleIndex < 0 || selectedRoleIndex >= roles.length) {
@@ -118,6 +122,7 @@ class NovelBook {
     String? chatBackgroundImage,
     double? chatBackgroundOpacity,
     double? chatBackgroundBlur,
+    DateTime? lastOpenedAt,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -144,6 +149,7 @@ class NovelBook {
       chatBackgroundOpacity:
           chatBackgroundOpacity ?? this.chatBackgroundOpacity,
       chatBackgroundBlur: chatBackgroundBlur ?? this.chatBackgroundBlur,
+      lastOpenedAt: lastOpenedAt ?? this.lastOpenedAt,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -182,6 +188,7 @@ class NovelBook {
         fallback: 1,
       ),
       chatBackgroundBlur: _readDouble(json['chatBackgroundBlur'], fallback: 0),
+      lastOpenedAt: DateTime.tryParse(json['lastOpenedAt'] as String? ?? ''),
       createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? now,
       updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? '') ?? now,
     );
@@ -209,6 +216,7 @@ class NovelBook {
       'chatBackgroundImage': chatBackgroundImage,
       'chatBackgroundOpacity': chatBackgroundOpacity,
       'chatBackgroundBlur': chatBackgroundBlur,
+      if (lastOpenedAt != null) 'lastOpenedAt': lastOpenedAt!.toIso8601String(),
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
     };

@@ -16,13 +16,7 @@ class TheaterReplyDraft {
 class PromptBuilder {
   const PromptBuilder._();
 
-  static const defaultRecentMessageLimit =
-      AppCharacter.defaultChatSummaryMessageLimit;
-
-  static String buildSystemPrompt(
-    AppCharacter character,
-    String historySummary,
-  ) {
+  static String buildSystemPrompt(AppCharacter character) {
     return '''
 你正在扮演用户创建的角色，请严格按照角色设定回复。
 
@@ -41,46 +35,41 @@ ${character.background}
 【说话风格】
 ${character.speakingStyle}
 
-【开场白】
-${character.openingMessage}
-
 【补充设定】
 ${character.extraPrompt}
-
-【历史总结】
-${historySummary.isEmpty ? '暂无历史总结。' : historySummary}
 
 要求：
 1. 尽量保持角色设定。
 2. 用户让你写代码、写文章、分析问题时，也要完成任务。
 3. 不要主动说自己是程序或模型，除非用户明确询问。
 4. 回复语言跟随用户。
-5. 不要编造历史总结中没有的信息。
+5. 不要编造聊天记录中没有的信息。
 ''';
   }
+
+  static String buildChatMemoryPrompt(String historySummary) =>
+      '''
+【动态历史总结】
+${historySummary.trim().isEmpty ? '暂无。' : historySummary.trim()}
+''';
 
   static List<Map<String, String>> buildChatRequestMessages({
     required AppCharacter character,
     required String historySummary,
+    required int summarizedMessageCount,
     required List<ChatMessage> messages,
     required bool useFullContext,
-    int recentMessageLimit = defaultRecentMessageLimit,
   }) {
     final chatMessages = messages
         .where((message) => message.isUser || message.isAssistant)
         .toList();
     final startIndex = useFullContext
         ? 0
-        : recentContextStartIndex(
-            messageCount: chatMessages.length,
-            summaryLimit: recentMessageLimit,
-          );
+        : summarizedMessageCount.clamp(0, chatMessages.length).toInt();
     final requestMessages = chatMessages.skip(startIndex);
     return [
-      {
-        'role': 'system',
-        'content': buildSystemPrompt(character, historySummary),
-      },
+      {'role': 'system', 'content': buildSystemPrompt(character)},
+      {'role': 'system', 'content': buildChatMemoryPrompt(historySummary)},
       for (final message in requestMessages)
         {'role': message.role, 'content': message.content},
     ];
@@ -165,6 +154,7 @@ $transcript
     required List<ChatMessage> newMessages,
     bool useCustomItems = false,
     List<String> customItems = const [],
+    int maxCharacters = 1500,
   }) {
     final transcript = newMessages
         .where((message) => message.isUser || message.isAssistant)
@@ -202,8 +192,44 @@ $items
 - 不要把角色动作写成用户想法。
 - 不要把用户括号动作强行解释成心理。
 - 删除重复、口水话和无关细节。
+- 最终总结不超过约 $maxCharacters 个中文字符，超长时优先压缩旧细节。
 - 输出时只按上面的总结项目组织内容，不要额外增加其他项目。
 ''';
+  }
+
+  static String limitSummary(String summary, int maxCharacters) {
+    final text = summary.trim();
+    final runes = text.runes;
+    return runes.length <= maxCharacters
+        ? text
+        : String.fromCharCodes(runes.take(maxCharacters));
+  }
+
+  static int theaterSummaryEndIndex({
+    required List<TheaterMessage> messages,
+    required int summarizedMessageCount,
+    int messageBatchSize = 20,
+    int roundBatchSize = 5,
+  }) {
+    if (messages.isEmpty) return 0;
+    final start = summarizedMessageCount.clamp(0, messages.length).toInt();
+    var end = messages.length;
+    if (messages.last.speakerType == TheaterSpeakerType.user) {
+      final currentRound = messages.last.round;
+      while (end > start && messages[end - 1].round == currentRound) {
+        end--;
+      }
+    }
+    if (end <= start) return start;
+    final pending = messages.sublist(start, end);
+    final completeRounds = pending
+        .map((message) => message.round)
+        .toSet()
+        .length;
+    return pending.length >= messageBatchSize ||
+            completeRounds >= roundBatchSize
+        ? end
+        : start;
   }
 
   static List<Map<String, String>> buildTheaterSingleApiRequest({
@@ -211,7 +237,7 @@ $items
     required String novelSummary,
     required List<TheaterMessage> messages,
   }) {
-    final allowed = session.aiParticipants;
+    final allowed = session.activeAiParticipants;
     return [
       {
         'role': 'system',
@@ -222,30 +248,36 @@ $items
 【群聊名称】
 ${session.title}
 
-${_theaterNovelText(session, novelSummary)}
-
-【群聊总结】
-${session.theaterSummary.trim().isEmpty ? '暂无。' : session.theaterSummary}
+${_theaterNovelFixedText(session)}
 
 【参与角色】
 ${_theaterParticipantsText(session.participants)}
 
-【本轮允许你发言的角色】
-${allowed.map((role) => '- ${role.name}').join('\n')}
-
 要求：
-1. 只允许上面列出的角色发言。
+1. 只允许动态状态列出的角色发言。
 2. 如果用户扮演了某个角色，不要替该角色发言。
 3. 每个角色保持自己的性格、背景和说话风格。
 4. 不要求所有角色都发言，但至少输出 1 条回复。
 5. 每条回复不要过长。
-6. 只输出 JSON 数组，不要 Markdown 代码块。
+6. 每段回复前必须单独一行输出角色标记。
+7. 角色名必须完全匹配允许发言角色列表。
+8. 不要输出 JSON、Markdown 代码块或说明文字。
 
 输出格式：
-[
-  {"speaker":"角色名","content":"回复内容"}
-]
+<<<WhisnyaSpeaker:角色名>>>
+回复内容
+
+<<<WhisnyaSpeaker:另一角色名>>>
+回复内容
 ''',
+      },
+      {
+        'role': 'system',
+        'content': _theaterDynamicMemory(
+          session: session,
+          novelSummary: novelSummary,
+          allowed: allowed,
+        ),
       },
       {'role': 'user', 'content': _theaterMessagesText(messages)},
     ];
@@ -267,16 +299,13 @@ ${allowed.map((role) => '- ${role.name}').join('\n')}
 【群聊名称】
 ${session.title}
 
-${_theaterNovelText(session, novelSummary)}
-
-【群聊总结】
-${session.theaterSummary.trim().isEmpty ? '暂无。' : session.theaterSummary}
+${_theaterNovelFixedText(session)}
 
 【你只能扮演】
 ${_theaterParticipantText(participant)}
 
-【其他参与者】
-${session.participants.where((role) => role.id != participant.id).map((role) => '- ${role.name}').join('\n')}
+【全部参与角色（固定顺序）】
+${_theaterParticipantsText(session.participants)}
 
 要求：
 1. 你只能作为「${participant.name}」发言。
@@ -285,6 +314,14 @@ ${session.participants.where((role) => role.id != participant.id).map((role) => 
 4. 保持角色设定、语气和关系状态。
 5. 直接输出回复正文，不要加角色名。
 ''',
+      },
+      {
+        'role': 'system',
+        'content': _theaterDynamicMemory(
+          session: session,
+          novelSummary: novelSummary,
+          allowed: participant.isMuted ? const [] : [participant],
+        ),
       },
       {'role': 'user', 'content': _theaterMessagesText(messages)},
     ];
@@ -325,6 +362,7 @@ $items
 - 不要把角色动作写成用户想法。
 - 不要把用户括号动作强行解释成心理。
 - 尽量简洁，避免越来越长。
+- 最终总结不超过约 1500 个中文字符，超长时优先压缩旧细节。
 - 输出时只按上面的总结项目组织内容，不要额外增加其他项目。
 ''';
   }
@@ -378,14 +416,35 @@ $items
     return text;
   }
 
-  static String _theaterNovelText(TheaterSession session, String novelSummary) {
+  static String _theaterNovelFixedText(TheaterSession session) {
     if (session.boundNovelId.isEmpty) return '【绑定小说】\n无';
     return '''
 【绑定小说】
 ${session.boundNovelTitle}
+''';
+  }
 
-【小说设定档】
+  static String _theaterDynamicMemory({
+    required TheaterSession session,
+    required String novelSummary,
+    required List<TheaterParticipant> allowed,
+  }) {
+    final muted = session.allAiParticipants
+        .where((participant) => participant.isMuted)
+        .map((participant) => participant.name)
+        .join('、');
+    return '''
+【小说总结】
 ${novelSummary.trim().isEmpty ? '暂无。' : novelSummary.trim()}
+
+【群聊总结】
+${session.theaterSummary.trim().isEmpty ? '暂无。' : session.theaterSummary.trim()}
+
+【本轮允许发言】
+${allowed.isEmpty ? '无' : allowed.map((participant) => participant.name).join('、')}
+
+【当前禁言】
+${muted.isEmpty ? '无' : muted}
 ''';
   }
 
@@ -505,5 +564,35 @@ $userRoleText
 4. 不要把小说原文整段复述给用户。
 5. 回复语言跟随用户。
 ''';
+  }
+
+  static List<Map<String, String>> buildNovelChatRequestMessages({
+    required NovelBook book,
+    required NovelRoleCandidate aiRole,
+    required NovelRoleCandidate? userRole,
+    required String historySummary,
+    required int summarizedMessageCount,
+    required List<ChatMessage> messages,
+  }) {
+    final chatMessages = messages
+        .where((message) => message.isUser || message.isAssistant)
+        .toList();
+    final start = summarizedMessageCount.clamp(0, chatMessages.length).toInt();
+    return [
+      {
+        'role': 'system',
+        'content': buildNovelChatSystemPrompt(book, aiRole, userRole),
+      },
+      {
+        'role': 'system',
+        'content':
+            '''
+【小说聊天历史总结】
+${historySummary.trim().isEmpty ? '暂无。' : historySummary.trim()}
+''',
+      },
+      for (final message in chatMessages.skip(start))
+        {'role': message.role, 'content': message.content},
+    ];
   }
 }

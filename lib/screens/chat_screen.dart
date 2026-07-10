@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 
@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import '../models/api_config.dart';
 import '../models/app_character.dart';
 import '../models/app_settings.dart';
+import '../models/image_crop_region.dart';
 import '../models/chat_message.dart';
 import '../models/chat_summary.dart';
 import '../prompts.dart';
@@ -18,6 +19,8 @@ import '../utils/app_i18n.dart';
 import '../utils/confirm_dialog.dart';
 import '../utils/page_layout.dart';
 import '../utils/snack.dart';
+import '../widgets/app_background.dart';
+import '../widgets/endpoint_picker.dart';
 import '../widgets/message_content.dart';
 import '../widgets/setting_slider.dart';
 
@@ -158,7 +161,11 @@ class _ChatScreenState extends State<ChatScreen> {
     final cancelToken = AiCancelToken();
     _cancelToken = cancelToken;
     try {
-      await _updateRollingSummary(endpoint, generationId, cancelToken);
+      final summaryUpdated = await _updateRollingSummary(
+        endpoint,
+        generationId,
+        cancelToken,
+      );
       if (!mounted || generationId != _generationId || !_isSending) return;
 
       final requestMessages = _buildChatRequestMessages();
@@ -185,6 +192,16 @@ class _ChatScreenState extends State<ChatScreen> {
         messages: requestMessages,
         cancelToken: cancelToken,
         includeReasoning: widget.settings.showReasoningContent,
+        maxTokens: 800,
+        onUsage: (usage) => unawaited(
+          widget.storage.recordAiUsage(
+            requestType: 'characterChat',
+            model: endpoint.model,
+            usage: usage,
+            messages: requestMessages,
+            summaryUpdated: summaryUpdated,
+          ),
+        ),
       )) {
         if (!mounted || generationId != _generationId || !_isSending) return;
         reply += chunk;
@@ -346,11 +363,24 @@ class _ChatScreenState extends State<ChatScreen> {
           {'role': 'system', 'content': '你负责总结聊天记录，并只输出总结内容。'},
           {'role': 'user', 'content': prompt},
         ],
+        maxTokens: 800,
+        onUsage: (usage) => unawaited(
+          widget.storage.recordAiUsage(
+            requestType: 'characterSummary',
+            model: endpoint.model,
+            usage: usage,
+            messages: [
+              {'role': 'system', 'content': '你负责总结聊天记录，并只输出总结内容。'},
+              {'role': 'user', 'content': prompt},
+            ],
+            summaryUpdated: true,
+          ),
+        ),
       );
 
       final nextSummary = ChatSummary(
         characterId: _character.id,
-        summary: summaryText,
+        summary: PromptBuilder.limitSummary(summaryText, 1500),
         updatedAt: DateTime.now(),
         summarizedMessageCount: messages.length,
       );
@@ -519,9 +549,9 @@ class _ChatScreenState extends State<ChatScreen> {
     return PromptBuilder.buildChatRequestMessages(
       character: _character,
       historySummary: _summary.summary,
+      summarizedMessageCount: _summary.summarizedMessageCount,
       messages: _messages,
       useFullContext: _character.useFullChatContext,
-      recentMessageLimit: _character.chatSummaryMessageLimit,
     );
   }
 
@@ -531,16 +561,16 @@ class _ChatScreenState extends State<ChatScreen> {
         .toList();
   }
 
-  Future<void> _updateRollingSummary(
+  Future<bool> _updateRollingSummary(
     AiEndpointConfig endpoint,
     int generationId,
     AiCancelToken cancelToken,
   ) async {
-    if (_character.useFullChatContext) return;
+    if (_character.useFullChatContext) return false;
 
     final messages = _chatMessagesOnly();
     final limit = _character.chatSummaryMessageLimit;
-    if (messages.length <= limit) return;
+    if (messages.length <= limit) return false;
 
     final summarizeUntil = PromptBuilder.rollingSummaryEndIndex(
       messageCount: messages.length,
@@ -549,40 +579,54 @@ class _ChatScreenState extends State<ChatScreen> {
     final summarizedCount = _summary.summarizedMessageCount
         .clamp(0, summarizeUntil)
         .toInt();
-    if (summarizedCount >= summarizeUntil) return;
+    if (summarizedCount >= summarizeUntil) return false;
 
     final nextChunk = messages.sublist(summarizedCount, summarizeUntil);
-    if (nextChunk.isEmpty) return;
+    if (nextChunk.isEmpty) return false;
 
     setState(() => _isSummarizing = true);
     try {
+      final summaryMessages = [
+        {'role': 'system', 'content': '你负责总结聊天记录，并只输出总结内容。'},
+        {
+          'role': 'user',
+          'content': PromptBuilder.buildRollingSummaryPrompt(
+            previousSummary: _summary.summary,
+            newMessages: nextChunk,
+            useCustomItems: widget.settings.useCustomChatSummaryItems,
+            customItems: widget.settings.customChatSummaryItems,
+          ),
+        },
+      ];
       final summaryText = await widget.aiService.sendMessage(
         apiKey: endpoint.apiKey,
         baseUrl: endpoint.baseUrl,
         model: endpoint.model,
-        messages: [
-          {'role': 'system', 'content': '你负责总结聊天记录，并只输出总结内容。'},
-          {
-            'role': 'user',
-            'content': PromptBuilder.buildRollingSummaryPrompt(
-              previousSummary: _summary.summary,
-              newMessages: nextChunk,
-              useCustomItems: widget.settings.useCustomChatSummaryItems,
-              customItems: widget.settings.customChatSummaryItems,
-            ),
-          },
-        ],
+        messages: summaryMessages,
         cancelToken: cancelToken,
+        maxTokens: 800,
+        onUsage: (usage) => unawaited(
+          widget.storage.recordAiUsage(
+            requestType: 'characterSummary',
+            model: endpoint.model,
+            usage: usage,
+            messages: summaryMessages,
+            summaryUpdated: true,
+          ),
+        ),
       );
       final nextSummary = ChatSummary(
         characterId: _character.id,
-        summary: summaryText,
+        summary: PromptBuilder.limitSummary(summaryText, 1500),
         updatedAt: DateTime.now(),
         summarizedMessageCount: summarizeUntil,
       );
       await widget.storage.saveSummary(nextSummary);
-      if (!mounted || generationId != _generationId || !_isSending) return;
+      if (!mounted || generationId != _generationId || !_isSending) {
+        return true;
+      }
       setState(() => _summary = nextSummary);
+      return true;
     } finally {
       if (mounted) setState(() => _isSummarizing = false);
     }
@@ -763,6 +807,23 @@ class _ChatScreenState extends State<ChatScreen> {
                     _apiConfig.endpointById(_selectedEndpointId)?.name ??
                         context.t('未配置 API'),
                   ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: _apiConfig.enabledEndpoints.isEmpty
+                      ? null
+                      : () async {
+                          final endpointId = await showEndpointPicker(
+                            context: context,
+                            endpoints: _apiConfig.enabledEndpoints,
+                            selectedId: _selectedEndpointId,
+                          );
+                          if (endpointId == null || !mounted) return;
+                          final next = draft.copyWith(
+                            defaultEndpointId: endpointId,
+                          );
+                          setState(() => _selectedEndpointId = endpointId);
+                          preview(next);
+                          _applyCharacterSettings(next);
+                        },
                 ),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -954,6 +1015,18 @@ class _ChatScreenState extends State<ChatScreen> {
     _showSnack('已复制消息');
   }
 
+  Future<void> _deleteMessage(int index) async {
+    if (index < 0 || index >= _messages.length) return;
+    setState(() {
+      _messages = [..._messages]..removeAt(index);
+      _searchResults = _findSearchResults(_searchQuery);
+      _activeSearchResult = _searchResults.isEmpty
+          ? 0
+          : _activeSearchResult.clamp(0, _searchResults.length - 1);
+    });
+    await widget.storage.saveChat(_character.id, _messages);
+  }
+
   void _scrollToEnd() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollController.hasClients) return;
@@ -1071,6 +1144,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     return _ChatBackground(
       imagePath: _character.backgroundImage,
+      region: _character.backgroundImageRegion,
       opacity: _character.backgroundImageOpacity,
       blur: _character.backgroundBlur,
       child: Stack(
@@ -1163,6 +1237,7 @@ class _ChatScreenState extends State<ChatScreen> {
             isHighlighted: messageIndex == highlightedIndex,
             searchQuery: _searchQuery,
             onCopy: () => _copyMessage(message),
+            onDelete: _isSending ? null : () => _deleteMessage(messageIndex),
           );
         },
       ),
@@ -1291,12 +1366,14 @@ class _AnimatedTopBar extends StatelessWidget {
 class _ChatBackground extends StatelessWidget {
   const _ChatBackground({
     required this.imagePath,
+    required this.region,
     required this.opacity,
     required this.blur,
     required this.child,
   });
 
   final String imagePath;
+  final ImageCropRegion region;
   final double opacity;
   final double blur;
   final Widget child;
@@ -1318,11 +1395,7 @@ class _ChatBackground extends StatelessWidget {
           opacity: alpha,
           child: ImageFiltered(
             imageFilter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-            child: Image.file(
-              file,
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => const SizedBox.shrink(),
-            ),
+            child: croppedFileImage(context, file, region: region),
           ),
         ),
         DecoratedBox(
@@ -1447,6 +1520,7 @@ class _MessageBubble extends StatelessWidget {
     required this.isHighlighted,
     required this.searchQuery,
     required this.onCopy,
+    this.onDelete,
   });
 
   final ChatMessage message;
@@ -1455,6 +1529,7 @@ class _MessageBubble extends StatelessWidget {
   final bool isHighlighted;
   final String searchQuery;
   final VoidCallback onCopy;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -1518,6 +1593,12 @@ class _MessageBubble extends StatelessWidget {
                     visualDensity: VisualDensity.compact,
                     onPressed: onCopy,
                     icon: const Icon(Icons.copy, size: 16),
+                  ),
+                  IconButton(
+                    tooltip: context.t('删除消息'),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: onDelete,
+                    icon: const Icon(Icons.delete_outline, size: 16),
                   ),
                 ],
               ),

@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 
+import 'image_crop_region.dart';
+
 class AppSettings {
   const AppSettings({
     this.themeMode = ThemeMode.system,
     this.globalBackgroundImage = '',
+    this.globalBackgroundRegion = ImageCropRegion.full,
     this.globalBackgroundOpacity = 1,
     this.globalBackgroundBlur = 0,
     this.interfaceTextColor,
@@ -26,6 +29,7 @@ class AppSettings {
 
   final ThemeMode themeMode;
   final String globalBackgroundImage;
+  final ImageCropRegion globalBackgroundRegion;
   final double globalBackgroundOpacity;
   final double globalBackgroundBlur;
   final int? interfaceTextColor;
@@ -56,6 +60,7 @@ class AppSettings {
   AppSettings copyWith({
     ThemeMode? themeMode,
     String? globalBackgroundImage,
+    ImageCropRegion? globalBackgroundRegion,
     double? globalBackgroundOpacity,
     double? globalBackgroundBlur,
     int? interfaceTextColor,
@@ -81,6 +86,8 @@ class AppSettings {
       themeMode: themeMode ?? this.themeMode,
       globalBackgroundImage:
           globalBackgroundImage ?? this.globalBackgroundImage,
+      globalBackgroundRegion:
+          globalBackgroundRegion ?? this.globalBackgroundRegion,
       globalBackgroundOpacity:
           globalBackgroundOpacity ?? this.globalBackgroundOpacity,
       globalBackgroundBlur: globalBackgroundBlur ?? this.globalBackgroundBlur,
@@ -117,6 +124,9 @@ class AppSettings {
     return AppSettings(
       themeMode: _themeModeFromString(json?['themeMode'] as String?),
       globalBackgroundImage: json?['globalBackgroundImage'] as String? ?? '',
+      globalBackgroundRegion: ImageCropRegion.fromJson(
+        json?['globalBackgroundRegion'],
+      ),
       globalBackgroundOpacity: _readDouble(
         json?['globalBackgroundOpacity'],
         fallback: 1,
@@ -159,6 +169,7 @@ class AppSettings {
     return {
       'themeMode': themeMode.name,
       'globalBackgroundImage': globalBackgroundImage,
+      'globalBackgroundRegion': globalBackgroundRegion.toJson(),
       'globalBackgroundOpacity': globalBackgroundOpacity,
       'globalBackgroundBlur': globalBackgroundBlur,
       'interfaceTextColor': interfaceTextColor,

@@ -7,6 +7,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../models/api_config.dart';
+import '../models/ai_usage.dart';
 import '../models/app_character.dart';
 import '../models/app_settings.dart';
 import '../models/chat_message.dart';
@@ -238,6 +239,51 @@ class LocalStorageService {
     );
   }
 
+  Future<List<AiUsageRecord>> loadAiUsageRecords() async {
+    final decoded = await _readJson(await _aiUsageFile(), <dynamic>[]);
+    if (decoded is! List) return const [];
+    return decoded
+        .whereType<Map<String, dynamic>>()
+        .map(AiUsageRecord.fromJson)
+        .toList();
+  }
+
+  Future<void> saveAiUsageRecord(AiUsageRecord record) async {
+    final file = await _aiUsageFile();
+    await _enqueueWrite(() async {
+      final decoded = await _readJsonNow(file, <dynamic>[]);
+      final records = decoded is List
+          ? decoded
+                .whereType<Map<String, dynamic>>()
+                .map(AiUsageRecord.fromJson)
+                .toList()
+          : <AiUsageRecord>[];
+      await _writeJsonNow(
+        file,
+        appendAiUsageRecord(
+          records,
+          record,
+        ).map((item) => item.toJson()).toList(),
+      );
+    });
+  }
+
+  Future<void> recordAiUsage({
+    required String requestType,
+    required String model,
+    required AiUsage usage,
+    required List<Map<String, String>> messages,
+    required bool summaryUpdated,
+  }) => saveAiUsageRecord(
+    AiUsageRecord.fromRequest(
+      requestType: requestType,
+      model: model,
+      usage: usage,
+      messages: messages,
+      summaryUpdated: summaryUpdated,
+    ),
+  );
+
   bool _hasApiKeys(ApiConfig config) {
     return config.endpoints.any(
       (endpoint) => endpoint.apiKey.trim().isNotEmpty,
@@ -413,7 +459,7 @@ class LocalStorageService {
         .map(NovelBook.fromJson)
         .where((book) => book.id.isNotEmpty && book.textPath.isNotEmpty)
         .toList()
-      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      ..sort((a, b) => b.lastOpenedSortTime.compareTo(a.lastOpenedSortTime));
   }
 
   Future<NovelBook> importNovelText({
@@ -468,6 +514,8 @@ class LocalStorageService {
     if (await chat.exists()) {
       await chat.delete();
     }
+    final chatSummary = await _summaryFile('novel_chat_${book.id}');
+    if (await chatSummary.exists()) await chatSummary.delete();
     await _deleteAppMediaFile(book.chatBackgroundImage);
   }
 
@@ -487,8 +535,11 @@ class LocalStorageService {
     );
   }
 
-  Future<void> clearNovelChat(String novelId) =>
-      saveNovelChat(novelId, const []);
+  Future<void> clearNovelChat(String novelId) async {
+    await saveNovelChat(novelId, const []);
+    final summary = await _summaryFile('novel_chat_$novelId');
+    if (await summary.exists()) await summary.delete();
+  }
 
   Future<ChatSummary> loadSummary(String characterId) async {
     final file = await _summaryFile(characterId);
@@ -520,7 +571,7 @@ class LocalStorageService {
         .map(TheaterSession.fromJson)
         .where((session) => session.id.isNotEmpty)
         .toList()
-      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      ..sort((a, b) => b.lastOpenedSortTime.compareTo(a.lastOpenedSortTime));
   }
 
   Future<void> saveTheaterSession(TheaterSession session) async {
@@ -889,6 +940,11 @@ class LocalStorageService {
   Future<File> _apiConfigFile() async {
     final directory = await appDataDirectory;
     return File('${directory.path}${Platform.pathSeparator}api_config.json');
+  }
+
+  Future<File> _aiUsageFile() async {
+    final directory = await appDataDirectory;
+    return File('${directory.path}${Platform.pathSeparator}ai_usage.json');
   }
 
   Future<File> _settingsFile() async {

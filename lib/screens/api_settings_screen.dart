@@ -1,6 +1,7 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import '../models/api_config.dart';
+import '../models/ai_usage.dart';
 import '../services/ai_service.dart';
 import '../services/local_storage_service.dart';
 import '../utils/app_i18n.dart';
@@ -241,12 +242,179 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
     context.showSnack(message);
   }
 
+  Future<void> _showUsageStats() async {
+    final records = await widget.storage.loadAiUsageRecords();
+    if (!mounted) return;
+    var category = AiUsageCategory.character;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) {
+          final filtered = filterAiUsage(records, category);
+          final totals = summarizeAiUsage(records, category);
+          return SafeArea(
+            child: SizedBox(
+              height: MediaQuery.sizeOf(sheetContext).height * 0.85,
+              child: Column(
+                children: [
+                  ListTile(
+                    title: Text(
+                      sheetContext.t('API 使用统计'),
+                      style: Theme.of(sheetContext).textTheme.titleLarge,
+                    ),
+                    trailing: IconButton(
+                      tooltip: sheetContext.t('关闭'),
+                      onPressed: () => Navigator.of(sheetContext).pop(),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: SegmentedButton<AiUsageCategory>(
+                      segments: [
+                        ButtonSegment(
+                          value: AiUsageCategory.character,
+                          label: Text(sheetContext.t('角色')),
+                        ),
+                        ButtonSegment(
+                          value: AiUsageCategory.novel,
+                          label: Text(sheetContext.t('小说')),
+                        ),
+                        ButtonSegment(
+                          value: AiUsageCategory.theater,
+                          label: Text(sheetContext.t('群聊')),
+                        ),
+                      ],
+                      selected: {category},
+                      onSelectionChanged: (value) =>
+                          setSheetState(() => category = value.first),
+                    ),
+                  ),
+                  _usageSummary(sheetContext, totals),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        sheetContext.t('使用明细'),
+                        style: Theme.of(sheetContext).textTheme.titleSmall,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: filtered.isEmpty
+                        ? Center(child: Text(sheetContext.t('暂无使用统计')))
+                        : ListView.separated(
+                            itemCount: filtered.length,
+                            separatorBuilder: (_, _) =>
+                                const Divider(height: 1),
+                            itemBuilder: (_, index) =>
+                                _usageTile(sheetContext, filtered[index]),
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _usageSummary(BuildContext context, AiUsageTotals totals) {
+    final cacheRate = totals.supportsCacheStats
+        ? '${(totals.cacheHitRate * 100).toStringAsFixed(1)}%'
+        : context.t('不支持缓存统计');
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Wrap(
+        spacing: 24,
+        runSpacing: 12,
+        children: [
+          _usageMetric(context, '请求次数', '${totals.requestCount}'),
+          _usageMetric(context, '总 Tokens', '${totals.totalTokens}'),
+          _usageMetric(context, '提示 Tokens', '${totals.promptTokens}'),
+          _usageMetric(context, '回复 Tokens', '${totals.completionTokens}'),
+          _usageMetric(context, '平均缓存命中率', cacheRate),
+        ],
+      ),
+    );
+  }
+
+  Widget _usageMetric(BuildContext context, String label, String value) {
+    return SizedBox(
+      width: 130,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(context.t(label), style: Theme.of(context).textTheme.labelSmall),
+          const SizedBox(height: 2),
+          Text(value, style: Theme.of(context).textTheme.titleMedium),
+        ],
+      ),
+    );
+  }
+
+  Widget _usageTile(BuildContext context, AiUsageRecord record) {
+    final usage = record.usage;
+    final cache = usage.supportsCacheStats
+        ? context.isEnglish
+              ? 'Cache hit ${usage.cacheHitTokens}, miss ${usage.cacheMissTokens}, ${(usage.cacheHitRate * 100).toStringAsFixed(1)}% hit rate'
+              : '缓存命中 ${usage.cacheHitTokens}，未命中 ${usage.cacheMissTokens}，命中率 ${(usage.cacheHitRate * 100).toStringAsFixed(1)}%'
+        : context.t('不支持缓存统计');
+    final layers = context.isEnglish
+        ? 'Prompt chars: fixed ${record.fixedPromptCharacters}, memory ${record.dynamicMemoryCharacters}, chat ${record.chatCharacters}'
+        : 'Prompt 字符：固定 ${record.fixedPromptCharacters}，记忆 ${record.dynamicMemoryCharacters}，聊天 ${record.chatCharacters}';
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${context.t(_usageType(record.requestType))} · ${record.model}',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${record.createdAt.toLocal().toString().substring(0, 16)}\n'
+            '${context.isEnglish ? 'Tokens' : 'Token'}: ${usage.promptTokens} + ${usage.completionTokens} = ${usage.totalTokens}\n'
+            '$cache\n$layers\n'
+            '${context.t('本轮更新总结')}：${context.t(record.summaryUpdated ? '是' : '否')}',
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _usageType(String type) => switch (type) {
+    'characterChat' => '角色聊天',
+    'characterSummary' => '角色聊天总结',
+    'novelChat' => '小说聊天',
+    'novelChatSummary' => '小说聊天总结',
+    'theater' => '群聊',
+    'theaterSummary' => '群聊总结',
+    'novelSummary' => '小说总结',
+    _ => '总结',
+  };
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(context.t('API 配置')),
         actions: [
+          IconButton(
+            tooltip: context.t('API 使用统计'),
+            onPressed: _showUsageStats,
+            icon: const Icon(Icons.query_stats),
+          ),
           IconButton(
             tooltip: context.t('添加配置'),
             onPressed: () => _editEndpoint(),
@@ -324,65 +492,65 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
           ].join('\n'),
         ),
         isThreeLine: true,
-        trailing: isTesting
-            ? const SizedBox.square(
-                dimension: 22,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : PopupMenuButton<_EndpointAction>(
-                onSelected: (action) => _handleAction(action, endpoint),
-                itemBuilder: (context) => [
-                  PopupMenuItem(
-                    value: _EndpointAction.edit,
-                    child: ListTile(
-                      leading: const Icon(Icons.edit),
-                      title: Text(context.t('编辑配置')),
-                    ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextButton(
+              onPressed: isTesting ? null : () => _testEndpoint(endpoint),
+              child: isTesting
+                  ? const SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Text(context.t('测试')),
+            ),
+            PopupMenuButton<_EndpointAction>(
+              onSelected: (action) => _handleAction(action, endpoint),
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: _EndpointAction.edit,
+                  child: ListTile(
+                    leading: const Icon(Icons.edit),
+                    title: Text(context.t('编辑配置')),
                   ),
-                  PopupMenuItem(
-                    value: _EndpointAction.duplicate,
-                    child: ListTile(
-                      leading: const Icon(Icons.copy),
-                      title: Text(context.t('复制配置')),
-                    ),
+                ),
+                PopupMenuItem(
+                  value: _EndpointAction.duplicate,
+                  child: ListTile(
+                    leading: const Icon(Icons.copy),
+                    title: Text(context.t('复制配置')),
                   ),
-                  PopupMenuItem(
-                    value: _EndpointAction.test,
-                    child: ListTile(
-                      leading: const Icon(Icons.wifi_tethering),
-                      title: Text(context.t('测试连接')),
-                    ),
+                ),
+                PopupMenuItem(
+                  value: _EndpointAction.setDefault,
+                  enabled: !isDefault && endpoint.enabled,
+                  child: ListTile(
+                    leading: const Icon(Icons.check_circle_outline),
+                    title: Text(context.t('设为默认')),
                   ),
-                  PopupMenuItem(
-                    value: _EndpointAction.setDefault,
-                    enabled: !isDefault && endpoint.enabled,
-                    child: ListTile(
-                      leading: const Icon(Icons.check_circle_outline),
-                      title: Text(context.t('设为默认')),
+                ),
+                PopupMenuItem(
+                  value: _EndpointAction.toggle,
+                  child: ListTile(
+                    leading: Icon(
+                      endpoint.enabled
+                          ? Icons.toggle_off_outlined
+                          : Icons.toggle_on_outlined,
                     ),
+                    title: Text(context.t(endpoint.enabled ? '禁用配置' : '启用配置')),
                   ),
-                  PopupMenuItem(
-                    value: _EndpointAction.toggle,
-                    child: ListTile(
-                      leading: Icon(
-                        endpoint.enabled
-                            ? Icons.toggle_off_outlined
-                            : Icons.toggle_on_outlined,
-                      ),
-                      title: Text(
-                        context.t(endpoint.enabled ? '禁用配置' : '启用配置'),
-                      ),
-                    ),
+                ),
+                PopupMenuItem(
+                  value: _EndpointAction.delete,
+                  child: ListTile(
+                    leading: const Icon(Icons.delete_outline),
+                    title: Text(context.t('删除 API 配置')),
                   ),
-                  PopupMenuItem(
-                    value: _EndpointAction.delete,
-                    child: ListTile(
-                      leading: const Icon(Icons.delete_outline),
-                      title: Text(context.t('删除 API 配置')),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -397,9 +565,6 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
         break;
       case _EndpointAction.duplicate:
         await _duplicateEndpoint(endpoint);
-        break;
-      case _EndpointAction.test:
-        await _testEndpoint(endpoint);
         break;
       case _EndpointAction.setDefault:
         await _saveConfig(
@@ -425,4 +590,4 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
   }
 }
 
-enum _EndpointAction { edit, duplicate, test, setDefault, toggle, delete }
+enum _EndpointAction { edit, duplicate, setDefault, toggle, delete }

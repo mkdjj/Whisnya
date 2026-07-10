@@ -16,7 +16,7 @@ import 'package:whisnya/utils/role_import_parser.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('builds role system prompt with summary', () {
+  test('keeps role system prompt stable and moves summary to memory', () {
     final character = AppCharacter(
       id: 'c1',
       name: '测试角色',
@@ -38,11 +38,28 @@ void main() {
       lastUsedAt: DateTime(2026),
     );
 
-    final prompt = PromptBuilder.buildSystemPrompt(character, '历史总结');
+    final prompt = PromptBuilder.buildSystemPrompt(character);
+    final request = PromptBuilder.buildChatRequestMessages(
+      character: character,
+      historySummary: '历史总结',
+      summarizedMessageCount: 0,
+      messages: [
+        ChatMessage(
+          role: 'assistant',
+          content: character.openingMessage,
+          time: DateTime(2026),
+        ),
+      ],
+      useFullContext: false,
+    );
 
     expect(prompt, contains('【角色名称】'));
     expect(prompt, contains('测试角色'));
-    expect(prompt, contains('历史总结'));
+    expect(prompt, isNot(contains('历史总结')));
+    expect(prompt, isNot(contains('【开场白】')));
+    expect(request[1]['role'], 'system');
+    expect(request[1]['content'], contains('历史总结'));
+    expect(request[2]['content'], '你好');
   });
 
   test('builds summary prompt from chat messages', () {
@@ -99,13 +116,15 @@ void main() {
     final request = PromptBuilder.buildChatRequestMessages(
       character: character,
       historySummary: '历史总结',
+      summarizedMessageCount: 0,
       messages: messages,
       useFullContext: true,
     );
 
-    expect(request, hasLength(36));
-    expect(request[1]['content'], '消息 0');
-    expect(request.first['content'], contains('历史总结'));
+    expect(request, hasLength(37));
+    expect(request[2]['content'], '消息 0');
+    expect(request.first['content'], isNot(contains('历史总结')));
+    expect(request[1]['content'], contains('历史总结'));
   });
 
   test('builds rolling recent chat context with summary when requested', () {
@@ -138,15 +157,16 @@ void main() {
     final request = PromptBuilder.buildChatRequestMessages(
       character: character,
       historySummary: '历史总结',
+      summarizedMessageCount: 50,
       messages: messages,
       useFullContext: false,
-      recentMessageLimit: character.chatSummaryMessageLimit,
     );
 
-    expect(request, hasLength(12));
-    expect(request[1]['content'], '消息 46');
+    expect(request, hasLength(8));
+    expect(request[2]['content'], '消息 51');
     expect(request.last['content'], '消息 56');
-    expect(request.first['content'], contains('历史总结'));
+    expect(request.first['content'], isNot(contains('历史总结')));
+    expect(request[1]['content'], contains('历史总结'));
   });
 
   test('grows recent context until the summary threshold', () {
@@ -185,6 +205,7 @@ void main() {
     expect(prompt, contains('用户：新消息'));
     expect(prompt, contains('合并'));
     expect(prompt, contains('角色需要记住的设定或者关系变化'));
+    expect(PromptBuilder.limitSummary('😀内容', 1), '😀');
   });
 
   test('builds custom rolling summary prompt items', () {
@@ -243,6 +264,7 @@ void main() {
       background: '背景',
       speakingStyle: '短句',
       endpointId: 'deepseek',
+      isMuted: true,
     );
     final session = TheaterSession(
       id: 't1',
@@ -250,12 +272,17 @@ void main() {
       singleEndpointId: 'deepseek',
       isHidden: true,
       isLocked: true,
+      multiApiReplyMode: TheaterMultiApiReplyMode.turnBased,
+      nextSpeakerIndex: 2,
+      lastOpenedAt: DateTime(2026, 2),
       participants: const [participant],
       createdAt: now,
       updatedAt: now,
     );
 
     final restored = TheaterSession.fromJson(session.toJson());
+    final legacySessionJson = session.toJson()..remove('lastOpenedAt');
+    final legacySession = TheaterSession.fromJson(legacySessionJson);
     final replies = PromptBuilder.parseTheaterReplies(
       '[{"speaker":"苏璃","content":"我知道了。"}]',
     );
@@ -263,10 +290,137 @@ void main() {
     expect(restored.participants.single.name, '苏璃');
     expect(restored.isHidden, isTrue);
     expect(restored.isLocked, isTrue);
-    expect(restored.recentMessageLimit, 60);
+    expect(restored.multiApiReplyMode, TheaterMultiApiReplyMode.turnBased);
+    expect(restored.nextSpeakerIndex, 2);
+    expect(restored.lastOpenedAt, DateTime(2026, 2));
+    expect(restored.lastOpenedSortTime, DateTime(2026, 2));
+    expect(legacySession.lastOpenedSortTime, session.updatedAt);
+    expect(restored.participants.single.isMuted, isTrue);
+    expect(restored.activeAiParticipants, isEmpty);
+    expect(restored.recentMessageLimit, 30);
     expect(replies.single.speaker, '苏璃');
     expect(replies.single.content, '我知道了。');
+    final request = PromptBuilder.buildTheaterSingleApiRequest(
+      session: session,
+      novelSummary: '',
+      messages: const [],
+    );
+    expect(request.first['content'], contains('<<<WhisnyaSpeaker:角色名>>>'));
+    expect(request.first['content'], isNot(contains('JSON 数组')));
+    expect(request[1]['content'], contains('【当前禁言】'));
+    expect(request[1]['content'], contains('苏璃'));
   });
+
+  test('reorders only AI participants and keeps user slot', () {
+    const ai1 = TheaterParticipant(
+      id: 'a1',
+      source: TheaterRoleSource.appCharacter,
+      name: '甲',
+      avatar: '',
+      description: '',
+      personality: '',
+      background: '',
+      speakingStyle: '',
+    );
+    const user = TheaterParticipant(
+      id: 'u1',
+      source: TheaterRoleSource.appCharacter,
+      name: '用户角色',
+      avatar: '',
+      description: '',
+      personality: '',
+      background: '',
+      speakingStyle: '',
+    );
+    const ai2 = TheaterParticipant(
+      id: 'a2',
+      source: TheaterRoleSource.appCharacter,
+      name: '乙',
+      avatar: '',
+      description: '',
+      personality: '',
+      background: '',
+      speakingStyle: '',
+    );
+
+    final reordered = reorderTheaterAiParticipants(
+      const [ai1, user, ai2],
+      userParticipantId: user.id,
+      oldIndex: 0,
+      newIndex: 1,
+    );
+
+    expect(reordered.map((item) => item.id), ['a2', 'u1', 'a1']);
+  });
+
+  test('keeps theater fixed prefix stable when dynamic memory changes', () {
+    final now = DateTime(2026);
+    const participant = TheaterParticipant(
+      id: 'p1',
+      source: TheaterRoleSource.appCharacter,
+      name: '苏璃',
+      avatar: '',
+      description: '简介',
+      personality: '冷静',
+      background: '背景',
+      speakingStyle: '短句',
+    );
+    final session = TheaterSession(
+      id: 't1',
+      title: '群聊',
+      participants: const [participant],
+      createdAt: now,
+      updatedAt: now,
+    );
+    final changed = session.copyWith(
+      theaterSummary: '新总结',
+      participants: [participant.copyWith(isMuted: true)],
+    );
+
+    final before = PromptBuilder.buildTheaterSingleApiRequest(
+      session: session,
+      novelSummary: '',
+      messages: const [],
+    );
+    final after = PromptBuilder.buildTheaterSingleApiRequest(
+      session: changed,
+      novelSummary: '小说总结',
+      messages: const [],
+    );
+
+    expect(after.first, before.first);
+    expect(after[1], isNot(before[1]));
+  });
+
+  test(
+    'summarizes complete theater batches without consuming current user turn',
+    () {
+      TheaterMessage message(int index, int round, TheaterSpeakerType type) =>
+          TheaterMessage(
+            id: 'm$index',
+            sessionId: 's1',
+            round: round,
+            speakerType: type,
+            speakerId: '',
+            speakerName: type == TheaterSpeakerType.user ? '用户' : '角色',
+            content: '$index',
+            time: DateTime(2026),
+          );
+      final messages = [
+        for (var round = 1; round <= 5; round++)
+          message(round, round, TheaterSpeakerType.role),
+        message(6, 6, TheaterSpeakerType.user),
+      ];
+
+      expect(
+        PromptBuilder.theaterSummaryEndIndex(
+          messages: messages,
+          summarizedMessageCount: 0,
+        ),
+        5,
+      );
+    },
+  );
 
   test('parses pasted role card fields', () {
     final parsed = RoleImportParser.parse('''
@@ -578,6 +732,7 @@ Two.
       summary: '设定',
       createdAt: DateTime(2026),
       updatedAt: DateTime(2026),
+      lastOpenedAt: DateTime(2026, 2),
     );
     const aiRole = NovelRoleCandidate(
       name: '小夏',
@@ -602,5 +757,28 @@ Two.
 
     expect(prompt, contains('用户选择扮演：阿青'));
     expect(prompt, contains('不要替用户说话或行动'));
+    expect(NovelBook.fromJson(book.toJson()).lastOpenedAt, DateTime(2026, 2));
+    expect(book.lastOpenedSortTime, DateTime(2026, 2));
+    final legacyBookJson = book.toJson()..remove('lastOpenedAt');
+    expect(
+      NovelBook.fromJson(legacyBookJson).lastOpenedSortTime,
+      book.updatedAt,
+    );
+
+    final request = PromptBuilder.buildNovelChatRequestMessages(
+      book: book,
+      aiRole: aiRole,
+      userRole: userRole,
+      historySummary: '小说聊天历史',
+      summarizedMessageCount: 20,
+      messages: [
+        for (var i = 1; i <= 25; i++)
+          ChatMessage(role: 'user', content: '消息 $i', time: DateTime(2026)),
+      ],
+    );
+    expect(request, hasLength(7));
+    expect(request.first['content'], isNot(contains('小说聊天历史')));
+    expect(request[1]['content'], contains('小说聊天历史'));
+    expect(request[2]['content'], '消息 21');
   });
 }

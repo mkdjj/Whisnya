@@ -49,7 +49,7 @@ The APK will be generated at:
 build/app/outputs/flutter-apk/app-release.apk
 ```
 
-Current release version is `1.3.1+9`. Keep both `versionName` and
+Current release version is `1.3.2+10`. Keep both `versionName` and
 `versionCode` increasing for every public release. The Android package name is
 `com.mkdjj.whisnya`.
 
@@ -66,7 +66,7 @@ Then edit `android/key.properties` with your real passwords. Both
 Recommended release asset name:
 
 ```text
-Whisnya-android-v1.3.1-release.apk
+Whisnya-android-v1.3.2-release.apk
 ```
 
 ## Other Platforms
@@ -88,7 +88,7 @@ Ship the whole `Release` folder, not only the `.exe`.
 Recommended Windows release asset name:
 
 ```text
-Whisnya-windows-x64-v1.3.1.zip
+Whisnya-windows-x64-v1.3.2.zip
 ```
 
 Generate iOS or macOS platform files, then build on macOS with Xcode installed:

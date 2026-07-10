@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -7,10 +7,12 @@ import 'package:flutter/services.dart';
 import '../models/ai_provider.dart';
 import '../models/api_config.dart';
 import '../models/app_character.dart';
+import '../models/image_crop_region.dart';
 import '../services/local_storage_service.dart';
 import '../utils/app_i18n.dart';
 import '../utils/role_import_parser.dart';
 import '../utils/snack.dart';
+import '../widgets/app_background.dart';
 import 'image_crop_screen.dart';
 
 class CharacterEditScreen extends StatefulWidget {
@@ -40,6 +42,7 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
   var _defaultEndpointId = '';
   var _isSaving = false;
   var _isPickingImage = false;
+  var _backgroundImageRegion = ImageCropRegion.full;
 
   bool get _isEditing => widget.character != null;
 
@@ -54,6 +57,8 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
     _backgroundImageController = TextEditingController(
       text: character?.backgroundImage ?? '',
     );
+    _backgroundImageRegion =
+        character?.backgroundImageRegion ?? ImageCropRegion.full;
     _descriptionController = TextEditingController(
       text: character?.description ?? '',
     );
@@ -98,6 +103,9 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
       name: _nameController.text.trim(),
       avatar: _avatarController.text.trim(),
       backgroundImage: _backgroundImageController.text.trim(),
+      backgroundImageRegion: _backgroundImageController.text.trim().isEmpty
+          ? ImageCropRegion.full
+          : _backgroundImageRegion,
       backgroundImageOpacity: existing?.backgroundImageOpacity ?? 1,
       backgroundBlur: existing?.backgroundBlur ?? 0,
       bubbleOpacity: existing?.bubbleOpacity ?? 0.92,
@@ -283,6 +291,21 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
         return;
       }
 
+      if (kind == _CharacterImageKind.background) {
+        final selection = await _openBackgroundCropper(kind, sourcePath);
+        if (selection == null) return;
+        final savedPath = await widget.storage.saveMediaImage(
+          folder: kind.folder,
+          characterId: _draftCharacterId,
+          bytes: picked.bytes ?? await File(sourcePath).readAsBytes(),
+        );
+        setState(() {
+          _backgroundImageController.text = savedPath;
+          _backgroundImageRegion = selection.region;
+        });
+        return;
+      }
+
       final cropped = await _openCropper(kind, sourcePath);
       if (cropped == null) {
         return;
@@ -311,6 +334,13 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
       return;
     }
 
+    if (kind == _CharacterImageKind.background) {
+      final selection = await _openBackgroundCropper(kind, path);
+      if (selection == null) return;
+      setState(() => _backgroundImageRegion = selection.region);
+      return;
+    }
+
     final cropped = await _openCropper(kind, path);
     if (cropped == null) {
       return;
@@ -333,6 +363,24 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
           aspectRatio: kind.aspectRatio,
           outputWidth: kind.outputWidth,
           outputHeight: kind.outputHeight,
+        ),
+      ),
+    );
+  }
+
+  Future<ImageCropSelection?> _openBackgroundCropper(
+    _CharacterImageKind kind,
+    String imagePath,
+  ) {
+    return Navigator.of(context).push<ImageCropSelection>(
+      MaterialPageRoute(
+        builder: (_) => ImageCropScreen(
+          imagePath: imagePath,
+          title: context.t(kind.cropTitle),
+          aspectRatio: kind.aspectRatio,
+          outputWidth: kind.outputWidth,
+          outputHeight: kind.outputHeight,
+          renderOutput: false,
         ),
       ),
     );
@@ -388,11 +436,15 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
             _ImagePickerField(
               label: context.t('聊天背景图'),
               path: _backgroundImageController.text,
+              region: _backgroundImageRegion,
               shape: BoxShape.rectangle,
               isBusy: _isPickingImage,
               onPick: () => _pickAndCropImage(_CharacterImageKind.background),
               onCrop: () => _cropCurrentImage(_CharacterImageKind.background),
-              onClear: () => setState(_backgroundImageController.clear),
+              onClear: () => setState(() {
+                _backgroundImageController.clear();
+                _backgroundImageRegion = ImageCropRegion.full;
+              }),
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -478,10 +530,12 @@ class _ImagePickerField extends StatelessWidget {
     required this.onPick,
     required this.onCrop,
     required this.onClear,
+    this.region = ImageCropRegion.full,
   });
 
   final String label;
   final String path;
+  final ImageCropRegion region;
   final BoxShape shape;
   final bool isBusy;
   final VoidCallback onPick;
@@ -508,11 +562,18 @@ class _ImagePickerField extends StatelessWidget {
                   ? BorderRadius.circular(8)
                   : null,
               color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              image: hasImage
+              image: hasImage && shape == BoxShape.circle
                   ? DecorationImage(image: FileImage(file), fit: BoxFit.cover)
                   : null,
             ),
-            child: hasImage ? null : const Icon(Icons.image_outlined),
+            child: !hasImage
+                ? const Icon(Icons.image_outlined)
+                : shape == BoxShape.rectangle
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: croppedFileImage(context, file, region: region),
+                  )
+                : null,
           ),
           const SizedBox(width: 12),
           Expanded(

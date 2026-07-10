@@ -1,4 +1,5 @@
 import 'ai_provider.dart';
+import 'image_crop_region.dart';
 
 class AppCharacter {
   const AppCharacter({
@@ -6,6 +7,7 @@ class AppCharacter {
     required this.name,
     required this.avatar,
     required this.backgroundImage,
+    this.backgroundImageRegion = ImageCropRegion.full,
     required this.backgroundImageOpacity,
     required this.backgroundBlur,
     required this.bubbleOpacity,
@@ -40,6 +42,7 @@ class AppCharacter {
   final String name;
   final String avatar;
   final String backgroundImage;
+  final ImageCropRegion backgroundImageRegion;
   final double backgroundImageOpacity;
   final double backgroundBlur;
   final double bubbleOpacity;
@@ -70,6 +73,7 @@ class AppCharacter {
     String? name,
     String? avatar,
     String? backgroundImage,
+    ImageCropRegion? backgroundImageRegion,
     double? backgroundImageOpacity,
     double? backgroundBlur,
     double? bubbleOpacity,
@@ -100,6 +104,8 @@ class AppCharacter {
       name: name ?? this.name,
       avatar: avatar ?? this.avatar,
       backgroundImage: backgroundImage ?? this.backgroundImage,
+      backgroundImageRegion:
+          backgroundImageRegion ?? this.backgroundImageRegion,
       backgroundImageOpacity:
           backgroundImageOpacity ?? this.backgroundImageOpacity,
       backgroundBlur: backgroundBlur ?? this.backgroundBlur,
@@ -137,6 +143,9 @@ class AppCharacter {
       name: json['name'] as String? ?? '',
       avatar: json['avatar'] as String? ?? '',
       backgroundImage: json['backgroundImage'] as String? ?? '',
+      backgroundImageRegion: ImageCropRegion.fromJson(
+        json['backgroundImageRegion'],
+      ),
       backgroundImageOpacity: _readDouble(
         json['backgroundImageOpacity'],
         fallback: 1,
@@ -181,6 +190,7 @@ class AppCharacter {
       'name': name,
       'avatar': avatar,
       'backgroundImage': backgroundImage,
+      'backgroundImageRegion': backgroundImageRegion.toJson(),
       'backgroundImageOpacity': backgroundImageOpacity,
       'backgroundBlur': backgroundBlur,
       'bubbleOpacity': bubbleOpacity,

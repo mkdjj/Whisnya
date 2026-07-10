@@ -1,4 +1,5 @@
 import 'app_character.dart';
+import 'image_crop_region.dart';
 import 'novel_book.dart';
 
 enum TheaterRoleSource {
@@ -35,7 +36,8 @@ enum TheaterApiMode {
 
 enum TheaterMultiApiReplyMode {
   randomSequential('randomSequential'),
-  parallel('parallel');
+  parallel('parallel'),
+  turnBased('turnBased');
 
   const TheaterMultiApiReplyMode(this.id);
 
@@ -44,7 +46,7 @@ enum TheaterMultiApiReplyMode {
   static TheaterMultiApiReplyMode fromId(String? id) {
     return values.firstWhere(
       (value) => value.id == id,
-      orElse: () => TheaterMultiApiReplyMode.randomSequential,
+      orElse: () => TheaterMultiApiReplyMode.turnBased,
     );
   }
 }
@@ -82,6 +84,7 @@ class TheaterParticipant {
     this.sourceCharacterId = '',
     this.endpointId = '',
     this.enabled = true,
+    this.isMuted = false,
   });
 
   final String id;
@@ -98,6 +101,7 @@ class TheaterParticipant {
   final String speakingStyle;
   final String endpointId;
   final bool enabled;
+  final bool isMuted;
 
   TheaterParticipant copyWith({
     String? id,
@@ -114,6 +118,7 @@ class TheaterParticipant {
     String? speakingStyle,
     String? endpointId,
     bool? enabled,
+    bool? isMuted,
   }) {
     return TheaterParticipant(
       id: id ?? this.id,
@@ -130,6 +135,7 @@ class TheaterParticipant {
       speakingStyle: speakingStyle ?? this.speakingStyle,
       endpointId: endpointId ?? this.endpointId,
       enabled: enabled ?? this.enabled,
+      isMuted: isMuted ?? this.isMuted,
     );
   }
 
@@ -194,6 +200,7 @@ class TheaterParticipant {
       speakingStyle: json['speakingStyle'] as String? ?? '',
       endpointId: json['endpointId'] as String? ?? '',
       enabled: json['enabled'] as bool? ?? true,
+      isMuted: json['isMuted'] as bool? ?? false,
     );
   }
 
@@ -213,8 +220,33 @@ class TheaterParticipant {
       'speakingStyle': speakingStyle,
       'endpointId': endpointId,
       'enabled': enabled,
+      'isMuted': isMuted,
     };
   }
+}
+
+List<TheaterParticipant> reorderTheaterAiParticipants(
+  List<TheaterParticipant> participants, {
+  required String userParticipantId,
+  required int oldIndex,
+  required int newIndex,
+}) {
+  final ai = participants
+      .where((participant) => participant.id != userParticipantId)
+      .toList();
+  if (oldIndex < 0 ||
+      oldIndex >= ai.length ||
+      newIndex < 0 ||
+      newIndex > ai.length) {
+    return [...participants];
+  }
+  final moved = ai.removeAt(oldIndex);
+  ai.insert(newIndex, moved);
+  var index = 0;
+  return [
+    for (final participant in participants)
+      participant.id == userParticipantId ? participant : ai[index++],
+  ];
 }
 
 class TheaterSession {
@@ -225,6 +257,7 @@ class TheaterSession {
     required this.updatedAt,
     this.avatar = '',
     this.backgroundImage = '',
+    this.backgroundImageRegion = ImageCropRegion.full,
     this.backgroundImageOpacity = 1,
     this.backgroundBlur = 0,
     this.bubbleOpacity = 0.94,
@@ -235,19 +268,22 @@ class TheaterSession {
     this.boundNovelId = '',
     this.boundNovelTitle = '',
     this.apiMode = TheaterApiMode.singleApi,
-    this.multiApiReplyMode = TheaterMultiApiReplyMode.randomSequential,
+    this.multiApiReplyMode = TheaterMultiApiReplyMode.turnBased,
     this.singleEndpointId = '',
     this.userParticipantId = '',
     this.keepRoundCount = 30,
     this.theaterSummary = '',
     this.summarizedMessageCount = 0,
+    this.nextSpeakerIndex = 0,
     this.participants = const [],
+    this.lastOpenedAt,
   });
 
   final String id;
   final String title;
   final String avatar;
   final String backgroundImage;
+  final ImageCropRegion backgroundImageRegion;
   final double backgroundImageOpacity;
   final double backgroundBlur;
   final double bubbleOpacity;
@@ -264,16 +300,25 @@ class TheaterSession {
   final int keepRoundCount;
   final String theaterSummary;
   final int summarizedMessageCount;
+  final int nextSpeakerIndex;
   final List<TheaterParticipant> participants;
+  final DateTime? lastOpenedAt;
   final DateTime createdAt;
   final DateTime updatedAt;
+
+  DateTime get lastOpenedSortTime => lastOpenedAt ?? updatedAt;
 
   List<TheaterParticipant> get enabledParticipants =>
       participants.where((participant) => participant.enabled).toList();
 
-  List<TheaterParticipant> get aiParticipants => enabledParticipants
+  List<TheaterParticipant> get allAiParticipants => enabledParticipants
       .where((participant) => participant.id != userParticipantId)
       .toList();
+
+  List<TheaterParticipant> get activeAiParticipants =>
+      allAiParticipants.where((participant) => !participant.isMuted).toList();
+
+  List<TheaterParticipant> get aiParticipants => activeAiParticipants;
 
   TheaterParticipant? get userParticipant {
     if (userParticipantId.isEmpty) return null;
@@ -283,7 +328,7 @@ class TheaterSession {
     return null;
   }
 
-  int get participantUnitCount => 1 + enabledParticipants.length;
+  int get participantUnitCount => 1 + activeAiParticipants.length;
 
   int get recentMessageLimit => participantUnitCount * keepRoundCount;
 
@@ -292,6 +337,7 @@ class TheaterSession {
     String? title,
     String? avatar,
     String? backgroundImage,
+    ImageCropRegion? backgroundImageRegion,
     double? backgroundImageOpacity,
     double? backgroundBlur,
     double? bubbleOpacity,
@@ -308,7 +354,9 @@ class TheaterSession {
     int? keepRoundCount,
     String? theaterSummary,
     int? summarizedMessageCount,
+    int? nextSpeakerIndex,
     List<TheaterParticipant>? participants,
+    DateTime? lastOpenedAt,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -317,6 +365,8 @@ class TheaterSession {
       title: title ?? this.title,
       avatar: avatar ?? this.avatar,
       backgroundImage: backgroundImage ?? this.backgroundImage,
+      backgroundImageRegion:
+          backgroundImageRegion ?? this.backgroundImageRegion,
       backgroundImageOpacity:
           backgroundImageOpacity ?? this.backgroundImageOpacity,
       backgroundBlur: backgroundBlur ?? this.backgroundBlur,
@@ -335,7 +385,9 @@ class TheaterSession {
       theaterSummary: theaterSummary ?? this.theaterSummary,
       summarizedMessageCount:
           summarizedMessageCount ?? this.summarizedMessageCount,
+      nextSpeakerIndex: nextSpeakerIndex ?? this.nextSpeakerIndex,
       participants: participants ?? this.participants,
+      lastOpenedAt: lastOpenedAt ?? this.lastOpenedAt,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -349,6 +401,9 @@ class TheaterSession {
       title: json['title'] as String? ?? '',
       avatar: json['avatar'] as String? ?? '',
       backgroundImage: json['backgroundImage'] as String? ?? '',
+      backgroundImageRegion: ImageCropRegion.fromJson(
+        json['backgroundImageRegion'],
+      ),
       backgroundImageOpacity: _readDouble(
         json['backgroundImageOpacity'],
         fallback: 1,
@@ -370,6 +425,7 @@ class TheaterSession {
       keepRoundCount: (json['keepRoundCount'] as int? ?? 30).clamp(5, 100),
       theaterSummary: json['theaterSummary'] as String? ?? '',
       summarizedMessageCount: json['summarizedMessageCount'] as int? ?? 0,
+      nextSpeakerIndex: json['nextSpeakerIndex'] as int? ?? 0,
       participants: rawParticipants is List
           ? rawParticipants
                 .whereType<Map<String, dynamic>>()
@@ -377,6 +433,7 @@ class TheaterSession {
                 .where((participant) => participant.id.isNotEmpty)
                 .toList()
           : const [],
+      lastOpenedAt: DateTime.tryParse(json['lastOpenedAt'] as String? ?? ''),
       createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? now,
       updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? '') ?? now,
     );
@@ -388,6 +445,7 @@ class TheaterSession {
       'title': title,
       'avatar': avatar,
       'backgroundImage': backgroundImage,
+      'backgroundImageRegion': backgroundImageRegion.toJson(),
       'backgroundImageOpacity': backgroundImageOpacity,
       'backgroundBlur': backgroundBlur,
       'bubbleOpacity': bubbleOpacity,
@@ -404,9 +462,11 @@ class TheaterSession {
       'keepRoundCount': keepRoundCount,
       'theaterSummary': theaterSummary,
       'summarizedMessageCount': summarizedMessageCount,
+      'nextSpeakerIndex': nextSpeakerIndex,
       'participants': participants
           .map((participant) => participant.toJson())
           .toList(),
+      if (lastOpenedAt != null) 'lastOpenedAt': lastOpenedAt!.toIso8601String(),
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
     };

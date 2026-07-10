@@ -5,7 +5,14 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 
+import '../models/image_crop_region.dart';
 import '../utils/app_i18n.dart';
+
+class ImageCropSelection {
+  const ImageCropSelection({required this.region});
+
+  final ImageCropRegion region;
+}
 
 class ImageCropScreen extends StatefulWidget {
   const ImageCropScreen({
@@ -14,6 +21,7 @@ class ImageCropScreen extends StatefulWidget {
     required this.aspectRatio,
     required this.outputWidth,
     required this.outputHeight,
+    this.renderOutput = true,
     super.key,
   });
 
@@ -22,6 +30,7 @@ class ImageCropScreen extends StatefulWidget {
   final double aspectRatio;
   final int outputWidth;
   final int outputHeight;
+  final bool renderOutput;
 
   @override
   State<ImageCropScreen> createState() => _ImageCropScreenState();
@@ -75,6 +84,22 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
       y + 1,
       source.height,
     );
+
+    if (!widget.renderOutput) {
+      Navigator.of(context).pop(
+        ImageCropSelection(
+          region: ImageCropRegion.fromPixels(
+            sourceWidth: source.width,
+            sourceHeight: source.height,
+            x: x,
+            y: y,
+            width: right - x,
+            height: bottom - y,
+          ),
+        ),
+      );
+      return;
+    }
 
     final cropped = img.copyCrop(
       source,

@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
@@ -11,6 +11,7 @@ import '../models/api_config.dart';
 import '../models/app_character.dart';
 import '../models/app_settings.dart';
 import '../models/chat_message.dart';
+import '../models/chat_summary.dart';
 import '../models/novel_book.dart';
 import '../prompts.dart';
 import '../services/ai_service.dart';
@@ -22,6 +23,7 @@ import '../utils/confirm_dialog.dart';
 import '../utils/page_layout.dart';
 import '../utils/privacy_password_prompt.dart';
 import '../utils/snack.dart';
+import '../widgets/endpoint_picker.dart';
 import '../widgets/message_content.dart';
 import '../widgets/setting_slider.dart';
 
@@ -136,13 +138,16 @@ class NovelScreenState extends State<NovelScreen> {
       return;
     }
     if (!mounted) return;
+    final opened = book.copyWith(lastOpenedAt: DateTime.now());
+    await widget.storage.saveNovel(opened);
+    if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => NovelReaderScreen(
           storage: widget.storage,
           aiService: widget.aiService,
           settings: widget.settings,
-          book: book,
+          book: opened,
         ),
       ),
     );
@@ -466,6 +471,7 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
   var _readChunks = <String>[];
   var _chapters = <NovelChapter>[];
   var _messages = <ChatMessage>[];
+  var _chatSummary = ChatSummary.empty('');
   NovelSummaryCache? _summaryCache;
   var _isLoading = true;
   var _isBusy = false;
@@ -502,6 +508,9 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
       final apiConfig = await widget.storage.loadApiConfig();
       final content = await widget.storage.loadNovelText(_book);
       final chat = await widget.storage.loadNovelChat(_book.id);
+      final chatSummary = await widget.storage.loadSummary(
+        'novel_chat_${_book.id}',
+      );
       final summaryCache = await NovelSummaryService(
         widget.storage,
       ).loadCache(_book.id);
@@ -514,6 +523,7 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
         _readChunks = splitNovelText(content, 1600);
         _chapters = _applyManualChapterTitles(buildNovelChapters(content));
         _messages = chat.messages;
+        _chatSummary = chatSummary;
         _summaryCache = summaryCache;
         _isLoading = false;
       });
@@ -598,6 +608,16 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
         model: endpoint.model,
         messages: messages,
         cancelToken: cancelToken,
+        maxTokens: 800,
+        onUsage: (usage) => unawaited(
+          widget.storage.recordAiUsage(
+            requestType: 'novelSummary',
+            model: endpoint.model,
+            usage: usage,
+            messages: messages,
+            summaryUpdated: true,
+          ),
+        ),
       )) {
         text += chunk;
       }
@@ -1306,31 +1326,24 @@ ${role.speakingStyle}
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.memory),
-                  title: Text(context.t('总结和聊天模型')),
-                  subtitle: _apiConfig.enabledEndpoints.isEmpty
-                      ? Text(context.t('请先添加 API 配置'))
-                      : DropdownButton<String>(
-                          value:
-                              _apiConfig.enabledEndpoints.any(
-                                (endpoint) => endpoint.id == endpointId,
-                              )
-                              ? endpointId
-                              : null,
-                          isExpanded: true,
-                          underline: const SizedBox.shrink(),
-                          items: [
-                            for (final endpoint in _apiConfig.enabledEndpoints)
-                              DropdownMenuItem(
-                                value: endpoint.id,
-                                child: Text(endpoint.name),
-                              ),
-                          ],
-                          onChanged: (value) {
-                            if (value == null) return;
-                            setSheetState(() => endpointId = value);
-                            setState(() => _selectedEndpointId = value);
-                          },
-                        ),
+                  title: Text(context.t('当前模型')),
+                  subtitle: Text(
+                    _apiConfig.endpointById(endpointId)?.name ??
+                        context.t('请先添加 API 配置'),
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: _apiConfig.enabledEndpoints.isEmpty
+                      ? null
+                      : () async {
+                          final value = await showEndpointPicker(
+                            context: context,
+                            endpoints: _apiConfig.enabledEndpoints,
+                            selectedId: endpointId,
+                          );
+                          if (value == null || !mounted) return;
+                          setSheetState(() => endpointId = value);
+                          setState(() => _selectedEndpointId = value);
+                        },
                 ),
                 const Divider(),
                 SwitchListTile(
@@ -1642,7 +1655,10 @@ ${role.speakingStyle}
     if (!shouldClear) return;
     await widget.storage.clearNovelChat(_book.id);
     if (!mounted) return;
-    setState(() => _messages = []);
+    setState(() {
+      _messages = [];
+      _chatSummary = ChatSummary.empty('novel_chat_${_book.id}');
+    });
     _showSnack('小说聊天已清空');
   }
 
@@ -1672,22 +1688,8 @@ ${role.speakingStyle}
     _scrollChatToEnd();
     await widget.storage.saveNovelChat(_book.id, _messages);
 
-    final requestMessages = [
-      {
-        'role': 'system',
-        'content': PromptBuilder.buildNovelChatSystemPrompt(
-          _book,
-          role,
-          _book.selectedUserRole,
-        ),
-      },
-      for (final message
-          in _messages.length > 30
-              ? _messages.sublist(_messages.length - 30)
-              : _messages)
-        if (message.isUser || message.isAssistant)
-          {'role': message.role, 'content': message.content},
-    ];
+    final cancelToken = AiCancelToken();
+    _cancelToken = cancelToken;
     final assistantMessage = ChatMessage(
       role: 'assistant',
       content: '',
@@ -1696,9 +1698,19 @@ ${role.speakingStyle}
       endpointName: endpoint.name,
       model: endpoint.model,
     );
-    final cancelToken = AiCancelToken();
-    _cancelToken = cancelToken;
     try {
+      final summaryUpdated = await _updateNovelChatSummary(
+        endpoint,
+        cancelToken,
+      );
+      final requestMessages = PromptBuilder.buildNovelChatRequestMessages(
+        book: _book,
+        aiRole: role,
+        userRole: _book.selectedUserRole,
+        historySummary: _chatSummary.summary,
+        summarizedMessageCount: _chatSummary.summarizedMessageCount,
+        messages: _messages,
+      );
       final streamResponses = widget.settings.streamResponses;
       if (streamResponses) {
         setState(() => _messages = [..._messages, assistantMessage]);
@@ -1712,6 +1724,16 @@ ${role.speakingStyle}
         messages: requestMessages,
         cancelToken: cancelToken,
         includeReasoning: widget.settings.showReasoningContent,
+        maxTokens: 800,
+        onUsage: (usage) => unawaited(
+          widget.storage.recordAiUsage(
+            requestType: 'novelChat',
+            model: endpoint.model,
+            usage: usage,
+            messages: requestMessages,
+            summaryUpdated: summaryUpdated,
+          ),
+        ),
       )) {
         if (!mounted) return;
         reply += chunk;
@@ -1746,6 +1768,68 @@ ${role.speakingStyle}
     } finally {
       if (identical(_cancelToken, cancelToken)) _cancelToken = null;
     }
+  }
+
+  Future<void> _deleteNovelMessage(int index) async {
+    if (index < 0 || index >= _messages.length) return;
+    setState(() => _messages = [..._messages]..removeAt(index));
+    await widget.storage.saveNovelChat(_book.id, _messages);
+  }
+
+  Future<bool> _updateNovelChatSummary(
+    AiEndpointConfig endpoint,
+    AiCancelToken cancelToken,
+  ) async {
+    final messages = _messages
+        .where((message) => message.isUser || message.isAssistant)
+        .toList();
+    const batchSize = 20;
+    if (messages.length <= batchSize) return false;
+    final summarizeUntil = PromptBuilder.rollingSummaryEndIndex(
+      messageCount: messages.length,
+      summaryLimit: batchSize,
+    );
+    final summarizedCount = _chatSummary.summarizedMessageCount
+        .clamp(0, summarizeUntil)
+        .toInt();
+    if (summarizedCount >= summarizeUntil) return false;
+    final summaryMessages = [
+      {'role': 'system', 'content': '你负责总结小说聊天记录，并只输出总结内容。'},
+      {
+        'role': 'user',
+        'content': PromptBuilder.buildRollingSummaryPrompt(
+          previousSummary: _chatSummary.summary,
+          newMessages: messages.sublist(summarizedCount, summarizeUntil),
+          maxCharacters: 2000,
+        ),
+      },
+    ];
+    final summary = await widget.aiService.sendMessage(
+      apiKey: endpoint.apiKey,
+      baseUrl: endpoint.baseUrl,
+      model: endpoint.model,
+      messages: summaryMessages,
+      cancelToken: cancelToken,
+      maxTokens: 800,
+      onUsage: (usage) => unawaited(
+        widget.storage.recordAiUsage(
+          requestType: 'novelChatSummary',
+          model: endpoint.model,
+          usage: usage,
+          messages: summaryMessages,
+          summaryUpdated: true,
+        ),
+      ),
+    );
+    final next = ChatSummary(
+      characterId: 'novel_chat_${_book.id}',
+      summary: PromptBuilder.limitSummary(summary, 2000),
+      updatedAt: DateTime.now(),
+      summarizedMessageCount: summarizeUntil,
+    );
+    await widget.storage.saveSummary(next);
+    if (mounted) setState(() => _chatSummary = next);
+    return true;
   }
 
   void _dropEmptyAssistantTail() {
@@ -2147,6 +2231,9 @@ ${role.speakingStyle}
                         return _NovelBubble(
                           text: message.content,
                           isUser: message.isUser,
+                          onDelete: _isSending
+                              ? null
+                              : () => _deleteNovelMessage(messageIndex),
                         );
                       },
                     ),
@@ -2305,10 +2392,11 @@ class _NovelChatBackground extends StatelessWidget {
 }
 
 class _NovelBubble extends StatelessWidget {
-  const _NovelBubble({required this.text, required this.isUser});
+  const _NovelBubble({required this.text, required this.isUser, this.onDelete});
 
   final String text;
   final bool isUser;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -2330,7 +2418,22 @@ class _NovelBubble extends StatelessWidget {
                 : theme.colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(8),
           ),
-          child: MessageContent(text: text),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              MessageContent(text: text),
+              if (onDelete != null)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: IconButton(
+                    tooltip: context.t('删除消息'),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: onDelete,
+                    icon: const Icon(Icons.delete_outline, size: 16),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
