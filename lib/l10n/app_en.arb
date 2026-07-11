@@ -1,0 +1,14 @@
+{
+  "@@locale": "en",
+  "save": "Save",
+  "cancel": "Cancel",
+  "delete": "Delete",
+  "retry": "Retry",
+  "send": "Send",
+  "stop": "Stop",
+  "reload": "Reload",
+  "chatCount": "{count} chats",
+  "summarizingProgress": "Summarizing {current}/{total}",
+  "apiHttpError": "API HTTP error: {code}",
+  "importResult": "Imported {succeeded}; {failed} failed"
+}

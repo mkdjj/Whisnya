@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 
+import 'l10n/app_localizations.dart';
 import 'models/app_settings.dart';
 import 'screens/home_screen.dart';
 import 'services/ai_service.dart';
@@ -43,8 +43,8 @@ class _WhisnyaAppState extends State<WhisnyaApp> {
       debugShowCheckedModeBanner: false,
       title: 'Whisnya',
       locale: appLocaleFromCode(_settings.languageCode),
-      supportedLocales: const [Locale('zh'), Locale('en')],
-      localizationsDelegates: GlobalMaterialLocalizations.delegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
       themeMode: _settings.themeMode,
       theme: _theme(Brightness.light),
       darkTheme: _theme(Brightness.dark),

@@ -1,0 +1,32 @@
+{
+  "@@locale": "zh",
+  "save": "保存",
+  "cancel": "取消",
+  "delete": "删除",
+  "retry": "重试",
+  "send": "发送",
+  "stop": "停止",
+  "reload": "重新加载",
+  "chatCount": "{count} 条聊天",
+  "@chatCount": {
+    "placeholders": {"count": {"type": "int"}}
+  },
+  "summarizingProgress": "正在总结 {current}/{total}",
+  "@summarizingProgress": {
+    "placeholders": {
+      "current": {"type": "int"},
+      "total": {"type": "int"}
+    }
+  },
+  "apiHttpError": "API HTTP 错误：{code}",
+  "@apiHttpError": {
+    "placeholders": {"code": {"type": "int"}}
+  },
+  "importResult": "导入成功 {succeeded} 项，失败 {failed} 项",
+  "@importResult": {
+    "placeholders": {
+      "succeeded": {"type": "int"},
+      "failed": {"type": "int"}
+    }
+  }
+}
