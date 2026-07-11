@@ -72,8 +72,12 @@ void main() {
 
     final redacted = redactApiKeysForExport(original);
 
-    expect((redacted['endpoints'] as List).single['apiKey'], isEmpty);
-    expect((redacted['grok'] as Map)['apiKey'], isEmpty);
-    expect((original['endpoints'] as List).single['apiKey'], 'secret');
+    final redactedEndpoint =
+        (redacted['endpoints'] as List<dynamic>).single as Map<String, dynamic>;
+    expect(redactedEndpoint['apiKey'], isEmpty);
+    expect((redacted['grok'] as Map<String, dynamic>)['apiKey'], isEmpty);
+    final originalEndpoint =
+        (original['endpoints'] as List<Map<String, String>>).single;
+    expect(originalEndpoint['apiKey'], 'secret');
   });
 }
