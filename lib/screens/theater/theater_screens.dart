@@ -1,0 +1,42 @@
+import 'dart:async';
+import 'dart:io';
+import 'dart:ui';
+
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../../models/api_config.dart';
+import '../../models/app_character.dart';
+import '../../models/app_settings.dart';
+import '../../models/image_crop_region.dart';
+import '../../models/novel_book.dart';
+import '../../models/theater.dart';
+import '../../prompts.dart';
+import '../../services/ai_service.dart';
+import '../../services/local_storage_service.dart';
+import '../../services/theater/theater_reply_engine.dart';
+import '../../utils/app_i18n.dart';
+import '../../utils/confirm_dialog.dart';
+import '../../utils/page_layout.dart';
+import '../../utils/privacy_password_prompt.dart';
+import '../../utils/snack.dart';
+import '../../utils/stream_text_buffer.dart';
+import '../../utils/theater_participant_reply_sanitizer.dart';
+import '../../utils/theater_streaming_parser.dart';
+import '../../widgets/app_background.dart';
+import '../../widgets/endpoint_picker.dart';
+import '../../widgets/message_content.dart';
+import '../../widgets/setting_slider.dart';
+import '../image_crop_screen.dart';
+import 'theater_reply_settings.dart';
+
+part 'theater_list_screen.dart';
+part 'theater_edit_screen.dart';
+part 'theater_chat_screen.dart';
+part 'widgets/theater_background.dart';
+part 'widgets/theater_shared_widgets.dart';
+part 'widgets/theater_input_composer.dart';
+part 'widgets/theater_message_bubble.dart';
+part 'widgets/theater_session_avatar.dart';
+part 'widgets/theater_typing_bubble.dart';
