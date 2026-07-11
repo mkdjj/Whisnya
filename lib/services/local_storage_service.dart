@@ -127,15 +127,19 @@ Future<dynamic> _readBackupJson(File file) async {
 }
 
 class LocalStorageService {
-  LocalStorageService({FlutterSecureStorage? secureStorage})
-    : _secureStorage = secureStorage ?? const FlutterSecureStorage();
+  LocalStorageService({
+    FlutterSecureStorage? secureStorage,
+    Directory? appDataDirectory,
+  }) : _secureStorage = secureStorage ?? const FlutterSecureStorage() {
+    _appDataDirectory = appDataDirectory;
+  }
 
   static const _secureApiKeyIndexKey = 'whisnya_api_endpoint_ids';
   static const _secureApiKeyPrefix = 'whisnya_api_key_';
 
   final FlutterSecureStorage _secureStorage;
   Directory? _appDataDirectory;
-  Future<void> _writeQueue = Future.value();
+  final _fileWriteQueues = <String, Future<void>>{};
   final _recoveryMessages = <String>[];
 
   List<String> takeRecoveryMessages() {
@@ -146,6 +150,7 @@ class LocalStorageService {
 
   Future<Directory> get appDataDirectory async {
     if (_appDataDirectory != null) {
+      await _ensureAppDataDirectories(_appDataDirectory!);
       return _appDataDirectory!;
     }
 
@@ -250,7 +255,7 @@ class LocalStorageService {
 
   Future<void> saveAiUsageRecord(AiUsageRecord record) async {
     final file = await _aiUsageFile();
-    await _enqueueWrite(() async {
+    await _enqueueWrite(file, () async {
       final decoded = await _readJsonNow(file, <dynamic>[]);
       final records = decoded is List
           ? decoded
@@ -1076,7 +1081,7 @@ class LocalStorageService {
     dynamic fallback, {
     bool recoverOnInvalid = false,
   }) async {
-    await _writeQueue;
+    await (_fileWriteQueues[file.path] ?? Future<void>.value());
     return _readJsonNow(file, fallback, recoverOnInvalid: recoverOnInvalid);
   }
 
@@ -1116,21 +1121,43 @@ class LocalStorageService {
   }
 
   Future<void> _writeJson(File file, dynamic data) =>
-      _enqueueWrite(() => _writeJsonNow(file, data));
+      _enqueueWrite(file, () => _writeJsonNow(file, data));
 
-  Future<T> _enqueueWrite<T>(Future<T> Function() action) async {
-    final write = _writeQueue.then((_) => action());
-    _writeQueue = write.then<void>((_) {}, onError: (_, _) {});
-    return write;
+  Future<T> _enqueueWrite<T>(File file, Future<T> Function() action) async {
+    final path = file.path;
+    final write = (_fileWriteQueues[path] ?? Future<void>.value()).then(
+      (_) => action(),
+    );
+    final tail = write.then<void>((_) {}, onError: (_, _) {});
+    _fileWriteQueues[path] = tail;
+    try {
+      return await write;
+    } finally {
+      if (identical(_fileWriteQueues[path], tail)) {
+        _fileWriteQueues.remove(path);
+      }
+    }
   }
 
   Future<void> _writeJsonNow(File file, dynamic data) async {
     if (!await file.parent.exists()) {
       await file.parent.create(recursive: true);
     }
-    const encoder = JsonEncoder.withIndent('  ');
+    final parentName = file.parent.uri.pathSegments
+        .where((segment) => segment.isNotEmpty)
+        .lastOrNull;
+    final compact = const {
+      'chats',
+      'novel_chats',
+      'theater_messages',
+    }.contains(parentName);
     final temp = File('${file.path}.tmp');
-    await temp.writeAsString(encoder.convert(data), flush: true);
+    await temp.writeAsString(
+      compact
+          ? jsonEncode(data)
+          : const JsonEncoder.withIndent('  ').convert(data),
+      flush: true,
+    );
     if (await file.exists()) {
       await file.delete();
     }
@@ -1141,7 +1168,7 @@ class LocalStorageService {
     List<AppCharacter> Function(List<AppCharacter>) update,
   ) async {
     final file = await _charactersFile();
-    await _enqueueWrite(() async {
+    await _enqueueWrite(file, () async {
       final decoded = await _readJsonNow(
         file,
         <dynamic>[],
@@ -1167,7 +1194,7 @@ class LocalStorageService {
     List<NovelBook> Function(List<NovelBook>) update,
   ) async {
     final file = await _novelsFile();
-    await _enqueueWrite(() async {
+    await _enqueueWrite(file, () async {
       final decoded = await _readJsonNow(
         file,
         <dynamic>[],
@@ -1190,7 +1217,7 @@ class LocalStorageService {
     List<TheaterSession> Function(List<TheaterSession>) update,
   ) async {
     final file = await _theaterSessionsFile();
-    await _enqueueWrite(() async {
+    await _enqueueWrite(file, () async {
       final decoded = await _readJsonNow(
         file,
         <dynamic>[],

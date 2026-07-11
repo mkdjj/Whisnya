@@ -23,6 +23,7 @@ import '../utils/confirm_dialog.dart';
 import '../utils/page_layout.dart';
 import '../utils/privacy_password_prompt.dart';
 import '../utils/snack.dart';
+import '../utils/stream_text_buffer.dart';
 import '../widgets/endpoint_picker.dart';
 import '../widgets/message_content.dart';
 import '../widgets/setting_slider.dart';
@@ -478,6 +479,7 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
   var _busyText = '';
   var _isSending = false;
   AiCancelToken? _cancelToken;
+  StreamTextBuffer? _streamBuffer;
   var _readerSearchQuery = '';
   var _readProgress = 0.0;
   String? _error;
@@ -493,6 +495,7 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
   @override
   void dispose() {
     _cancelToken?.cancel();
+    _streamBuffer?.dispose();
     _readScrollController.dispose();
     _inputController.dispose();
     _chatScrollController.dispose();
@@ -1717,6 +1720,19 @@ ${role.speakingStyle}
       }
 
       var reply = '';
+      final streamBuffer = StreamTextBuffer(
+        onFlush: (delta) {
+          reply += delta;
+          if (!streamResponses || !mounted || !_isSending) return;
+          setState(() {
+            _messages = [
+              ..._messages.take(_messages.length - 1),
+              assistantMessage.copyWith(content: reply),
+            ];
+          });
+        },
+      );
+      _streamBuffer = streamBuffer;
       await for (final chunk in widget.aiService.streamMessage(
         apiKey: endpoint.apiKey,
         baseUrl: endpoint.baseUrl,
@@ -1736,16 +1752,9 @@ ${role.speakingStyle}
         ),
       )) {
         if (!mounted) return;
-        reply += chunk;
-        if (streamResponses) {
-          setState(() {
-            _messages = [
-              ..._messages.take(_messages.length - 1),
-              assistantMessage.copyWith(content: reply),
-            ];
-          });
-        }
+        streamBuffer.add(chunk);
       }
+      streamBuffer.flush();
       if (reply.trim().isEmpty) {
         throw AiException('API 没有返回可用回复。');
       }
@@ -1759,15 +1768,34 @@ ${role.speakingStyle}
       });
       await widget.storage.saveNovelChat(_book.id, _messages);
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || !_isSending) return;
       setState(() {
         _dropEmptyAssistantTail();
         _isSending = false;
       });
       _showSnack(error.toString());
     } finally {
+      final streamBuffer = _streamBuffer;
+      if (streamBuffer != null) {
+        streamBuffer.flush();
+        streamBuffer.dispose();
+        if (identical(_streamBuffer, streamBuffer)) _streamBuffer = null;
+      }
       if (identical(_cancelToken, cancelToken)) _cancelToken = null;
     }
+  }
+
+  void _stopNovelGeneration() {
+    if (!_isSending) return;
+    _streamBuffer?.flush();
+    _cancelToken?.cancel();
+    _cancelToken = null;
+    setState(() {
+      _dropEmptyAssistantTail();
+      _isSending = false;
+    });
+    unawaited(widget.storage.saveNovelChat(_book.id, _messages));
+    _showSnack('已停止生成');
   }
 
   Future<void> _deleteNovelMessage(int index) async {
@@ -2271,8 +2299,10 @@ ${role.speakingStyle}
                         const SizedBox(width: 8),
                         IconButton.filled(
                           tooltip: context.t('发送'),
-                          onPressed: _isSending ? null : _sendNovelMessage,
-                          icon: const Icon(Icons.send),
+                          onPressed: _isSending
+                              ? _stopNovelGeneration
+                              : _sendNovelMessage,
+                          icon: Icon(_isSending ? Icons.stop : Icons.send),
                         ),
                       ],
                     ),

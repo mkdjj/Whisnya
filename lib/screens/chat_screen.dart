@@ -19,6 +19,7 @@ import '../utils/app_i18n.dart';
 import '../utils/confirm_dialog.dart';
 import '../utils/page_layout.dart';
 import '../utils/snack.dart';
+import '../utils/stream_text_buffer.dart';
 import '../widgets/app_background.dart';
 import '../widgets/endpoint_picker.dart';
 import '../widgets/message_content.dart';
@@ -61,6 +62,7 @@ class _ChatScreenState extends State<ChatScreen> {
   var _activeSearchResult = 0;
   var _generationId = 0;
   AiCancelToken? _cancelToken;
+  StreamTextBuffer? _streamBuffer;
   String? _loadError;
 
   @override
@@ -74,6 +76,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void dispose() {
     _cancelToken?.cancel();
+    _streamBuffer?.dispose();
     _toolBarTimer?.cancel();
     _inputController.dispose();
     _scrollController.dispose();
@@ -185,6 +188,24 @@ class _ChatScreenState extends State<ChatScreen> {
       }
 
       var reply = '';
+      final streamBuffer = StreamTextBuffer(
+        onFlush: (delta) {
+          reply += delta;
+          if (!streamResponses ||
+              !mounted ||
+              generationId != _generationId ||
+              !_isSending) {
+            return;
+          }
+          setState(() {
+            _messages = [
+              ..._messages.take(_messages.length - 1),
+              assistantMessage.copyWith(content: reply),
+            ];
+          });
+        },
+      );
+      _streamBuffer = streamBuffer;
       await for (final chunk in widget.aiService.streamMessage(
         apiKey: endpoint.apiKey,
         baseUrl: endpoint.baseUrl,
@@ -204,16 +225,9 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       )) {
         if (!mounted || generationId != _generationId || !_isSending) return;
-        reply += chunk;
-        if (streamResponses) {
-          setState(() {
-            _messages = [
-              ..._messages.take(_messages.length - 1),
-              assistantMessage.copyWith(content: reply),
-            ];
-          });
-        }
+        streamBuffer.add(chunk);
       }
+      streamBuffer.flush();
       if (reply.trim().isEmpty) {
         throw AiException('API 没有返回可用回复。');
       }
@@ -234,6 +248,12 @@ class _ChatScreenState extends State<ChatScreen> {
       });
       _showSnack(error.toString());
     } finally {
+      final streamBuffer = _streamBuffer;
+      if (streamBuffer != null) {
+        streamBuffer.flush();
+        streamBuffer.dispose();
+        if (identical(_streamBuffer, streamBuffer)) _streamBuffer = null;
+      }
       if (identical(_cancelToken, cancelToken)) _cancelToken = null;
     }
   }
@@ -308,6 +328,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _stopGeneration() {
     if (!_isSending) return;
+    _streamBuffer?.flush();
     _cancelToken?.cancel();
     _cancelToken = null;
     _generationId++;

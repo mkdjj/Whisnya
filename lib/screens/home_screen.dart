@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -359,34 +359,37 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _currentBody() {
-    return switch (_tabIndex) {
-      0 => AppBackground(settings: widget.settings, child: _buildBody()),
-      1 => AppBackground(
-        settings: widget.settings,
-        child: NovelScreen(
-          key: _novelKey,
+    return IndexedStack(
+      index: _tabIndex,
+      children: [
+        AppBackground(settings: widget.settings, child: _buildBody()),
+        AppBackground(
+          settings: widget.settings,
+          child: NovelScreen(
+            key: _novelKey,
+            storage: widget.storage,
+            aiService: widget.aiService,
+            settings: widget.settings,
+            useGridView: _novelGridView,
+          ),
+        ),
+        AppBackground(
+          settings: widget.settings,
+          child: TheaterListScreen(
+            key: _theaterKey,
+            storage: widget.storage,
+            aiService: widget.aiService,
+            settings: widget.settings,
+          ),
+        ),
+        SettingsScreen(
           storage: widget.storage,
           aiService: widget.aiService,
           settings: widget.settings,
-          useGridView: _novelGridView,
+          onSettingsChanged: widget.onSettingsChanged,
         ),
-      ),
-      2 => AppBackground(
-        settings: widget.settings,
-        child: TheaterListScreen(
-          key: _theaterKey,
-          storage: widget.storage,
-          aiService: widget.aiService,
-          settings: widget.settings,
-        ),
-      ),
-      _ => SettingsScreen(
-        storage: widget.storage,
-        aiService: widget.aiService,
-        settings: widget.settings,
-        onSettingsChanged: widget.onSettingsChanged,
-      ),
-    };
+      ],
+    );
   }
 
   Widget _navigationBar(double navOpacity) {

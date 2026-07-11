@@ -5,13 +5,7 @@ import 'models/app_settings.dart';
 import 'models/chat_message.dart';
 import 'models/novel_book.dart';
 import 'models/theater.dart';
-
-class TheaterReplyDraft {
-  const TheaterReplyDraft({required this.speaker, required this.content});
-
-  final String speaker;
-  final String content;
-}
+import 'services/theater/theater_reply_engine.dart' as theater_engine;
 
 class PromptBuilder {
   const PromptBuilder._();
@@ -211,33 +205,24 @@ $items
     int messageBatchSize = 20,
     int roundBatchSize = 5,
   }) {
-    if (messages.isEmpty) return 0;
-    final start = summarizedMessageCount.clamp(0, messages.length).toInt();
-    var end = messages.length;
-    if (messages.last.speakerType == TheaterSpeakerType.user) {
-      final currentRound = messages.last.round;
-      while (end > start && messages[end - 1].round == currentRound) {
-        end--;
-      }
-    }
-    if (end <= start) return start;
-    final pending = messages.sublist(start, end);
-    final completeRounds = pending
-        .map((message) => message.round)
-        .toSet()
-        .length;
-    return pending.length >= messageBatchSize ||
-            completeRounds >= roundBatchSize
-        ? end
-        : start;
+    return theater_engine.theaterSummaryEndIndex(
+      messages: messages,
+      summarizedMessageCount: summarizedMessageCount,
+      messageBatchSize: messageBatchSize,
+      roundBatchSize: roundBatchSize,
+    );
   }
 
   static List<Map<String, String>> buildTheaterSingleApiRequest({
     required TheaterSession session,
     required String novelSummary,
     required List<TheaterMessage> messages,
+    List<TheaterParticipant>? allowedParticipants,
+    TheaterGenerationIntent generationIntent =
+        TheaterGenerationIntent.userReply,
+    TheaterReplyPhase phase = TheaterReplyPhase.main,
   }) {
-    final allowed = session.activeAiParticipants;
+    final allowed = allowedParticipants ?? session.activeAiParticipants;
     return [
       {
         'role': 'system',
@@ -277,9 +262,11 @@ ${_theaterParticipantsText(session.participants)}
           session: session,
           novelSummary: novelSummary,
           allowed: allowed,
+          generationIntent: generationIntent,
+          phase: phase,
         ),
       },
-      {'role': 'user', 'content': _theaterMessagesText(messages)},
+      ..._theaterHistoryMessages(messages),
     ];
   }
 
@@ -288,27 +275,28 @@ ${_theaterParticipantsText(session.participants)}
     required TheaterParticipant participant,
     required String novelSummary,
     required List<TheaterMessage> messages,
+    TheaterGenerationIntent generationIntent =
+        TheaterGenerationIntent.userReply,
+    TheaterReplyPhase phase = TheaterReplyPhase.main,
+    bool previousOutputInvalid = false,
   }) {
     return [
       {
         'role': 'system',
         'content':
             '''
-你正在 Whisnya 的群聊剧场中扮演一个角色。
+你正在 Whisnya 的群聊剧场中扮演一个由动态状态指定的角色。
 
 【群聊名称】
 ${session.title}
 
 ${_theaterNovelFixedText(session)}
 
-【你只能扮演】
-${_theaterParticipantText(participant)}
-
 【全部参与角色（固定顺序）】
 ${_theaterParticipantsText(session.participants)}
 
 要求：
-1. 你只能作为「${participant.name}」发言。
+1. 你只能作为动态状态中的当前发言角色发言。
 2. 不要替其他角色或用户说话。
 3. 不要输出旁白，除非用户明确要求。
 4. 保持角色设定、语气和关系状态。
@@ -321,9 +309,13 @@ ${_theaterParticipantsText(session.participants)}
           session: session,
           novelSummary: novelSummary,
           allowed: participant.isMuted ? const [] : [participant],
+          currentParticipant: participant,
+          generationIntent: generationIntent,
+          phase: phase,
+          previousOutputInvalid: previousOutputInvalid,
         ),
       },
-      {'role': 'user', 'content': _theaterMessagesText(messages)},
+      ..._theaterHistoryMessages(messages),
     ];
   }
 
@@ -428,12 +420,21 @@ ${session.boundNovelTitle}
     required TheaterSession session,
     required String novelSummary,
     required List<TheaterParticipant> allowed,
+    TheaterParticipant? currentParticipant,
+    required TheaterGenerationIntent generationIntent,
+    required TheaterReplyPhase phase,
+    bool previousOutputInvalid = false,
   }) {
     final muted = session.allAiParticipants
         .where((participant) => participant.isMuted)
         .map((participant) => participant.name)
         .join('、');
     return '''
+当前发言角色：${currentParticipant == null ? '单 API 多角色生成' : currentParticipant.name}
+
+【当前用户身份】
+${session.userParticipant?.name ?? '用户本人'}
+
 【小说总结】
 ${novelSummary.trim().isEmpty ? '暂无。' : novelSummary.trim()}
 
@@ -445,7 +446,52 @@ ${allowed.isEmpty ? '无' : allowed.map((participant) => participant.name).join(
 
 【当前禁言】
 ${muted.isEmpty ? '无' : muted}
+
+【生成阶段】
+${phase == TheaterReplyPhase.main ? '主要回复阶段' : '追加发言阶段'}
+
+${currentParticipant == null ? '' : '''
+【本轮唯一发言者】
+${currentParticipant.name}
+
+你只能输出“${currentParticipant.name}”这一名角色的一段回复正文。
+严禁输出其他角色的台词、动作或心理活动，严禁替用户发言。
+不要输出角色名、[角色名]、角色名冒号、WhisnyaSpeaker 标记或多个角色分段。
+其他角色仅供理解关系，禁止代替发言。
+最终只输出当前角色的回复正文，不要解释规则。
+${previousOutputInvalid ? '''
+【上次输出错误】
+上次回复包含了其他角色内容或多个角色分段。
+本次只能输出“${currentParticipant.name}”的回复正文，不要输出任何角色名、标签、冒号前缀或其他角色内容。
+''' : ''}
+'''}
+
+${_theaterIntentText(generationIntent)}
 ''';
+  }
+
+  static String _theaterIntentText(TheaterGenerationIntent intent) {
+    return switch (intent) {
+      TheaterGenerationIntent.userReply =>
+        '''
+【本轮生成意图】
+用户刚刚发言，请自然回应最新用户消息。''',
+      TheaterGenerationIntent.continueConversation =>
+        '''
+【本轮生成意图】
+本轮没有新的用户消息。
+请优先回应群聊中最后一条非空角色消息，延续角色之间刚刚发生的对话。
+不要重新回答更早的用户消息，除非最后一条角色消息明确重新提到了该问题。
+回复应表现为自然接话，不要重新开启同一话题。''',
+      TheaterGenerationIntent.continueTheater =>
+        '''
+【本轮生成意图】
+用户希望角色们继续自然聊天。
+本轮没有新的用户消息。
+请让指定角色基于最新群聊上下文继续交流。
+优先回应最后一条非空角色消息，或自然推进当前话题。
+不要重新回答更早的用户消息。''',
+    };
   }
 
   static String _theaterParticipantsText(List<TheaterParticipant> roles) {
@@ -463,10 +509,29 @@ ${muted.isEmpty ? '无' : muted}
   }
 
   static String _theaterMessagesText(List<TheaterMessage> messages) {
-    if (messages.isEmpty) return '暂无群聊记录。';
-    return messages
-        .map((message) => '${message.speakerName}：${message.content}')
+    final valid = messages
+        .where(theater_engine.isValidTheaterContextMessage)
+        .toList();
+    if (valid.isEmpty) return '暂无群聊记录。';
+    return valid
+        .map((message) => '${message.speakerName}：${message.content.trim()}')
         .join('\n\n');
+  }
+
+  static List<Map<String, String>> _theaterHistoryMessages(
+    List<TheaterMessage> messages,
+  ) {
+    return [
+      for (final message in messages.where(
+        theater_engine.isValidTheaterContextMessage,
+      ))
+        {
+          'role': message.speakerType == TheaterSpeakerType.user
+              ? 'user'
+              : 'assistant',
+          'content': '[${message.speakerName}] ${message.content.trim()}',
+        },
+    ];
   }
 
   static String buildNovelChunkPrompt(String chunk, int index, int total) {

@@ -68,6 +68,21 @@ enum TheaterSpeakerType {
   }
 }
 
+enum TheaterGenerationIntent {
+  userReply,
+  continueConversation,
+  continueTheater,
+}
+
+enum TheaterReplyPhase { main, extra }
+
+class TheaterReplyDraft {
+  const TheaterReplyDraft({required this.speaker, required this.content});
+
+  final String speaker;
+  final String content;
+}
+
 class TheaterParticipant {
   const TheaterParticipant({
     required this.id,
@@ -272,6 +287,8 @@ class TheaterSession {
     this.singleEndpointId = '',
     this.userParticipantId = '',
     this.keepRoundCount = 30,
+    this.mainReplyCount = 0,
+    this.extraReplyMode = 0,
     this.theaterSummary = '',
     this.summarizedMessageCount = 0,
     this.nextSpeakerIndex = 0,
@@ -298,6 +315,8 @@ class TheaterSession {
   final String singleEndpointId;
   final String userParticipantId;
   final int keepRoundCount;
+  final int mainReplyCount;
+  final int extraReplyMode;
   final String theaterSummary;
   final int summarizedMessageCount;
   final int nextSpeakerIndex;
@@ -352,6 +371,8 @@ class TheaterSession {
     String? singleEndpointId,
     String? userParticipantId,
     int? keepRoundCount,
+    int? mainReplyCount,
+    int? extraReplyMode,
     String? theaterSummary,
     int? summarizedMessageCount,
     int? nextSpeakerIndex,
@@ -382,6 +403,8 @@ class TheaterSession {
       singleEndpointId: singleEndpointId ?? this.singleEndpointId,
       userParticipantId: userParticipantId ?? this.userParticipantId,
       keepRoundCount: (keepRoundCount ?? this.keepRoundCount).clamp(5, 100),
+      mainReplyCount: (mainReplyCount ?? this.mainReplyCount).clamp(0, 2),
+      extraReplyMode: (extraReplyMode ?? this.extraReplyMode).clamp(0, 2),
       theaterSummary: theaterSummary ?? this.theaterSummary,
       summarizedMessageCount:
           summarizedMessageCount ?? this.summarizedMessageCount,
@@ -423,6 +446,8 @@ class TheaterSession {
       singleEndpointId: json['singleEndpointId'] as String? ?? '',
       userParticipantId: json['userParticipantId'] as String? ?? '',
       keepRoundCount: (json['keepRoundCount'] as int? ?? 30).clamp(5, 100),
+      mainReplyCount: (json['mainReplyCount'] as int? ?? 0).clamp(0, 2),
+      extraReplyMode: (json['extraReplyMode'] as int? ?? 0).clamp(0, 2),
       theaterSummary: json['theaterSummary'] as String? ?? '',
       summarizedMessageCount: json['summarizedMessageCount'] as int? ?? 0,
       nextSpeakerIndex: json['nextSpeakerIndex'] as int? ?? 0,
@@ -460,6 +485,8 @@ class TheaterSession {
       'singleEndpointId': singleEndpointId,
       'userParticipantId': userParticipantId,
       'keepRoundCount': keepRoundCount,
+      'mainReplyCount': mainReplyCount,
+      'extraReplyMode': extraReplyMode,
       'theaterSummary': theaterSummary,
       'summarizedMessageCount': summarizedMessageCount,
       'nextSpeakerIndex': nextSpeakerIndex,

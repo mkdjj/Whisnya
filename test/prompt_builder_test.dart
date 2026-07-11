@@ -392,35 +392,32 @@ void main() {
     expect(after[1], isNot(before[1]));
   });
 
-  test(
-    'summarizes complete theater batches without consuming current user turn',
-    () {
-      TheaterMessage message(int index, int round, TheaterSpeakerType type) =>
-          TheaterMessage(
-            id: 'm$index',
-            sessionId: 's1',
-            round: round,
-            speakerType: type,
-            speakerId: '',
-            speakerName: type == TheaterSpeakerType.user ? '用户' : '角色',
-            content: '$index',
-            time: DateTime(2026),
-          );
-      final messages = [
-        for (var round = 1; round <= 5; round++)
-          message(round, round, TheaterSpeakerType.role),
-        message(6, 6, TheaterSpeakerType.user),
-      ];
+  test('does not summarize below the theater preservation floor', () {
+    TheaterMessage message(int index, int round, TheaterSpeakerType type) =>
+        TheaterMessage(
+          id: 'm$index',
+          sessionId: 's1',
+          round: round,
+          speakerType: type,
+          speakerId: '',
+          speakerName: type == TheaterSpeakerType.user ? '用户' : '角色',
+          content: '$index',
+          time: DateTime(2026),
+        );
+    final messages = [
+      for (var round = 1; round <= 5; round++)
+        message(round, round, TheaterSpeakerType.role),
+      message(6, 6, TheaterSpeakerType.user),
+    ];
 
-      expect(
-        PromptBuilder.theaterSummaryEndIndex(
-          messages: messages,
-          summarizedMessageCount: 0,
-        ),
-        5,
-      );
-    },
-  );
+    expect(
+      PromptBuilder.theaterSummaryEndIndex(
+        messages: messages,
+        summarizedMessageCount: 0,
+      ),
+      0,
+    );
+  });
 
   test('parses pasted role card fields', () {
     final parsed = RoleImportParser.parse('''
