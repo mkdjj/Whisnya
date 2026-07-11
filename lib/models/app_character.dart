@@ -1,4 +1,3 @@
-import 'ai_provider.dart';
 import 'image_crop_region.dart';
 
 class AppCharacter {
@@ -18,7 +17,6 @@ class AppCharacter {
     required this.speakingStyle,
     required this.openingMessage,
     required this.extraPrompt,
-    required this.defaultProvider,
     this.defaultEndpointId = '',
     this.useFullChatContext = true,
     this.chatSummaryMessageLimit = defaultChatSummaryMessageLimit,
@@ -53,7 +51,6 @@ class AppCharacter {
   final String speakingStyle;
   final String openingMessage;
   final String extraPrompt;
-  final AiProvider defaultProvider;
   final String defaultEndpointId;
   final bool useFullChatContext;
   final int chatSummaryMessageLimit;
@@ -84,7 +81,6 @@ class AppCharacter {
     String? speakingStyle,
     String? openingMessage,
     String? extraPrompt,
-    AiProvider? defaultProvider,
     String? defaultEndpointId,
     bool? useFullChatContext,
     int? chatSummaryMessageLimit,
@@ -117,7 +113,6 @@ class AppCharacter {
       speakingStyle: speakingStyle ?? this.speakingStyle,
       openingMessage: openingMessage ?? this.openingMessage,
       extraPrompt: extraPrompt ?? this.extraPrompt,
-      defaultProvider: defaultProvider ?? this.defaultProvider,
       defaultEndpointId: defaultEndpointId ?? this.defaultEndpointId,
       useFullChatContext: useFullChatContext ?? this.useFullChatContext,
       chatSummaryMessageLimit: _clampSummaryLimit(
@@ -159,10 +154,10 @@ class AppCharacter {
       speakingStyle: json['speakingStyle'] as String? ?? '',
       openingMessage: json['openingMessage'] as String? ?? '',
       extraPrompt: json['extraPrompt'] as String? ?? '',
-      defaultProvider: AiProviderX.fromId(json['defaultProvider'] as String?),
       defaultEndpointId:
-          json['defaultEndpointId'] as String? ??
-          (json['defaultProvider'] as String? ?? 'deepseek'),
+          (json['defaultEndpointId'] as String?)?.trim().isNotEmpty == true
+          ? (json['defaultEndpointId'] as String).trim()
+          : (json['defaultProvider'] as String? ?? '').trim(),
       useFullChatContext: json['useFullChatContext'] as bool? ?? true,
       chatSummaryMessageLimit: _clampSummaryLimit(
         json['chatSummaryMessageLimit'] as int? ??
@@ -201,7 +196,6 @@ class AppCharacter {
       'speakingStyle': speakingStyle,
       'openingMessage': openingMessage,
       'extraPrompt': extraPrompt,
-      'defaultProvider': defaultProvider.id,
       'defaultEndpointId': defaultEndpointId,
       'useFullChatContext': useFullChatContext,
       'chatSummaryMessageLimit': chatSummaryMessageLimit,

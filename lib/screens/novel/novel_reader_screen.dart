@@ -766,7 +766,6 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
         speakingStyle: role.speakingStyle.trim(),
         openingMessage: '',
         extraPrompt: '',
-        defaultProvider: AiProviderX.fromId(_selectedEndpointId),
         defaultEndpointId: _selectedEndpointId,
         sourceType: 'novelExport',
         sourceNovelId: _book.id,

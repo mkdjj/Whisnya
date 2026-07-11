@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:whisnya/models/ai_provider.dart';
 import 'package:whisnya/models/app_character.dart';
 import 'package:whisnya/models/app_settings.dart';
 import 'package:whisnya/models/chat_message.dart';
@@ -32,7 +31,7 @@ void main() {
       speakingStyle: '简洁',
       openingMessage: '你好',
       extraPrompt: '补充',
-      defaultProvider: AiProvider.deepseek,
+      defaultEndpointId: 'deepseek',
       createdAt: DateTime(2026),
       updatedAt: DateTime(2026),
       lastUsedAt: DateTime(2026),
@@ -103,7 +102,7 @@ void main() {
       speakingStyle: '',
       openingMessage: '',
       extraPrompt: '',
-      defaultProvider: AiProvider.deepseek,
+      defaultEndpointId: 'deepseek',
       createdAt: DateTime(2026),
       updatedAt: DateTime(2026),
       lastUsedAt: DateTime(2026),
@@ -143,7 +142,7 @@ void main() {
       speakingStyle: '',
       openingMessage: '',
       extraPrompt: '',
-      defaultProvider: AiProvider.deepseek,
+      defaultEndpointId: 'deepseek',
       chatSummaryMessageLimit: 50,
       createdAt: DateTime(2026),
       updatedAt: DateTime(2026),
@@ -515,7 +514,7 @@ void main() {
       speakingStyle: '短句',
       openingMessage: '你来了。',
       extraPrompt: '不编造记忆',
-      defaultProvider: AiProvider.deepseek,
+      defaultEndpointId: 'deepseek',
       createdAt: DateTime(2026),
       updatedAt: DateTime(2026),
       lastUsedAt: DateTime(2026),

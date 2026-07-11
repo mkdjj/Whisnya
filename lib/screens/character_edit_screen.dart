@@ -6,7 +6,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../models/ai_provider.dart';
 import '../models/api_config.dart';
 import '../models/app_character.dart';
 import '../models/image_crop_region.dart';
@@ -79,8 +78,7 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
     _extraPromptController = TextEditingController(
       text: character?.extraPrompt ?? '',
     );
-    _defaultEndpointId =
-        character?.defaultEndpointId ?? character?.defaultProvider.id ?? '';
+    _defaultEndpointId = character?.defaultEndpointId ?? '';
     unawaited(_loadApiConfig());
   }
 
@@ -118,7 +116,6 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
       speakingStyle: _speakingStyleController.text.trim(),
       openingMessage: _openingMessageController.text.trim(),
       extraPrompt: _extraPromptController.text.trim(),
-      defaultProvider: AiProviderX.fromId(_defaultEndpointId),
       defaultEndpointId: _defaultEndpointId,
       useFullChatContext: existing?.useFullChatContext ?? true,
       isPinned: existing?.isPinned ?? false,

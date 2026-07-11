@@ -737,9 +737,11 @@ class LocalStorageService {
     archive.addFile(
       ArchiveFile.string(
         'backup_manifest.json',
-        const JsonEncoder.withIndent(
-          '  ',
-        ).convert({'format': 1, 'appDataPath': directory.path}),
+        const JsonEncoder.withIndent('  ').convert({
+          'format': 1,
+          'schemaVersion': 2,
+          'appDataPath': directory.path,
+        }),
       ),
     );
     await for (final entity in directory.list(recursive: true)) {

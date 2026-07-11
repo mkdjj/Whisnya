@@ -9,7 +9,6 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
-import '../models/ai_provider.dart';
 import '../models/app_character.dart';
 import '../services/local_storage_service.dart';
 import 'app_i18n.dart';
@@ -358,7 +357,7 @@ class CharacterImportService {
       speakingStyle: parsed.speakingStyle,
       openingMessage: parsed.openingMessage,
       extraPrompt: parsed.extraPrompt,
-      defaultProvider: AiProvider.deepseek,
+      defaultEndpointId: 'deepseek',
       createdAt: now,
       updatedAt: now,
       lastUsedAt: now,
