@@ -49,7 +49,7 @@ APK 会生成在：
 build/app/outputs/flutter-apk/app-release.apk
 ```
 
-当前发布版本是 `1.3.2+10`。每次公开发版都要同时递增 `versionName`
+当前发布版本是 `1.3.3+11`。每次公开发版都要同时递增 `versionName`
 和 `versionCode`。Android 包名是 `com.mkdjj.whisnya`。
 
 如果要公开分发，请先配置自己的 Android 签名文件：
@@ -65,7 +65,7 @@ Copy-Item android/key.properties.example android/key.properties
 推荐发布文件名：
 
 ```text
-Whisnya-android-v1.3.2-release.apk
+Whisnya-android-v1.3.3-release.apk
 ```
 
 ## 其他平台
@@ -87,7 +87,7 @@ build/windows/x64/runner/Release/
 推荐 Windows 发布文件名：
 
 ```text
-Whisnya-windows-x64-v1.3.2.zip
+Whisnya-windows-x64-v1.3.3.zip
 ```
 
 iOS 或 macOS 需要先生成平台文件，然后在安装了 Xcode 的 macOS 上打包：
