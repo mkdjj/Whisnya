@@ -84,7 +84,7 @@ class NovelScreenState extends State<NovelScreen> {
 
   Future<String> _decodePickedNovel(List<int> bytes) async {
     try {
-      return decodeNovelBytes(bytes);
+      return const NovelImportService().decode(bytes).text;
     } on NovelDecodeException {
       final encoding = await showDialog<String>(
         context: context,
@@ -102,7 +102,7 @@ class NovelScreenState extends State<NovelScreen> {
       if (encoding == null) {
         throw const NovelDecodeException('已取消导入。');
       }
-      return decodeNovelBytes(bytes, encoding: encoding);
+      return const NovelImportService().decode(bytes, encoding: encoding).text;
     }
   }
 

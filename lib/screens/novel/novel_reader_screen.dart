@@ -1291,11 +1291,16 @@ ${role.speakingStyle}
         },
       );
       _streamBuffer = streamBuffer;
-      await for (final chunk in widget.aiService.streamMessage(
+      await for (final chunk in NovelChatService(widget.aiService).streamReply(
+        book: _book,
+        aiRole: role,
+        userRole: _book.selectedUserRole,
+        historySummary: _chatSummary.summary,
+        summarizedMessageCount: _chatSummary.summarizedMessageCount,
+        messages: _messages,
         apiKey: endpoint.apiKey,
         baseUrl: endpoint.baseUrl,
         model: endpoint.model,
-        messages: requestMessages,
         cancelToken: cancelToken,
         includeReasoning: widget.settings.showReasoningContent,
         maxTokens: 800,
