@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -51,7 +53,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _load();
+    unawaited(_load());
   }
 
   Future<void> _load() async {
@@ -236,7 +238,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _selectTab(int index) {
     setState(() => _tabIndex = index);
     if (index == 0) {
-      _load();
+      unawaited(_load());
     }
   }
 
@@ -558,19 +560,19 @@ class _HomeScreenState extends State<HomeScreen> {
                             onSelected: (action) {
                               switch (action) {
                                 case _CharacterAction.edit:
-                                  _editCharacter(character);
+                                  unawaited(_editCharacter(character));
                                   break;
                                 case _CharacterAction.pin:
-                                  _togglePin(character);
+                                  unawaited(_togglePin(character));
                                   break;
                                 case _CharacterAction.hide:
-                                  _toggleHidden(character);
+                                  unawaited(_toggleHidden(character));
                                   break;
                                 case _CharacterAction.lock:
-                                  _toggleLock(character);
+                                  unawaited(_toggleLock(character));
                                   break;
                                 case _CharacterAction.delete:
-                                  _deleteCharacter(character);
+                                  unawaited(_deleteCharacter(character));
                                   break;
                               }
                             },

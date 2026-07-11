@@ -34,7 +34,7 @@ class JsonFileStore {
     try {
       return await future;
     } finally {
-      if (identical(_queues[path], tail)) _queues.remove(path);
+      if (identical(_queues[path], tail)) unawaited(_queues.remove(path));
     }
   }
 

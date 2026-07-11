@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'l10n/app_localizations.dart';
@@ -28,7 +30,7 @@ class _WhisnyaAppState extends State<WhisnyaApp> {
   @override
   void initState() {
     super.initState();
-    _loadSettings();
+    unawaited(_loadSettings());
   }
 
   Future<void> _loadSettings() async {

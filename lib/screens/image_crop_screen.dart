@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -315,7 +316,7 @@ class _CropBody extends StatelessWidget {
                       onPressed: () {
                         final state = context
                             .findAncestorStateOfType<_ImageCropScreenState>();
-                        state?._finishCrop(image);
+                        unawaited(state?._finishCrop(image));
                       },
                       icon: const Icon(Icons.check),
                       label: Text(context.t('使用图片')),

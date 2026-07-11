@@ -47,7 +47,7 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
     super.initState();
     _book = widget.book;
     _readScrollController.addListener(_updateReadProgress);
-    _load();
+    unawaited(_load());
   }
 
   @override
@@ -939,7 +939,7 @@ ${role.speakingStyle}
                     subtitle: Text(_chapters[_safeChapterIndex].title),
                     onTap: () {
                       Navigator.of(context).pop();
-                      _chooseChapter();
+                      unawaited(_chooseChapter());
                     },
                   ),
                 if (_chapters.isNotEmpty)
@@ -950,7 +950,7 @@ ${role.speakingStyle}
                     subtitle: Text(context.t('每行一个章节标题')),
                     onTap: () {
                       Navigator.of(context).pop();
-                      _editCatalog();
+                      unawaited(_editCatalog());
                     },
                   ),
                 SettingSlider(
@@ -1012,7 +1012,7 @@ ${role.speakingStyle}
                   ),
                   onTap: () {
                     Navigator.of(context).pop();
-                    _summarizeNovel();
+                    unawaited(_summarizeNovel());
                   },
                 ),
                 if (_book.roles.isNotEmpty)
@@ -1025,7 +1025,7 @@ ${role.speakingStyle}
                     ),
                     onTap: () {
                       Navigator.of(context).pop();
-                      _chooseRole();
+                      unawaited(_chooseRole());
                     },
                   ),
                 if (_book.roles.isNotEmpty)
@@ -1038,7 +1038,7 @@ ${role.speakingStyle}
                     ),
                     onTap: () {
                       Navigator.of(context).pop();
-                      _chooseUserRole();
+                      unawaited(_chooseUserRole());
                     },
                   ),
                 if (_book.summary.trim().isNotEmpty)
@@ -1048,7 +1048,7 @@ ${role.speakingStyle}
                     title: Text(context.t('查看小说设定档')),
                     onTap: () {
                       Navigator.of(context).pop();
-                      _showSummaryDialog();
+                      unawaited(_showSummaryDialog());
                     },
                   ),
                 if (_summaryCache?.canResume == true)
@@ -1075,7 +1075,7 @@ ${role.speakingStyle}
                     ),
                     onTap: () {
                       Navigator.of(context).pop();
-                      _summarizeNovel();
+                      unawaited(_summarizeNovel());
                     },
                   ),
                 const Divider(),
@@ -1093,7 +1093,7 @@ ${role.speakingStyle}
                   ),
                   onTap: () {
                     Navigator.of(context).pop();
-                    _clearNovelChat();
+                    unawaited(_clearNovelChat());
                   },
                 ),
               ],
@@ -1552,10 +1552,12 @@ ${role.speakingStyle}
       );
       if (index >= 0 && _readScrollController.hasClients) {
         final max = _readScrollController.position.maxScrollExtent;
-        _readScrollController.animateTo(
-          (index * 260.0).clamp(0, max).toDouble(),
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOut,
+        unawaited(
+          _readScrollController.animateTo(
+            (index * 260.0).clamp(0, max).toDouble(),
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOut,
+          ),
         );
         return;
       }
@@ -1578,10 +1580,12 @@ ${role.speakingStyle}
   void _scrollChatToEnd() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_chatScrollController.hasClients) return;
-      _chatScrollController.animateTo(
-        _chatScrollController.position.minScrollExtent,
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOut,
+      unawaited(
+        _chatScrollController.animateTo(
+          _chatScrollController.position.minScrollExtent,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+        ),
       );
     });
   }

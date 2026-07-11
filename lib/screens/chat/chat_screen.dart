@@ -74,7 +74,7 @@ class _ChatScreenState extends State<ChatScreen> {
     super.initState();
     _character = widget.character;
     _summary = ChatSummary.empty(_character.id);
-    _load();
+    unawaited(_load());
   }
 
   @override
@@ -413,7 +413,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _summary = nextSummary;
         _isSummarizing = false;
       });
-      _showSummaryDialog();
+      unawaited(_showSummaryDialog());
     } catch (error) {
       if (!mounted) return;
       setState(() => _isSummarizing = false);
@@ -949,7 +949,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   subtitle: Text(context.t('历史总结不会被删除')),
                   onTap: () {
                     Navigator.of(context).pop();
-                    _clearChat();
+                    unawaited(_clearChat());
                   },
                 ),
               ],
@@ -1019,10 +1019,12 @@ class _ChatScreenState extends State<ChatScreen> {
   void _scrollToEnd() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollController.hasClients) return;
-      _scrollController.animateTo(
-        _scrollController.position.minScrollExtent,
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOut,
+      unawaited(
+        _scrollController.animateTo(
+          _scrollController.position.minScrollExtent,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+        ),
       );
     });
   }
@@ -1038,10 +1040,12 @@ class _ChatScreenState extends State<ChatScreen> {
             _scrollController.position.maxScrollExtent,
           )
           .toDouble();
-      _scrollController.animateTo(
-        target,
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOut,
+      unawaited(
+        _scrollController.animateTo(
+          target,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+        ),
       );
     });
   }
@@ -1181,7 +1185,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 },
                 onSummarize: () {
                   _showToolsTemporarily();
-                  _summarize();
+                  unawaited(_summarize());
                 },
               ),
             ),

@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -79,7 +81,7 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
     );
     _defaultEndpointId =
         character?.defaultEndpointId ?? character?.defaultProvider.id ?? '';
-    _loadApiConfig();
+    unawaited(_loadApiConfig());
   }
 
   @override

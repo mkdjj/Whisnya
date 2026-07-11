@@ -435,7 +435,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           SimpleDialogOption(
             onPressed: () {
               Navigator.of(context).pop();
-              _setPassword(requireCurrent: true);
+              unawaited(_setPassword(requireCurrent: true));
             },
             child: ListTile(
               contentPadding: EdgeInsets.zero,
@@ -446,7 +446,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           SimpleDialogOption(
             onPressed: () {
               Navigator.of(context).pop();
-              _recoverPassword();
+              unawaited(_recoverPassword());
             },
             child: ListTile(
               contentPadding: EdgeInsets.zero,
@@ -457,7 +457,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           SimpleDialogOption(
             onPressed: () {
               Navigator.of(context).pop();
-              _deletePassword();
+              unawaited(_deletePassword());
             },
             child: ListTile(
               contentPadding: EdgeInsets.zero,

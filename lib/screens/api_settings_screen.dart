@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/api_config.dart';
@@ -31,7 +33,7 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
   @override
   void initState() {
     super.initState();
-    _load();
+    unawaited(_load());
   }
 
   Future<void> _load() async {

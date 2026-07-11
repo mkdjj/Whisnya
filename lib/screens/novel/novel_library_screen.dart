@@ -26,7 +26,7 @@ class NovelScreenState extends State<NovelScreen> {
   @override
   void initState() {
     super.initState();
-    _load();
+    unawaited(_load());
   }
 
   Future<void> _load() async {
@@ -349,13 +349,13 @@ class NovelScreenState extends State<NovelScreen> {
       onSelected: (action) {
         switch (action) {
           case _NovelAction.hide:
-            _toggleBookHidden(book);
+            unawaited(_toggleBookHidden(book));
             break;
           case _NovelAction.lock:
-            _toggleBookLock(book);
+            unawaited(_toggleBookLock(book));
             break;
           case _NovelAction.delete:
-            _deleteBook(book);
+            unawaited(_deleteBook(book));
             break;
         }
       },

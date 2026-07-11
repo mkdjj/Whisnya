@@ -36,7 +36,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   void initState() {
     super.initState();
     _session = widget.session;
-    _load();
+    unawaited(_load());
   }
 
   @override

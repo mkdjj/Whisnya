@@ -79,7 +79,7 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
       _useCustomRounds = ![15, 30, 50].contains(session.keepRoundCount);
       _selectedParticipants = [...session.participants];
     }
-    _load();
+    unawaited(_load());
   }
 
   @override

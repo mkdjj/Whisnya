@@ -24,7 +24,7 @@ class TheaterListScreenState extends State<TheaterListScreen> {
   @override
   void initState() {
     super.initState();
-    _load();
+    unawaited(_load());
   }
 
   Future<void> _load() async {
@@ -257,10 +257,10 @@ class TheaterListScreenState extends State<TheaterListScreen> {
                   onTap: () => _open(session),
                   trailing: PopupMenuButton<String>(
                     onSelected: (value) {
-                      if (value == 'rename') _rename(session);
-                      if (value == 'hide') _toggleHidden(session);
-                      if (value == 'lock') _toggleLock(session);
-                      if (value == 'delete') _delete(session);
+                      if (value == 'rename') unawaited(_rename(session));
+                      if (value == 'hide') unawaited(_toggleHidden(session));
+                      if (value == 'lock') unawaited(_toggleLock(session));
+                      if (value == 'delete') unawaited(_delete(session));
                     },
                     itemBuilder: (context) => [
                       PopupMenuItem(
