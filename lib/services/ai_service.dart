@@ -1,18 +1,20 @@
 import 'package:http/http.dart' as http;
 
 import '../models/ai_usage.dart';
+import 'ai/ai_gateway.dart';
 import 'ai/ai_conversation_runner.dart';
 
 export '../models/ai_usage.dart' show AiUsage;
 export 'ai/ai_conversation_runner.dart'
     show AiCancelToken, AiException, AiRequest, AiStreamEvent;
 
-class AiService {
+class AiService implements AiGateway {
   AiService({http.Client? client})
     : _runner = AiConversationRunner(client: client);
 
   final AiConversationRunner _runner;
 
+  @override
   Future<String> sendMessage({
     required String apiKey,
     required String baseUrl,
@@ -36,6 +38,7 @@ class AiService {
     return result.text;
   }
 
+  @override
   Stream<String> streamMessage({
     required String apiKey,
     required String baseUrl,

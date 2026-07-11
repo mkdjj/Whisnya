@@ -254,187 +254,24 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   }
 
   Future<void> _generateSingleApi(
-    List<TheaterParticipant> allowedParticipants,
+    List<TheaterParticipant> participants,
     int round,
     int generationId,
     AiCancelToken cancelToken, {
     required TheaterGenerationIntent generationIntent,
     required TheaterReplyPhase phase,
     required bool summaryUpdated,
-  }) async {
-    final endpoint = _apiConfig.effectiveEndpoint(_session.singleEndpointId);
-    final error = _validateEndpoint(endpoint);
-    if (error != null) {
-      await _appendSystemError(error, round);
-      return;
-    }
-    if (allowedParticipants.isEmpty) {
-      await _appendSystemError('没有可自动回复的角色', round);
-      return;
-    }
-    final parser = TheaterStreamingParser();
-    final rawBackup = StringBuffer();
-    final pending = <String, String>{};
-    final streamResponses = widget.settings.streamResponses;
-    TheaterMessage? currentMessage;
-    Timer? refreshTimer;
-    var validMessages = 0;
-
-    void flushPending() {
-      refreshTimer?.cancel();
-      refreshTimer = null;
-      if (pending.isEmpty || !mounted || generationId != _generationId) {
-        pending.clear();
-        return;
-      }
-      final updates = Map<String, String>.from(pending);
-      pending.clear();
-      setState(() {
-        for (final entry in updates.entries) {
-          final index = _messages.indexWhere((item) => item.id == entry.key);
-          if (index < 0) continue;
-          final message = _messages[index];
-          _replaceMessage(
-            entry.key,
-            message.copyWith(content: message.content + entry.value),
-          );
-        }
-      });
-    }
-
-    final flushStream = flushPending;
-    _streamFlushers.add(flushStream);
-
-    void handleEvents(List<TheaterStreamEvent> events) {
-      for (final event in events) {
-        switch (event) {
-          case TheaterSpeakerStarted(:final speaker):
-            flushPending();
-            final participant = _matchParticipant(speaker, allowedParticipants);
-            currentMessage = participant == null
-                ? null
-                : _roleMessage(participant, '', round, endpoint: endpoint!);
-            if (streamResponses && currentMessage != null) {
-              setState(() => _messages = [..._messages, currentMessage!]);
-            }
-          case TheaterContentDelta(:final delta):
-            final message = currentMessage;
-            if (!streamResponses || message == null || delta.isEmpty) continue;
-            pending.update(
-              message.id,
-              (value) => value + delta,
-              ifAbsent: () => delta,
-            );
-            refreshTimer ??= Timer(
-              const Duration(milliseconds: 30),
-              flushPending,
-            );
-          case TheaterMessageCompleted(:final content):
-            flushPending();
-            final message = currentMessage;
-            currentMessage = null;
-            if (message == null) continue;
-            final finalContent = content.trim();
-            if (finalContent.isEmpty) {
-              if (streamResponses) setState(() => _removeMessage(message.id));
-              continue;
-            }
-            final completed = message.copyWith(content: finalContent);
-            setState(() {
-              if (streamResponses) {
-                _replaceMessage(message.id, completed);
-              } else {
-                _messages = [..._messages, completed];
-              }
-            });
-            validMessages++;
-        }
-      }
-    }
-
-    try {
-      final requestMessages = PromptBuilder.buildTheaterSingleApiRequest(
-        session: _session,
-        novelSummary: _novelSummary,
-        messages: _recentMessages(),
-        allowedParticipants: allowedParticipants,
-        generationIntent: generationIntent,
-        phase: phase,
-      );
-      await for (final chunk in widget.aiService.streamMessage(
-        apiKey: endpoint!.apiKey,
-        baseUrl: endpoint.baseUrl,
-        model: endpoint.model,
-        messages: requestMessages,
-        cancelToken: cancelToken,
-        includeReasoning: widget.settings.showReasoningContent,
-        maxTokens: 1200,
-        onUsage: (usage) => unawaited(
-          widget.storage.recordAiUsage(
-            requestType: 'theater',
-            model: endpoint.model,
-            usage: usage,
-            messages: requestMessages,
-            summaryUpdated: summaryUpdated,
-          ),
-        ),
-      )) {
-        if (!mounted || generationId != _generationId) return;
-        rawBackup.write(chunk);
-        handleEvents(parser.addChunk(chunk));
-      }
-      handleEvents(parser.finish());
-      if (!mounted || generationId != _generationId) return;
-
-      if (validMessages == 0) {
-        final fallback = <TheaterMessage>[];
-        for (final draft in resolveSingleApiFallback(
-          rawBackup.toString(),
-          allowedParticipants,
-        )) {
-          final participant = _matchParticipant(
-            draft.speaker,
-            allowedParticipants,
-          );
-          if (participant != null) {
-            fallback.add(
-              _roleMessage(
-                participant,
-                draft.content,
-                round,
-                endpoint: endpoint,
-              ),
-            );
-          }
-        }
-        if (fallback.isEmpty) {
-          await _appendSystemError('模型没有按群聊格式输出，可重试', round);
-          return;
-        }
-        setState(() => _messages = [..._messages, ...fallback]);
-      }
-      await _saveMessages();
-    } catch (error) {
-      if (!mounted || generationId != _generationId) return;
-      await _appendSystemError(error.toString(), round);
-    } finally {
-      _streamFlushers.remove(flushStream);
-      refreshTimer?.cancel();
-      if (mounted && generationId == _generationId) {
-        flushPending();
-        setState(() {
-          _messages = _messages
-              .where(
-                (message) =>
-                    message.speakerType != TheaterSpeakerType.role ||
-                    message.content.trim().isNotEmpty,
-              )
-              .toList();
-        });
-        await _saveMessages();
-      }
-    }
-  }
+  }) => _runGenerationService(
+    participants,
+    round,
+    generationId,
+    cancelToken,
+    session: _session,
+    generationIntent: generationIntent,
+    phase: phase,
+    summaryUpdated: summaryUpdated,
+    maxTokens: 1200,
+  );
 
   Future<void> _generateSequential(
     List<TheaterParticipant> participants,
@@ -444,20 +281,18 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     required TheaterGenerationIntent generationIntent,
     required TheaterReplyPhase phase,
     required bool summaryUpdated,
-  }) async {
-    for (final participant in participants) {
-      if (!mounted || generationId != _generationId) return;
-      await _generateForParticipant(
-        participant,
-        round,
-        generationId,
-        cancelToken,
-        generationIntent: generationIntent,
-        phase: phase,
-        summaryUpdated: summaryUpdated,
-      );
-    }
-  }
+  }) => _runGenerationService(
+    participants,
+    round,
+    generationId,
+    cancelToken,
+    session: _session.copyWith(
+      multiApiReplyMode: TheaterMultiApiReplyMode.randomSequential,
+    ),
+    generationIntent: generationIntent,
+    phase: phase,
+    summaryUpdated: summaryUpdated,
+  );
 
   Future<void> _generateParallel(
     List<TheaterParticipant> participants,
@@ -467,24 +302,19 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     required TheaterGenerationIntent generationIntent,
     required TheaterReplyPhase phase,
     required bool summaryUpdated,
-  }) async {
-    final contextSnapshot = _recentMessages();
-    await Future.wait([
-      for (final participant in participants)
-        _generateForParticipant(
-          participant,
-          round,
-          generationId,
-          cancelToken,
-          contextMessages: contextSnapshot,
-          generationIntent: generationIntent,
-          phase: phase,
-          summaryUpdated: summaryUpdated,
-          saveOnComplete: false,
-        ),
-    ]);
-    if (mounted && generationId == _generationId) await _saveMessages();
-  }
+  }) => _runGenerationService(
+    participants,
+    round,
+    generationId,
+    cancelToken,
+    session: _session.copyWith(
+      multiApiReplyMode: TheaterMultiApiReplyMode.parallel,
+    ),
+    messages: _recentMessages(),
+    generationIntent: generationIntent,
+    phase: phase,
+    summaryUpdated: summaryUpdated,
+  );
 
   Future<void> _generateForParticipant(
     TheaterParticipant participant,
@@ -498,146 +328,124 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     bool summaryUpdated = false,
     int maxTokens = 800,
     bool saveOnComplete = true,
+  }) => _runGenerationService(
+    [participant],
+    round,
+    generationId,
+    cancelToken,
+    session: _session.copyWith(
+      multiApiReplyMode: TheaterMultiApiReplyMode.randomSequential,
+    ),
+    messages: contextMessages,
+    generationIntent: generationIntent,
+    phase: phase,
+    summaryUpdated: summaryUpdated,
+    maxTokens: maxTokens,
+    saveOnComplete: saveOnComplete,
+  );
+
+  Future<void> _runGenerationService(
+    List<TheaterParticipant> participants,
+    int round,
+    int generationId,
+    AiCancelToken cancelToken, {
+    required TheaterSession session,
+    List<TheaterMessage>? messages,
+    required TheaterGenerationIntent generationIntent,
+    required TheaterReplyPhase phase,
+    required bool summaryUpdated,
+    int maxTokens = 800,
+    bool saveOnComplete = true,
   }) async {
-    if (participant.isMuted) return;
-    final endpoint = _apiConfig.effectiveEndpoint(participant.endpointId);
-    final error = _validateEndpoint(endpoint);
-    if (error != null) {
-      await _appendRoleError(participant, error, round);
+    if (participants.isEmpty) {
+      await _appendSystemError('没有可自动回复的角色', round);
       return;
     }
-    final activeEndpoint = endpoint!;
-    final requestContext = contextMessages ?? _recentMessages();
-    final streamResponses = widget.settings.streamResponses;
-    final placeholder = _roleMessage(
-      participant,
-      '',
-      round,
-      endpoint: activeEndpoint,
-    );
+    final buffers = <String, StreamTextBuffer>{};
+    final displayed = <String, String>{};
+    final flushers = <String, void Function()>{};
+
+    void removeBuffer(String id) {
+      final flusher = flushers.remove(id);
+      if (flusher != null) _streamFlushers.remove(flusher);
+      buffers.remove(id)?.dispose();
+      displayed.remove(id);
+    }
+
     try {
-      if (!mounted || generationId != _generationId) return;
-      if (streamResponses) {
-        setState(() => _messages = [..._messages, placeholder]);
-      }
-      final reply = await requestSanitizedParticipantReply(
-        request: (isRetry) async {
-          if (!mounted || generationId != _generationId) return '';
-          var displayedReply = '';
-          if (isRetry && streamResponses) {
-            setState(() => _replaceMessage(placeholder.id, placeholder));
-          }
-          final requestMessages = PromptBuilder.buildTheaterParticipantRequest(
-            session: _session,
-            participant: participant,
+      await for (final event
+          in TheaterGenerationService(widget.aiService).generate(
+            session: session,
+            apiConfig: _apiConfig,
+            participants: participants,
+            messages: messages ?? _recentMessages(),
             novelSummary: _novelSummary,
-            messages: requestContext,
+            round: round,
             generationIntent: generationIntent,
             phase: phase,
-            previousOutputInvalid: isRetry,
-          );
-          final rawReply = StringBuffer();
-          final streamBuffer = StreamTextBuffer(
-            onFlush: (delta) {
-              displayedReply += delta;
-              if (!streamResponses ||
-                  !mounted ||
-                  generationId != _generationId) {
-                return;
-              }
-              setState(
-                () => _replaceMessage(
-                  placeholder.id,
-                  placeholder.copyWith(content: displayedReply),
-                ),
-              );
-            },
-          );
-          void flushStream() => streamBuffer.flush();
-          _streamFlushers.add(flushStream);
-          try {
-            await for (final chunk in widget.aiService.streamMessage(
-              apiKey: activeEndpoint.apiKey,
-              baseUrl: activeEndpoint.baseUrl,
-              model: activeEndpoint.model,
-              messages: requestMessages,
-              cancelToken: cancelToken,
-              includeReasoning: widget.settings.showReasoningContent,
-              maxTokens: maxTokens,
-              onUsage: (usage) => unawaited(
-                widget.storage.recordAiUsage(
-                  requestType: 'theater',
-                  model: activeEndpoint.model,
-                  usage: usage,
-                  messages: requestMessages,
-                  summaryUpdated: summaryUpdated,
-                ),
+            cancelToken: cancelToken,
+            includeReasoning: widget.settings.showReasoningContent,
+            maxTokens: maxTokens,
+            onUsage: (usage, endpoint, request) => unawaited(
+              widget.storage.recordAiUsage(
+                requestType: 'theater',
+                model: endpoint.model,
+                usage: usage,
+                messages: request,
+                summaryUpdated: summaryUpdated,
               ),
-            )) {
-              rawReply.write(chunk);
-              if (streamResponses) streamBuffer.add(chunk);
-            }
-          } finally {
-            streamBuffer.flush();
-            streamBuffer.dispose();
-            _streamFlushers.remove(flushStream);
-          }
-          return rawReply.toString();
-        },
-        targetName: participant.name,
-        allParticipantNames: _session.participants
-            .map((item) => item.name)
-            .toList(),
-      );
-      if (reply == null) {
-        throw AiException(theaterMultipleRoleErrorText);
-      }
-      if (!mounted || generationId != _generationId) return;
-      setState(() {
-        final message = placeholder.copyWith(content: reply);
-        if (streamResponses) {
-          _replaceMessage(placeholder.id, message);
-        } else {
-          _messages = [..._messages, message];
+            ),
+          )) {
+        if (!mounted || generationId != _generationId) return;
+        switch (event) {
+          case TheaterMessageStarted(:final message):
+            if (!widget.settings.streamResponses) break;
+            removeBuffer(message.id);
+            displayed[message.id] = '';
+            final buffer = StreamTextBuffer(
+              onFlush: (delta) {
+                displayed[message.id] = (displayed[message.id] ?? '') + delta;
+                if (!mounted || generationId != _generationId) return;
+                setState(
+                  () => _replaceMessage(
+                    message.id,
+                    message.copyWith(content: displayed[message.id]),
+                  ),
+                );
+              },
+            );
+            void flush() => buffer.flush();
+            buffers[message.id] = buffer;
+            flushers[message.id] = flush;
+            _streamFlushers.add(flush);
+            setState(() => _messages = [..._messages, message]);
+          case TheaterMessageDelta(:final messageId, :final delta):
+            buffers[messageId]?.add(delta);
+          case TheaterMessageFinished(:final message):
+            buffers[message.id]?.flush();
+            removeBuffer(message.id);
+            setState(() {
+              if (widget.settings.streamResponses &&
+                  _messages.any((item) => item.id == message.id)) {
+                _replaceMessage(message.id, message);
+              } else {
+                _messages = [..._messages, message];
+              }
+            });
+          case TheaterMessageRemoved(:final messageId):
+            removeBuffer(messageId);
+            setState(() => _removeMessage(messageId));
+          case TheaterGenerationFailed(:final message):
+            setState(() => _messages = [..._messages, message]);
         }
-      });
+      }
       if (saveOnComplete) await _saveMessages();
-    } catch (error) {
-      if (!mounted || generationId != _generationId) return;
-      if (streamResponses) setState(() => _removeMessage(placeholder.id));
-      final errorText = error.toString();
-      await _appendRoleError(
-        participant,
-        errorText,
-        round,
-        content: errorText == theaterMultipleRoleErrorText
-            ? context.t(theaterMultipleRoleErrorText)
-            : null,
-        save: saveOnComplete,
-      );
+    } finally {
+      for (final id in [...buffers.keys]) {
+        buffers[id]?.flush();
+        removeBuffer(id);
+      }
     }
-  }
-
-  TheaterMessage _roleMessage(
-    TheaterParticipant participant,
-    String content,
-    int round, {
-    required AiEndpointConfig endpoint,
-  }) {
-    final now = DateTime.now();
-    return TheaterMessage(
-      id: 'theater_msg_${now.microsecondsSinceEpoch}_${participant.id}',
-      sessionId: _session.id,
-      round: round,
-      speakerType: TheaterSpeakerType.role,
-      speakerId: participant.id,
-      speakerName: participant.name,
-      content: content.trim(),
-      endpointId: endpoint.id,
-      endpointName: endpoint.name,
-      model: endpoint.model,
-      time: now,
-    );
   }
 
   void _replaceMessage(String id, TheaterMessage message) {
@@ -723,21 +531,6 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     );
   }
 
-  TheaterParticipant? _matchParticipant(
-    String name, [
-    Iterable<TheaterParticipant>? allowedParticipants,
-  ]) {
-    final normalized = name.trim().replaceAll(
-      RegExp(r'''^["'“”‘’]+|["'“”‘’]+$'''),
-      '',
-    );
-    for (final participant
-        in allowedParticipants ?? _session.activeAiParticipants) {
-      if (participant.name.trim() == normalized) return participant;
-    }
-    return null;
-  }
-
   Future<void> _appendSystemError(String error, int round) async {
     final now = DateTime.now();
     setState(() {
@@ -758,34 +551,6 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
       ];
     });
     await _saveMessages();
-  }
-
-  Future<void> _appendRoleError(
-    TheaterParticipant participant,
-    String error,
-    int round, {
-    String? content,
-    bool save = true,
-  }) async {
-    final now = DateTime.now();
-    setState(() {
-      _messages = [
-        ..._messages,
-        TheaterMessage(
-          id: 'theater_msg_${now.microsecondsSinceEpoch}_error_${participant.id}',
-          sessionId: _session.id,
-          round: round,
-          speakerType: TheaterSpeakerType.role,
-          speakerId: participant.id,
-          speakerName: participant.name,
-          content: content ?? context.t('生成失败，点击重试'),
-          isError: true,
-          errorMessage: error,
-          time: now,
-        ),
-      ];
-    });
-    if (save) await _saveMessages();
   }
 
   Future<void> _retry(TheaterMessage message) async {
@@ -880,16 +645,6 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     int generationId,
     AiCancelToken cancelToken,
   ) async {
-    final summarizeUntil = PromptBuilder.theaterSummaryEndIndex(
-      messages: _messages,
-      summarizedMessageCount: _session.summarizedMessageCount,
-      messageBatchSize: _session.recentMessageLimit,
-      roundBatchSize: _session.keepRoundCount,
-    );
-    final summarizedCount = _session.summarizedMessageCount
-        .clamp(0, summarizeUntil)
-        .toInt();
-    if (summarizedCount >= summarizeUntil) return false;
     final aiParticipants = _session.aiParticipants;
     final endpointId = _session.apiMode == TheaterApiMode.singleApi
         ? _session.singleEndpointId
@@ -898,47 +653,31 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
         : aiParticipants.first.endpointId;
     final endpoint = _apiConfig.effectiveEndpoint(endpointId);
     if (_validateEndpoint(endpoint) != null) return false;
-    final chunk = _messages
-        .sublist(summarizedCount, summarizeUntil)
-        .where(isValidTheaterContextMessage)
-        .toList();
-    if (chunk.isEmpty) return false;
     setState(() => _isSummarizing = true);
     try {
-      final summaryMessages = [
-        {'role': 'system', 'content': '你负责总结群聊记录，并只输出总结内容。'},
-        {
-          'role': 'user',
-          'content': PromptBuilder.buildTheaterSummaryPrompt(
-            previousSummary: _session.theaterSummary,
-            messages: chunk,
-            useCustomItems: widget.settings.useCustomTheaterSummaryItems,
-            customItems: widget.settings.customTheaterSummaryItems,
-          ),
-        },
-      ];
-      final summary = await widget.aiService.sendMessage(
-        apiKey: endpoint!.apiKey,
-        baseUrl: endpoint.baseUrl,
-        model: endpoint.model,
-        messages: summaryMessages,
+      final result = await TheaterSummaryService(widget.aiService).summarize(
+        session: _session,
+        messages: _messages,
+        endpoint: endpoint!,
+        useCustomItems: widget.settings.useCustomTheaterSummaryItems,
+        customItems: widget.settings.customTheaterSummaryItems,
         cancelToken: cancelToken,
-        maxTokens: 800,
-        onUsage: (usage) => unawaited(
+        onUsage: (usage, request) => unawaited(
           widget.storage.recordAiUsage(
             requestType: 'theaterSummary',
             model: endpoint.model,
             usage: usage,
-            messages: summaryMessages,
+            messages: request,
             summaryUpdated: true,
           ),
         ),
       );
+      if (result == null) return false;
       if (!mounted || generationId != _generationId) return false;
       await _saveSession(
         _session.copyWith(
-          theaterSummary: PromptBuilder.limitSummary(summary, 1500),
-          summarizedMessageCount: summarizeUntil,
+          theaterSummary: result.summary,
+          summarizedMessageCount: result.summarizedMessageCount,
           updatedAt: DateTime.now(),
         ),
       );
