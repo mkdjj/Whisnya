@@ -117,9 +117,9 @@ List<TheaterReplyDraft> resolveSingleApiFallback(
   try {
     final decoded = jsonDecode(text);
     final items = switch (decoded) {
-      List value => value,
-      {'replies': List value} => value,
-      {'messages': List value} => value,
+      List<dynamic> value => value,
+      {'replies': List<dynamic> value} => value,
+      {'messages': List<dynamic> value} => value,
       _ => const <dynamic>[],
     };
     final allowedNames = allowed.map((item) => item.name.trim()).toSet();

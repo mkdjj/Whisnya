@@ -273,7 +273,7 @@ class CharacterImportService {
     final decoded = _decodeJson(bytes);
     final maps = switch (decoded) {
       Map<String, dynamic> map => [map],
-      List list => list.whereType<Map<String, dynamic>>().toList(),
+      List<dynamic> list => list.whereType<Map<String, dynamic>>().toList(),
       _ => const <Map<String, dynamic>>[],
     };
     if (maps.isEmpty) {
@@ -657,7 +657,7 @@ bool _hasZipHeader(Uint8List bytes) {
 bool _hasPngHeader(Uint8List bytes) {
   const header = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
   return bytes.length >= header.length &&
-      Iterable.generate(header.length).every((i) => bytes[i] == header[i]);
+      Iterable<int>.generate(header.length).every((i) => bytes[i] == header[i]);
 }
 
 bool _hasJpegHeader(Uint8List bytes) {

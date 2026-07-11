@@ -68,7 +68,7 @@ class TheaterListScreenState extends State<TheaterListScreen> {
     await widget.storage.saveTheaterSession(opened);
     if (!mounted) return;
     await Navigator.of(context).push(
-      MaterialPageRoute(
+      MaterialPageRoute<void>(
         builder: (_) => TheaterChatScreen(
           storage: widget.storage,
           aiService: widget.aiService,

@@ -70,7 +70,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final aiService = widget.aiService;
     if (aiService == null) return;
     await Navigator.of(context).push(
-      MaterialPageRoute(
+      MaterialPageRoute<void>(
         builder: (_) =>
             ApiSettingsScreen(storage: widget.storage, aiService: aiService),
       ),
@@ -861,7 +861,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         : AppSettings.defaultChatSummaryItemsEn;
     bool same(List<String> defaults) =>
         items.length == defaults.length &&
-        Iterable.generate(items.length).every((i) => items[i] == defaults[i]);
+        Iterable<int>.generate(
+          items.length,
+        ).every((i) => items[i] == defaults[i]);
     return same(zh) || same(en);
   }
 

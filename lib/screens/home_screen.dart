@@ -118,7 +118,7 @@ class _HomeScreenState extends State<HomeScreen> {
     await widget.storage.markCharacterUsed(character.id);
     if (!mounted) return;
     await Navigator.of(context).push(
-      MaterialPageRoute(
+      MaterialPageRoute<void>(
         builder: (_) => ChatScreen(
           storage: widget.storage,
           aiService: widget.aiService,

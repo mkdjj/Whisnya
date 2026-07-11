@@ -19,9 +19,8 @@ class StoragePaths {
   File theaterMessages(String id) => _file('theater_messages', '$id.json');
   Directory media(String folder) => _directory('media', folder);
 
-  File _file(String first, [String? second]) => File(
-    [root.path, first, ?second].join(Platform.pathSeparator),
-  );
+  File _file(String first, [String? second]) =>
+      File([root.path, first, ?second].join(Platform.pathSeparator));
 
   Directory _directory(String first, String second) =>
       Directory([root.path, first, second].join(Platform.pathSeparator));

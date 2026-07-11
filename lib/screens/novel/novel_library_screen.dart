@@ -115,7 +115,7 @@ class NovelScreenState extends State<NovelScreen> {
     await widget.storage.saveNovel(opened);
     if (!mounted) return;
     await Navigator.of(context).push(
-      MaterialPageRoute(
+      MaterialPageRoute<void>(
         builder: (_) => NovelReaderScreen(
           storage: widget.storage,
           aiService: widget.aiService,

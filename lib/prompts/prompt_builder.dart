@@ -375,9 +375,9 @@ $items
     final text = _stripJsonFence(raw);
     final decoded = jsonDecode(text);
     final list = switch (decoded) {
-      List value => value,
-      {'replies': List value} => value,
-      {'messages': List value} => value,
+      List<dynamic> value => value,
+      {'replies': List<dynamic> value} => value,
+      {'messages': List<dynamic> value} => value,
       _ => throw const FormatException('not a theater reply list'),
     };
     return list
