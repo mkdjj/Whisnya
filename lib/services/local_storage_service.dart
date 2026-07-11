@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -17,6 +18,8 @@ import '../models/novel_book.dart';
 import '../models/theater.dart';
 import '../utils/password_lock.dart';
 import '../utils/role_import_parser.dart';
+import 'storage/json_file_store.dart';
+import 'storage/media_store.dart';
 
 String restoreAppDataPath(String path, String appDataPath) {
   if (path.trim().isEmpty) {
@@ -130,7 +133,9 @@ class LocalStorageService {
   LocalStorageService({
     FlutterSecureStorage? secureStorage,
     Directory? appDataDirectory,
-  }) : _secureStorage = secureStorage ?? const FlutterSecureStorage() {
+    JsonFileStore? jsonStore,
+  }) : _secureStorage = secureStorage ?? const FlutterSecureStorage(),
+       jsonStore = jsonStore ?? JsonFileStore() {
     _appDataDirectory = appDataDirectory;
   }
 
@@ -138,8 +143,8 @@ class LocalStorageService {
   static const _secureApiKeyPrefix = 'whisnya_api_key_';
 
   final FlutterSecureStorage _secureStorage;
+  final JsonFileStore jsonStore;
   Directory? _appDataDirectory;
-  final _fileWriteQueues = <String, Future<void>>{};
   final _recoveryMessages = <String>[];
 
   List<String> takeRecoveryMessages() {
@@ -164,7 +169,8 @@ class LocalStorageService {
   }
 
   Future<void> ensureReady() async {
-    await appDataDirectory;
+    final directory = await appDataDirectory;
+    unawaited(MediaStore(directory).cleanupTemporaryFiles());
   }
 
   Future<void> _ensureAppDataDirectories(Directory directory) async {
@@ -1081,7 +1087,8 @@ class LocalStorageService {
     dynamic fallback, {
     bool recoverOnInvalid = false,
   }) async {
-    await (_fileWriteQueues[file.path] ?? Future<void>.value());
+    await jsonStore.waitFor(file);
+    await jsonStore.recover(file);
     return _readJsonNow(file, fallback, recoverOnInvalid: recoverOnInvalid);
   }
 
@@ -1123,21 +1130,8 @@ class LocalStorageService {
   Future<void> _writeJson(File file, dynamic data) =>
       _enqueueWrite(file, () => _writeJsonNow(file, data));
 
-  Future<T> _enqueueWrite<T>(File file, Future<T> Function() action) async {
-    final path = file.path;
-    final write = (_fileWriteQueues[path] ?? Future<void>.value()).then(
-      (_) => action(),
-    );
-    final tail = write.then<void>((_) {}, onError: (_, _) {});
-    _fileWriteQueues[path] = tail;
-    try {
-      return await write;
-    } finally {
-      if (identical(_fileWriteQueues[path], tail)) {
-        _fileWriteQueues.remove(path);
-      }
-    }
-  }
+  Future<T> _enqueueWrite<T>(File file, Future<T> Function() action) =>
+      jsonStore.synchronized(file, action);
 
   Future<void> _writeJsonNow(File file, dynamic data) async {
     if (!await file.parent.exists()) {
@@ -1151,17 +1145,7 @@ class LocalStorageService {
       'novel_chats',
       'theater_messages',
     }.contains(parentName);
-    final temp = File('${file.path}.tmp');
-    await temp.writeAsString(
-      compact
-          ? jsonEncode(data)
-          : const JsonEncoder.withIndent('  ').convert(data),
-      flush: true,
-    );
-    if (await file.exists()) {
-      await file.delete();
-    }
-    await temp.rename(file.path);
+    await jsonStore.writeNow(file, data, compact: compact);
   }
 
   Future<void> _updateCharacters(

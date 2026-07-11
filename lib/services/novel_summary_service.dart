@@ -1,7 +1,5 @@
-import 'dart:convert';
-import 'dart:io';
-
 import 'local_storage_service.dart';
+import 'storage/storage_paths.dart';
 
 class NovelSummaryCache {
   const NovelSummaryCache({
@@ -81,10 +79,12 @@ class NovelSummaryService {
   final LocalStorageService storage;
 
   Future<NovelSummaryCache?> loadCache(String novelId) async {
-    final file = await _cacheFile(novelId);
+    final file = StoragePaths(
+      await storage.appDataDirectory,
+    ).novelSummaryCache(novelId);
     if (!await file.exists()) return null;
     try {
-      final decoded = jsonDecode(await file.readAsString());
+      final decoded = await storage.jsonStore.read(file, null);
       if (decoded is! Map<String, dynamic>) return null;
       final cache = NovelSummaryCache.fromJson(decoded);
       return cache.novelId == novelId && cache.canResume ? cache : null;
@@ -94,22 +94,18 @@ class NovelSummaryService {
   }
 
   Future<void> saveCache(NovelSummaryCache cache) async {
-    final file = await _cacheFile(cache.novelId);
-    await file.parent.create(recursive: true);
-    await file.writeAsString(jsonEncode(cache.toJson()), flush: true);
+    final file = StoragePaths(
+      await storage.appDataDirectory,
+    ).novelSummaryCache(cache.novelId);
+    await storage.jsonStore.write(file, cache.toJson(), compact: true);
   }
 
   Future<void> deleteCache(String novelId) async {
-    final file = await _cacheFile(novelId);
+    final file = StoragePaths(
+      await storage.appDataDirectory,
+    ).novelSummaryCache(novelId);
     if (await file.exists()) {
       await file.delete();
     }
-  }
-
-  Future<File> _cacheFile(String novelId) async {
-    final directory = await storage.appDataDirectory;
-    return File(
-      '${directory.path}${Platform.pathSeparator}novel_summary_cache${Platform.pathSeparator}$novelId.json',
-    );
   }
 }
