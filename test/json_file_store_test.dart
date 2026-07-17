@@ -64,6 +64,15 @@ void main() {
     );
   });
 
+  test('skips recovery inspection for a normal main file', () async {
+    final target = file('normal.json');
+    await target.writeAsString('{"value":1}');
+
+    expect(await store.recoveryNeeded(target), isFalse);
+    await File('${target.path}.bak').writeAsString('{"value":0}');
+    expect(await store.recoveryNeeded(target), isTrue);
+  });
+
   test('supports compact and formatted JSON', () async {
     final compact = file('compact.json');
     final formatted = file('formatted.json');

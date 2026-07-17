@@ -6,6 +6,20 @@ import 'package:whisnya/models/chat_message.dart';
 import 'package:whisnya/services/local_storage_service.dart';
 
 void main() {
+  test('shares one app data directory preparation future', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'whisnya_storage_ready_',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final storage = LocalStorageService(appDataDirectory: directory);
+
+    final first = storage.appDataDirectory;
+    final second = storage.appDataDirectory;
+
+    expect(identical(first, second), isTrue);
+    expect(await first, same(await second));
+  });
+
   test(
     'writes chat files compactly while independent files can save together',
     () async {

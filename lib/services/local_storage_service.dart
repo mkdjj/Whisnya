@@ -145,6 +145,7 @@ class LocalStorageService {
   final FlutterSecureStorage _secureStorage;
   final JsonFileStore jsonStore;
   Directory? _appDataDirectory;
+  Future<Directory>? _appDataDirectoryFuture;
   final _recoveryMessages = <String>[];
 
   List<String> takeRecoveryMessages() {
@@ -153,18 +154,18 @@ class LocalStorageService {
     return messages;
   }
 
-  Future<Directory> get appDataDirectory async {
-    if (_appDataDirectory != null) {
-      await _ensureAppDataDirectories(_appDataDirectory!);
-      return _appDataDirectory!;
-    }
+  Future<Directory> get appDataDirectory =>
+      _appDataDirectoryFuture ??= _prepareAppDataDirectory();
 
-    final documents = await getApplicationDocumentsDirectory();
-    final directory = Directory(
-      '${documents.path}${Platform.pathSeparator}app_data',
-    );
-    await _ensureAppDataDirectories(directory);
+  Future<Directory> _prepareAppDataDirectory() async {
+    final directory =
+        _appDataDirectory ??
+        Directory(
+          '${(await getApplicationDocumentsDirectory()).path}'
+          '${Platform.pathSeparator}app_data',
+        );
     _appDataDirectory = directory;
+    await _ensureAppDataDirectories(directory);
     return directory;
   }
 

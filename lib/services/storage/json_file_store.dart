@@ -11,7 +11,7 @@ class JsonFileStore {
     bool recoverOnInvalid = false,
   }) async {
     await waitFor(file);
-    await recover(file);
+    if (await recoveryNeeded(file)) await recover(file);
     if (!await file.exists()) return fallback;
     try {
       return jsonDecode(await file.readAsString());
@@ -42,7 +42,7 @@ class JsonFileStore {
     File file,
     FutureOr<T> Function(dynamic current) action,
   ) => synchronized(file, () async {
-    await recover(file);
+    if (await recoveryNeeded(file)) await recover(file);
     final current = await file.exists()
         ? jsonDecode(await file.readAsString())
         : null;
@@ -100,6 +100,12 @@ class JsonFileStore {
     await file.rename(corrupt.path);
     await backup.rename(file.path);
     if (await temp.exists()) await temp.delete();
+  }
+
+  Future<bool> recoveryNeeded(File file) async {
+    if (!await file.exists()) return true;
+    return await File('${file.path}.tmp').exists() ||
+        await File('${file.path}.bak').exists();
   }
 
   Future<bool> _isValidJson(File file) async {
