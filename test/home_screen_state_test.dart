@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';
-import 'package:whisnya/models/ai_usage.dart';
 import 'package:whisnya/models/api_config.dart';
 import 'package:whisnya/models/app_character.dart';
 import 'package:whisnya/models/app_settings.dart';
@@ -13,7 +12,6 @@ import 'package:whisnya/screens/home_screen.dart';
 import 'package:whisnya/screens/novel_screen.dart';
 import 'package:whisnya/screens/settings_screen.dart';
 import 'package:whisnya/screens/theater_screen.dart';
-import 'package:whisnya/services/ai/ai_conversation_runner.dart';
 import 'package:whisnya/services/ai/ai_gateway.dart';
 import 'package:whisnya/services/ai_service.dart';
 import 'package:whisnya/services/local_storage_service.dart';

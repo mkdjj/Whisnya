@@ -15,8 +15,6 @@ import '../../models/chat_summary.dart';
 import '../../prompts.dart';
 import '../../services/ai/ai_gateway.dart';
 import '../../services/ai_service.dart';
-import '../../services/chat/character_chat_service.dart';
-import '../../services/chat/chat_request_factory.dart';
 import '../../services/chat/chat_summary_service.dart';
 import '../../services/local_storage_service.dart';
 import '../../utils/app_i18n.dart';
@@ -210,11 +208,14 @@ class _ChatScreenState extends State<ChatScreen> {
         },
       );
       _streamBuffer = streamBuffer;
-      await for (final chunk in CharacterChatService(widget.aiService).stream(
-        endpoint: endpoint,
+      await for (final chunk in widget.aiService.streamMessage(
+        apiKey: endpoint.apiKey,
+        baseUrl: endpoint.baseUrl,
+        model: endpoint.model,
         messages: requestMessages,
         cancelToken: cancelToken,
         includeReasoning: widget.settings.showReasoningContent,
+        maxTokens: 800,
         onUsage: (usage) => unawaited(
           widget.storage.recordAiUsage(
             requestType: 'characterChat',
@@ -568,11 +569,12 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   List<Map<String, String>> _buildChatRequestMessages() {
-    return const ChatRequestFactory().build(
+    return PromptBuilder.buildChatRequestMessages(
       character: _character,
       historySummary: _summary.summary,
       summarizedMessageCount: _summary.summarizedMessageCount,
       messages: _messages,
+      useFullContext: _character.useFullChatContext,
     );
   }
 

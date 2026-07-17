@@ -4,6 +4,38 @@ const appLanguageSystem = 'system';
 const appLanguageZh = 'zh';
 const appLanguageEn = 'en';
 
+final _parsedFieldsPattern = RegExp(r'^已识别 (\d+) 个字段$');
+final _importedCharacterPattern = RegExp(r'^已导入角色：(.+)$');
+final _importedCharactersPattern = RegExp(r'^已导入 (\d+) 个角色$');
+final _importResultPattern = RegExp(r'^已导入 (\d+) 个，失败 (\d+) 个$');
+final _downloadHttpErrorPattern = RegExp(r'^下载失败：HTTP (\d+)。$');
+final _deletedCharacterPattern = RegExp(r'^已删除角色：(.+)$');
+final _exportedCharactersPattern = RegExp(r'^已导出到角色：(.+)$');
+final _generatedCharactersPattern = RegExp(r'^已生成 (\d+) 个角色$');
+final _resultPositionPattern = RegExp(r'^第 (\d+) / (\d+) 个结果$');
+final _chatCountPattern = RegExp(r'^聊天条数：(\d+) 条$');
+final _chapterCountPattern = RegExp(r'^目录 (\d+) 条$');
+final _summarizingPattern = RegExp(r'^正在总结 (\d+) / (\d+)$');
+final _startChapterRangePattern = RegExp(r'^起始章节必须在 1-(\d+) 之间$');
+final _validRangePattern = RegExp(r'^请输入 1-(\d+) 之间的有效范围$');
+final _configSavedPattern = RegExp(r'^(.+) 配置已保存$');
+final _connectedPattern = RegExp(r'^(.+) 连接成功：(.+)$');
+final _incompleteConfigPattern = RegExp(r'^(.+) 配置不完整，请先到设置里配置 API。$');
+final _apiErrorPattern = RegExp(r'^API 返回错误 (\d+)：(.+)$');
+
+const _dynamicPrefixes = {
+  '设置文件异常': 'Settings file is invalid',
+  'API 配置文件异常': 'API config file is invalid',
+  '角色文件异常': 'Character file is invalid',
+  '聊天记录文件异常': 'Chat file is invalid',
+  '小说文件异常': 'Novel file is invalid',
+  '小说正文不存在': 'Novel text does not exist',
+  '小说聊天记录异常': 'Novel chat file is invalid',
+  '总结文件异常': 'Summary file is invalid',
+  '数据文件异常，无法解析 JSON': 'Data file is invalid JSON',
+  '读取本地文件失败': 'Failed to read local file',
+};
+
 extension AppI18n on BuildContext {
   bool get isEnglish => Localizations.localeOf(this).languageCode == 'en';
 
@@ -16,77 +48,65 @@ extension AppI18n on BuildContext {
 String? _dynamicEn(String text) {
   Match? match;
 
-  match = RegExp(r'^已识别 (\d+) 个字段$').firstMatch(text);
+  match = _parsedFieldsPattern.firstMatch(text);
   if (match != null) return 'Parsed ${match[1]} fields';
 
-  match = RegExp(r'^已导入角色：(.+)$').firstMatch(text);
+  match = _importedCharacterPattern.firstMatch(text);
   if (match != null) return 'Imported character: ${match[1]}';
 
-  match = RegExp(r'^已导入 (\d+) 个角色$').firstMatch(text);
+  match = _importedCharactersPattern.firstMatch(text);
   if (match != null) return 'Imported ${match[1]} characters';
 
-  match = RegExp(r'^已导入 (\d+) 个，失败 (\d+) 个$').firstMatch(text);
+  match = _importResultPattern.firstMatch(text);
   if (match != null) {
     return 'Imported ${match[1]}, failed ${match[2]}';
   }
 
-  match = RegExp(r'^下载失败：HTTP (\d+)。$').firstMatch(text);
+  match = _downloadHttpErrorPattern.firstMatch(text);
   if (match != null) return 'Download failed: HTTP ${match[1]}.';
 
-  match = RegExp(r'^已删除角色：(.+)$').firstMatch(text);
+  match = _deletedCharacterPattern.firstMatch(text);
   if (match != null) return 'Deleted role: ${match[1]}';
 
-  match = RegExp(r'^已导出到角色：(.+)$').firstMatch(text);
+  match = _exportedCharactersPattern.firstMatch(text);
   if (match != null) return 'Exported to characters: ${match[1]}';
 
-  match = RegExp(r'^已生成 (\d+) 个角色$').firstMatch(text);
+  match = _generatedCharactersPattern.firstMatch(text);
   if (match != null) return '${match[1]} roles generated';
 
-  match = RegExp(r'^第 (\d+) / (\d+) 个结果$').firstMatch(text);
+  match = _resultPositionPattern.firstMatch(text);
   if (match != null) return 'Result ${match[1]} / ${match[2]}';
 
-  match = RegExp(r'^聊天条数：(\d+) 条$').firstMatch(text);
+  match = _chatCountPattern.firstMatch(text);
   if (match != null) return '${match[1]} chat messages';
 
-  match = RegExp(r'^目录 (\d+) 条$').firstMatch(text);
+  match = _chapterCountPattern.firstMatch(text);
   if (match != null) return '${match[1]} chapters';
 
-  match = RegExp(r'^正在总结 (\d+) / (\d+)$').firstMatch(text);
+  match = _summarizingPattern.firstMatch(text);
   if (match != null) return 'Summarizing ${match[1]} / ${match[2]}';
 
-  match = RegExp(r'^起始章节必须在 1-(\d+) 之间$').firstMatch(text);
+  match = _startChapterRangePattern.firstMatch(text);
   if (match != null) return 'Start chapter must be between 1 and ${match[1]}';
 
-  match = RegExp(r'^请输入 1-(\d+) 之间的有效范围$').firstMatch(text);
+  match = _validRangePattern.firstMatch(text);
   if (match != null) return 'Enter a valid range between 1 and ${match[1]}';
 
-  match = RegExp(r'^(.+) 配置已保存$').firstMatch(text);
+  match = _configSavedPattern.firstMatch(text);
   if (match != null) return '${match[1]} config saved';
 
-  match = RegExp(r'^(.+) 连接成功：(.+)$').firstMatch(text);
+  match = _connectedPattern.firstMatch(text);
   if (match != null) return '${match[1]} connected: ${match[2]}';
 
-  match = RegExp(r'^(.+) 配置不完整，请先到设置里配置 API。$').firstMatch(text);
+  match = _incompleteConfigPattern.firstMatch(text);
   if (match != null) {
     return '${match[1]} config is incomplete. Configure API first.';
   }
 
-  match = RegExp(r'^API 返回错误 (\d+)：(.+)$').firstMatch(text);
+  match = _apiErrorPattern.firstMatch(text);
   if (match != null) return 'API returned error ${match[1]}: ${match[2]}';
 
-  final prefixes = {
-    '设置文件异常': 'Settings file is invalid',
-    'API 配置文件异常': 'API config file is invalid',
-    '角色文件异常': 'Character file is invalid',
-    '聊天记录文件异常': 'Chat file is invalid',
-    '小说文件异常': 'Novel file is invalid',
-    '小说正文不存在': 'Novel text does not exist',
-    '小说聊天记录异常': 'Novel chat file is invalid',
-    '总结文件异常': 'Summary file is invalid',
-    '数据文件异常，无法解析 JSON': 'Data file is invalid JSON',
-    '读取本地文件失败': 'Failed to read local file',
-  };
-  for (final entry in prefixes.entries) {
+  for (final entry in _dynamicPrefixes.entries) {
     final prefix = '${entry.key}：';
     if (text.startsWith(prefix)) {
       return '${entry.value}: ${text.substring(prefix.length)}';

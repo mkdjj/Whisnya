@@ -1,14 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whisnya/models/ai_usage.dart';
 import 'package:whisnya/models/api_config.dart';
-import 'package:whisnya/models/app_character.dart';
 import 'package:whisnya/models/app_settings.dart';
 import 'package:whisnya/models/chat_message.dart';
 import 'package:whisnya/models/chat_summary.dart';
 import 'package:whisnya/services/ai/ai_conversation_runner.dart';
 import 'package:whisnya/services/ai/ai_gateway.dart';
-import 'package:whisnya/services/chat/character_chat_service.dart';
-import 'package:whisnya/services/chat/chat_request_factory.dart';
 import 'package:whisnya/services/chat/chat_summary_service.dart';
 
 void main() {
@@ -23,32 +20,6 @@ void main() {
     createdAt: now,
     updatedAt: now,
   );
-
-  test('character chat streams through the gateway', () async {
-    final gateway = _FakeGateway(stream: const ['a', 'b']);
-    final result = await CharacterChatService(gateway)
-        .stream(
-          endpoint: endpoint,
-          messages: const [],
-          cancelToken: AiCancelToken(),
-          includeReasoning: false,
-        )
-        .join();
-    expect(result, 'ab');
-    expect(gateway.lastMessages, isEmpty);
-  });
-
-  test('request factory preserves PromptBuilder message construction', () {
-    final character = AppCharacter.fromJson({'id': 'c', 'name': '猫'});
-    final messages = [ChatMessage(role: 'user', content: '你好', time: now)];
-    final result = const ChatRequestFactory().build(
-      character: character,
-      historySummary: '',
-      summarizedMessageCount: 0,
-      messages: messages,
-    );
-    expect(result.last, {'role': 'user', 'content': '你好'});
-  });
 
   test(
     'summary service skips below the limit and summarizes old messages',
@@ -133,10 +104,9 @@ void main() {
 }
 
 final class _FakeGateway implements AiGateway {
-  _FakeGateway({this.reply = '', this.stream = const []});
+  _FakeGateway({this.reply = ''});
 
   final String reply;
-  final List<String> stream;
   List<Map<String, String>>? lastMessages;
 
   @override
@@ -165,6 +135,6 @@ final class _FakeGateway implements AiGateway {
     void Function(AiUsage usage)? onUsage,
   }) {
     lastMessages = messages;
-    return Stream.fromIterable(stream);
+    return const Stream.empty();
   }
 }
