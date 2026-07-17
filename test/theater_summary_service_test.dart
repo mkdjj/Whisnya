@@ -7,6 +7,42 @@ import 'package:whisnya/services/ai/ai_gateway.dart';
 import 'package:whisnya/services/theater/theater_summary_service.dart';
 
 void main() {
+  test('message deletion adjusts the absolute theater summary prefix', () {
+    final messages = [
+      _message('0', TheaterSpeakerType.user),
+      _message('error', TheaterSpeakerType.system, isError: true),
+      _message('2', TheaterSpeakerType.role),
+      _message('3', TheaterSpeakerType.user),
+    ];
+
+    final cleared = theaterSummaryAfterMessageDeletion(
+      summary: 'summary',
+      summarizedMessageCount: 3,
+      messages: messages,
+      index: 0,
+    );
+    expect(cleared.summary, isEmpty);
+    expect(cleared.summarizedMessageCount, 0);
+
+    final shifted = theaterSummaryAfterMessageDeletion(
+      summary: 'summary',
+      summarizedMessageCount: 3,
+      messages: messages,
+      index: 1,
+    );
+    expect(shifted.summary, 'summary');
+    expect(shifted.summarizedMessageCount, 2);
+
+    final unchanged = theaterSummaryAfterMessageDeletion(
+      summary: 'summary',
+      summarizedMessageCount: 3,
+      messages: messages,
+      index: 3,
+    );
+    expect(unchanged.summary, 'summary');
+    expect(unchanged.summarizedMessageCount, 3);
+  });
+
   test('summarizes eligible history while preserving recent context', () async {
     final gateway = _FakeGateway();
     final service = TheaterSummaryService(gateway);
@@ -57,6 +93,25 @@ void main() {
     expect(result?.usage.totalTokens, 3);
     expect(gateway.lastMessages.last['content'], contains('消息 0'));
   });
+}
+
+TheaterMessage _message(
+  String id,
+  TheaterSpeakerType speakerType, {
+  bool isError = false,
+}) {
+  return TheaterMessage(
+    id: id,
+    sessionId: 'session',
+    round: 0,
+    speakerType: speakerType,
+    speakerId: id,
+    speakerName: id,
+    content: isError ? 'error' : id,
+    isError: isError,
+    errorMessage: isError ? 'error' : '',
+    time: DateTime(2026),
+  );
 }
 
 final _endpoint = AiEndpointConfig(

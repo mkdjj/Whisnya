@@ -507,6 +507,25 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   }
 
   Future<void> _deleteTheaterMessage(String id) async {
+    final index = _messages.indexWhere((message) => message.id == id);
+    if (index < 0) return;
+    final summary = theaterSummaryAfterMessageDeletion(
+      summary: _session.theaterSummary,
+      summarizedMessageCount: _session.summarizedMessageCount,
+      messages: _messages,
+      index: index,
+    );
+    if (summary.summary != _session.theaterSummary ||
+        summary.summarizedMessageCount != _session.summarizedMessageCount) {
+      await _saveSession(
+        _session.copyWith(
+          theaterSummary: summary.summary,
+          summarizedMessageCount: summary.summarizedMessageCount,
+          updatedAt: DateTime.now(),
+        ),
+      );
+      if (!mounted) return;
+    }
     setState(() => _removeMessage(id));
     await _saveMessages();
   }

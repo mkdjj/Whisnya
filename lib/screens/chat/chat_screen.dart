@@ -994,7 +994,17 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _deleteMessage(int index) async {
     if (index < 0 || index >= _messages.length) return;
+    final nextSummary = chatSummaryAfterMessageDeletion(
+      summary: _summary,
+      messages: _messages,
+      index: index,
+    );
+    if (!identical(nextSummary, _summary)) {
+      await widget.storage.saveSummary(nextSummary);
+      if (!mounted) return;
+    }
     setState(() {
+      _summary = nextSummary;
       _messages = [..._messages]..removeAt(index);
       _searchResults = _findSearchResults(_searchQuery);
       _activeSearchResult = _searchResults.isEmpty

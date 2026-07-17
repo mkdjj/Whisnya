@@ -1362,7 +1362,19 @@ ${role.speakingStyle}
 
   Future<void> _deleteNovelMessage(int index) async {
     if (index < 0 || index >= _messages.length) return;
-    setState(() => _messages = [..._messages]..removeAt(index));
+    final nextSummary = chatSummaryAfterMessageDeletion(
+      summary: _chatSummary,
+      messages: _messages,
+      index: index,
+    );
+    if (!identical(nextSummary, _chatSummary)) {
+      await widget.storage.saveSummary(nextSummary);
+      if (!mounted) return;
+    }
+    setState(() {
+      _chatSummary = nextSummary;
+      _messages = [..._messages]..removeAt(index);
+    });
     await widget.storage.saveNovelChat(_book.id, _messages);
   }
 

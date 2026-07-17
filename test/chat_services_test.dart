@@ -88,6 +88,48 @@ void main() {
       expect(result?.summarizedMessageCount, greaterThan(0));
     },
   );
+
+  test('message deletion invalidates only the summarized chat prefix', () {
+    final messages = [
+      ChatMessage(role: 'user', content: '0', time: now),
+      ChatMessage(role: 'system', content: 'ignored', time: now),
+      ChatMessage(role: 'assistant', content: '1', time: now),
+      ChatMessage(role: 'user', content: '2', time: now),
+    ];
+    final summary = ChatSummary(
+      characterId: 'c',
+      summary: 'summary',
+      updatedAt: now,
+      summarizedMessageCount: 2,
+    );
+
+    for (final index in [0, 2]) {
+      final next = chatSummaryAfterMessageDeletion(
+        summary: summary,
+        messages: messages,
+        index: index,
+      );
+      expect(next.summary, isEmpty);
+      expect(next.summarizedMessageCount, 0);
+      expect(next.characterId, 'c');
+    }
+    expect(
+      chatSummaryAfterMessageDeletion(
+        summary: summary,
+        messages: messages,
+        index: 1,
+      ),
+      same(summary),
+    );
+    expect(
+      chatSummaryAfterMessageDeletion(
+        summary: summary,
+        messages: messages,
+        index: 3,
+      ),
+      same(summary),
+    );
+  });
 }
 
 final class _FakeGateway implements AiGateway {

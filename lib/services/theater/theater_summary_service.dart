@@ -6,6 +6,26 @@ import '../ai/ai_conversation_runner.dart';
 import '../ai/ai_gateway.dart';
 import 'theater_reply_engine.dart';
 
+({String summary, int summarizedMessageCount})
+theaterSummaryAfterMessageDeletion({
+  required String summary,
+  required int summarizedMessageCount,
+  required List<TheaterMessage> messages,
+  required int index,
+}) {
+  if (index < 0 ||
+      index >= messages.length ||
+      summary.trim().isEmpty ||
+      summarizedMessageCount <= 0 ||
+      index >= summarizedMessageCount) {
+    return (summary: summary, summarizedMessageCount: summarizedMessageCount);
+  }
+  if (isValidTheaterContextMessage(messages[index])) {
+    return (summary: '', summarizedMessageCount: 0);
+  }
+  return (summary: summary, summarizedMessageCount: summarizedMessageCount - 1);
+}
+
 class TheaterSummaryResult {
   const TheaterSummaryResult({
     required this.summary,

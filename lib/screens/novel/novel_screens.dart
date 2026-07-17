@@ -14,6 +14,7 @@ import '../../models/chat_summary.dart';
 import '../../models/novel_book.dart';
 import '../../prompts.dart';
 import '../../services/ai_service.dart';
+import '../../services/chat/chat_summary_service.dart';
 import '../../services/local_storage_service.dart';
 import '../../services/novel/novel_chat_service.dart';
 import '../../services/novel/novel_import_service.dart';

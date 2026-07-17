@@ -10,6 +10,28 @@ import '../ai/ai_gateway.dart';
 typedef ChatSummaryUsageCallback =
     void Function(AiUsage usage, List<Map<String, String>> messages);
 
+ChatSummary chatSummaryAfterMessageDeletion({
+  required ChatSummary summary,
+  required List<ChatMessage> messages,
+  required int index,
+}) {
+  if (index < 0 ||
+      index >= messages.length ||
+      summary.summary.trim().isEmpty ||
+      summary.summarizedMessageCount <= 0) {
+    return summary;
+  }
+  final removed = messages[index];
+  if (!removed.isUser && !removed.isAssistant) return summary;
+  final chatIndex = messages
+      .take(index)
+      .where((message) => message.isUser || message.isAssistant)
+      .length;
+  return chatIndex < summary.summarizedMessageCount
+      ? ChatSummary.empty(summary.characterId)
+      : summary;
+}
+
 final class ChatSummaryService {
   const ChatSummaryService(this.gateway);
 
