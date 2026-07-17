@@ -57,6 +57,7 @@ void main() {
       );
       expect(result?.summary, '摘要');
       expect(result?.summarizedMessageCount, greaterThan(0));
+      expect(gateway.lastTemperature, 0.2);
     },
   );
 
@@ -108,6 +109,7 @@ final class _FakeGateway implements AiGateway {
 
   final String reply;
   List<Map<String, String>>? lastMessages;
+  double? lastTemperature;
 
   @override
   Future<String> sendMessage({
@@ -115,11 +117,13 @@ final class _FakeGateway implements AiGateway {
     required String baseUrl,
     required String model,
     required List<Map<String, String>> messages,
+    double temperature = 0.8,
     AiCancelToken? cancelToken,
     int? maxTokens,
     void Function(AiUsage usage)? onUsage,
   }) async {
     lastMessages = messages;
+    lastTemperature = temperature;
     return reply;
   }
 
@@ -129,6 +133,7 @@ final class _FakeGateway implements AiGateway {
     required String baseUrl,
     required String model,
     required List<Map<String, String>> messages,
+    double temperature = 0.8,
     AiCancelToken? cancelToken,
     bool includeReasoning = false,
     int? maxTokens,

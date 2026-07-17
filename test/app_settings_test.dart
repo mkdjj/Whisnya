@@ -102,11 +102,30 @@ void main() {
   test('provides English default summary items', () {
     expect(
       AppSettings.defaultChatSummaryItemsEn,
-      contains('What was said and what happened in this chat'),
+      contains('What happened in the recent chat'),
     );
     expect(
       AppSettings.defaultTheaterSummaryItemsEn,
-      contains('Unfinished or planned matters'),
+      contains('The current topic, last action, and what should happen next'),
+    );
+  });
+
+  test('default summaries preserve current voice and unfinished context', () {
+    expect(
+      AppSettings.defaultChatSummaryItems.join(' '),
+      allOf(contains('称呼'), contains('动作描写格式'), contains('未完成')),
+    );
+    expect(
+      AppSettings.defaultTheaterSummaryItems.join(' '),
+      allOf(contains('语气'), contains('最后动作'), contains('下一步')),
+    );
+    expect(
+      AppSettings.defaultChatSummaryItemsEn.join(' '),
+      allOf(contains('address'), contains('unfinished')),
+    );
+    expect(
+      AppSettings.defaultTheaterSummaryItemsEn.join(' '),
+      allOf(contains('voice'), contains('next')),
     );
   });
 }

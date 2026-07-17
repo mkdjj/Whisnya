@@ -18,6 +18,7 @@ import '../../services/ai_service.dart';
 import '../../services/chat/chat_summary_service.dart';
 import '../../services/local_storage_service.dart';
 import '../../utils/app_i18n.dart';
+import '../../utils/chat_context_policy.dart';
 import '../../utils/confirm_dialog.dart';
 import '../../utils/page_layout.dart';
 import '../../utils/snack.dart';
@@ -386,6 +387,7 @@ class _ChatScreenState extends State<ChatScreen> {
           {'role': 'system', 'content': '你负责总结聊天记录，并只输出总结内容。'},
           {'role': 'user', 'content': prompt},
         ],
+        temperature: 0.2,
         maxTokens: 800,
         onUsage: (usage) => unawaited(
           widget.storage.recordAiUsage(
@@ -700,7 +702,9 @@ class _ChatScreenState extends State<ChatScreen> {
                       updatedAt: DateTime.now(),
                       summarizedMessageCount:
                           _summary.summarizedMessageCount == 0
-                          ? _chatMessagesOnly().length
+                          ? manualSummaryBoundary(
+                              messageCount: _chatMessagesOnly().length,
+                            )
                           : _summary.summarizedMessageCount,
                     );
                     await widget.storage.saveSummary(nextSummary);

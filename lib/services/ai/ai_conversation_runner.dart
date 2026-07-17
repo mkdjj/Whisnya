@@ -45,6 +45,7 @@ class AiRequest {
     required this.messages,
     this.stream = false,
     this.includeReasoning = false,
+    this.temperature = 0.8,
     this.maxTokens,
   });
 
@@ -54,6 +55,7 @@ class AiRequest {
   final List<Map<String, String>> messages;
   final bool stream;
   final bool includeReasoning;
+  final double temperature;
   final int? maxTokens;
 }
 
@@ -105,7 +107,7 @@ class OpenAiCompatibleAdapter implements AiProviderAdapter {
   Map<String, dynamic> buildBody(AiRequest request) => {
     'model': request.model.trim(),
     'messages': request.messages,
-    'temperature': 0.8,
+    'temperature': request.temperature,
     if (request.stream) 'stream': true,
     'max_tokens': ?request.maxTokens,
   };

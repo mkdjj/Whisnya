@@ -6,6 +6,7 @@ import '../models/chat_message.dart';
 import '../models/novel_book.dart';
 import '../models/theater.dart';
 import '../services/theater/theater_reply_engine.dart' as theater_engine;
+import '../utils/chat_context_policy.dart';
 
 class PromptBuilder {
   const PromptBuilder._();
@@ -45,6 +46,13 @@ ${character.extraPrompt}
       '''
 【动态历史总结】
 ${historySummary.trim().isEmpty ? '暂无。' : historySummary.trim()}
+
+【上下文使用规则】
+1. 历史总结用于保存长期事实、关系和事件。
+2. 后面的最近原始聊天优先级高于总结。
+3. 必须继承最近原始聊天中的称呼、语气、句式长度、动作描写格式、括号格式、情绪强度和未完成话题。
+4. 不要把总结的书面语气当成角色说话语气。
+5. 如果总结与最近原始聊天冲突，以最近原始聊天为准。
 ''';
 
   static List<Map<String, String>> buildChatRequestMessages({
@@ -59,7 +67,10 @@ ${historySummary.trim().isEmpty ? '暂无。' : historySummary.trim()}
         .toList();
     final startIndex = useFullContext
         ? 0
-        : summarizedMessageCount.clamp(0, chatMessages.length).toInt();
+        : chatContextStartIndex(
+            summarizedMessageCount: summarizedMessageCount,
+            messageCount: chatMessages.length,
+          );
     final requestMessages = chatMessages.skip(startIndex);
     return [
       {'role': 'system', 'content': buildSystemPrompt(character)},
@@ -185,6 +196,10 @@ $items
 - 严格区分用户、角色、系统。
 - 不要把角色动作写成用户想法。
 - 不要把用户括号动作强行解释成心理。
+- 总结不得把角色语气改写成总结者语气；只记录角色的语气规则，不要用总结语气模仿角色。
+- 保留角色之间的固定称呼和最近输出的动作、对白、括号格式。
+- 明确记录最后一个未完成动作和未完成话题，不要删除会影响下一句自然接续的信息。
+- 最近状态比早期细节优先，不得把暧昧、冷淡、毒舌、礼貌等关系语气统一成中性描述。
 - 删除重复、口水话和无关细节。
 - 最终总结不超过约 $maxCharacters 个中文字符，超长时优先压缩旧细节。
 - 输出时只按上面的总结项目组织内容，不要额外增加其他项目。
@@ -193,10 +208,19 @@ $items
 
   static String limitSummary(String summary, int maxCharacters) {
     final text = summary.trim();
-    final runes = text.runes;
-    return runes.length <= maxCharacters
-        ? text
-        : String.fromCharCodes(runes.take(maxCharacters));
+    final runes = text.runes.toList();
+    if (runes.length <= maxCharacters) return text;
+    final prefix = String.fromCharCodes(runes.take(maxCharacters));
+    final minimumBoundary = (maxCharacters * 0.7).floor();
+    for (final delimiter in const ['\n\n', '\n', '。', '？', '！', '?', '!']) {
+      final index = prefix.lastIndexOf(delimiter);
+      if (index < 0) continue;
+      final end = index + delimiter.length;
+      if (prefix.substring(0, end).runes.length >= minimumBoundary) {
+        return prefix.substring(0, end).trim();
+      }
+    }
+    return prefix.trim();
   }
 
   static int theaterSummaryEndIndex({
@@ -353,6 +377,10 @@ $items
 - 严格区分用户、角色、系统。
 - 不要把角色动作写成用户想法。
 - 不要把用户括号动作强行解释成心理。
+- 总结不得把角色语气改写成总结者语气；只记录每个角色的语气规则。
+- 保留角色之间的固定称呼和最近输出的动作、对白、括号格式。
+- 明确记录最后一个未完成动作、未完成话题和下一步应接续的内容。
+- 最近状态比早期细节优先，不得把暧昧、冷淡、毒舌、礼貌等关系语气统一成中性描述。
 - 尽量简洁，避免越来越长。
 - 最终总结不超过约 1500 个中文字符，超长时优先压缩旧细节。
 - 输出时只按上面的总结项目组织内容，不要额外增加其他项目。
@@ -440,6 +468,10 @@ ${novelSummary.trim().isEmpty ? '暂无。' : novelSummary.trim()}
 
 【群聊总结】
 ${session.theaterSummary.trim().isEmpty ? '暂无。' : session.theaterSummary.trim()}
+
+【群聊上下文规则】
+最近原始群聊优先决定角色当前语气，群聊总结只保存长期状态。
+不要因为读到总结而把回复写成旁白、报告或剧情概述。
 
 【本轮允许发言】
 ${allowed.isEmpty ? '无' : allowed.map((participant) => participant.name).join('、')}
@@ -642,7 +674,10 @@ $userRoleText
     final chatMessages = messages
         .where((message) => message.isUser || message.isAssistant)
         .toList();
-    final start = summarizedMessageCount.clamp(0, chatMessages.length).toInt();
+    final start = chatContextStartIndex(
+      summarizedMessageCount: summarizedMessageCount,
+      messageCount: chatMessages.length,
+    );
     return [
       {
         'role': 'system',
@@ -654,6 +689,11 @@ $userRoleText
             '''
 【小说聊天历史总结】
 ${historySummary.trim().isEmpty ? '暂无。' : historySummary.trim()}
+
+【上下文使用规则】
+历史总结只保存长期事实；后面的最近原始聊天优先级高于总结。
+必须继承最近原始聊天中的称呼、语气、句式长度、动作描写格式、括号格式、情绪强度和未完成话题。
+如果总结与最近原始聊天冲突，以最近原始聊天为准，不要把总结写成角色说话语气。
 ''',
       },
       for (final message in chatMessages.skip(start))

@@ -84,6 +84,7 @@ class TheaterSummaryService {
       baseUrl: endpoint.baseUrl,
       model: endpoint.model,
       messages: request,
+      temperature: 0.2,
       cancelToken: cancelToken,
       maxTokens: 800,
       onUsage: (value) {

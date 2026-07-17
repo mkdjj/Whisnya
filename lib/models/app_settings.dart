@@ -209,31 +209,37 @@ class AppSettings {
   static const maxSummaryItems = 20;
 
   static const defaultChatSummaryItems = [
-    '角色和用户的关系、态度等等',
-    '用户的喜好和一些提到的重要信息',
-    '角色需要记住的设定或者关系变化',
-    '这些聊天说了什么发生了什么',
+    '角色和用户当前的关系、态度与关系变化',
+    '用户的喜好和重要个人信息',
+    '角色需要长期记住的设定、约定和事件',
+    '当前场景、最近情绪和未完成的话题/动作',
+    '角色最近稳定使用的称呼、语气、句式和动作描写格式',
+    '最近聊天发生了什么',
   ];
 
   static const defaultChatSummaryItemsEn = [
-    'The relationship and attitude between the character and user',
-    'The user\'s preferences and important information they mentioned',
-    'Settings or relationship changes the character needs to remember',
-    'What was said and what happened in this chat',
+    'The current relationship, attitude, and changes between character and user',
+    'The user\'s preferences and important personal information',
+    'Settings, promises, and events the character must remember long-term',
+    'The current scene, recent emotions, and unfinished topics or actions',
+    'The character\'s stable forms of address, voice, sentence style, and action format',
+    'What happened in the recent chat',
   ];
 
   static const defaultTheaterSummaryItems = [
     '各个角色、用户之间现在的相互关系',
     '用户表达出来的信息/动作',
     '这些人（包括用户）在干什么',
-    '有没有什么未完成/计划中的事',
+    '每个角色最近的语气、称呼和互动方式',
+    '当前正在进行的话题、最后动作和下一步应接续的内容',
   ];
 
   static const defaultTheaterSummaryItemsEn = [
     'Current relationships among all characters and the user',
     'Information or actions expressed by the user',
     'What everyone, including the user, is doing',
-    'Unfinished or planned matters',
+    'Each character\'s recent voice, forms of address, and interaction style',
+    'The current topic, last action, and what should happen next',
   ];
 
   static List<String> cleanChatSummaryItems(Iterable<String> items) {

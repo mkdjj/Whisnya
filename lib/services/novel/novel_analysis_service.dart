@@ -97,6 +97,7 @@ class NovelAnalysisService {
           baseUrl: endpoint.baseUrl,
           model: endpoint.model,
           messages: messages,
+          temperature: 0.2,
           cancelToken: cancelToken,
           maxTokens: 800,
         )

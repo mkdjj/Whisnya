@@ -10,6 +10,7 @@ import 'package:whisnya/screens/novel_screen.dart';
 import 'package:whisnya/services/local_storage_service.dart';
 import 'package:whisnya/services/novel_parser.dart';
 import 'package:whisnya/utils/app_i18n.dart';
+import 'package:whisnya/utils/chat_context_policy.dart';
 import 'package:whisnya/utils/character_import_flow.dart';
 import 'package:whisnya/utils/role_import_parser.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -67,8 +68,8 @@ void main() {
       ChatMessage(role: 'assistant', content: '你好呀', time: DateTime(2026)),
     ]);
 
-    expect(prompt, contains('角色和用户的关系、态度等等'));
-    expect(prompt, contains('用户的喜好和一些提到的重要信息'));
+    expect(prompt, contains('角色和用户当前的关系、态度与关系变化'));
+    expect(prompt, contains('用户的喜好和重要个人信息'));
     expect(prompt, contains('用户：你好'));
     expect(prompt, contains('角色：你好呀'));
     expect(prompt, isNot(contains('本次聊天主要内容')));
@@ -161,11 +162,59 @@ void main() {
       useFullContext: false,
     );
 
-    expect(request, hasLength(8));
-    expect(request[2]['content'], '消息 51');
+    expect(request, hasLength(14));
+    expect(request[2]['content'], '消息 45');
     expect(request.last['content'], '消息 56');
     expect(request.first['content'], isNot(contains('历史总结')));
     expect(request[1]['content'], contains('历史总结'));
+  });
+
+  test('keeps twelve raw messages after a fifty-message summary', () {
+    final character = AppCharacter(
+      id: 'c1',
+      name: '测试角色',
+      avatar: '',
+      backgroundImage: '',
+      backgroundImageOpacity: 1,
+      backgroundBlur: 0,
+      bubbleOpacity: 0.92,
+      inputOpacity: 0.92,
+      description: '',
+      personality: '',
+      background: '',
+      speakingStyle: '',
+      openingMessage: '',
+      extraPrompt: '',
+      defaultEndpointId: 'deepseek',
+      createdAt: DateTime(2026),
+      updatedAt: DateTime(2026),
+      lastUsedAt: DateTime(2026),
+    );
+    final messages = [
+      ChatMessage(role: 'system', content: '忽略', time: DateTime(2026)),
+      for (var i = 1; i <= 51; i++)
+        ChatMessage(
+          role: i.isOdd ? 'user' : 'assistant',
+          content: '消息 $i',
+          time: DateTime(2026),
+        ),
+    ];
+
+    final request = PromptBuilder.buildChatRequestMessages(
+      character: character,
+      historySummary: '历史总结',
+      summarizedMessageCount: 50,
+      messages: messages,
+      useFullContext: false,
+    );
+
+    expect(request.skip(2).map((message) => message['content']), [
+      for (var i = 40; i <= 51; i++) '消息 $i',
+    ]);
+    expect(request[1]['content'], contains('最近原始聊天优先'));
+    expect(request[1]['content'], contains('称呼、语气、句式长度、动作描写格式'));
+    expect(request[1]['content'], contains('未完成话题'));
+    expect(manualSummaryBoundary(messageCount: 51), 39);
   });
 
   test('grows recent context until the summary threshold', () {
@@ -203,8 +252,17 @@ void main() {
     expect(prompt, contains('旧总结'));
     expect(prompt, contains('用户：新消息'));
     expect(prompt, contains('合并'));
-    expect(prompt, contains('角色需要记住的设定或者关系变化'));
+    expect(prompt, contains('角色需要长期记住的设定、约定和事件'));
     expect(PromptBuilder.limitSummary('😀内容', 1), '😀');
+  });
+
+  test('limits summaries at a nearby complete boundary', () {
+    expect(PromptBuilder.limitSummary('短文本。', 20), '短文本。');
+    expect(PromptBuilder.limitSummary('第一项：完整内容。第二项：会被截断的长句', 12), '第一项：完整内容。');
+    expect(
+      PromptBuilder.limitSummary('【关系】\n完整内容\n\n【语气】\n后续很长内容', 14),
+      '【关系】\n完整内容',
+    );
   });
 
   test('builds custom rolling summary prompt items', () {
@@ -772,9 +830,10 @@ Two.
           ChatMessage(role: 'user', content: '消息 $i', time: DateTime(2026)),
       ],
     );
-    expect(request, hasLength(7));
+    expect(request, hasLength(14));
     expect(request.first['content'], isNot(contains('小说聊天历史')));
     expect(request[1]['content'], contains('小说聊天历史'));
-    expect(request[2]['content'], '消息 21');
+    expect(request[1]['content'], contains('最近原始聊天优先'));
+    expect(request[2]['content'], '消息 14');
   });
 }
