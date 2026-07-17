@@ -36,11 +36,6 @@ int resolveExtraReplyCount({
   return (random ?? Random()).nextInt(maximum + 1);
 }
 
-int resolveContinueTheaterCount({required int availableCount, Random? random}) {
-  if (availableCount <= 0) return 0;
-  return 1 + (random ?? Random()).nextInt(availableCount);
-}
-
 bool isValidTheaterContextMessage(TheaterMessage message) {
   if (message.isError || message.content.trim().isEmpty) return false;
   if (message.speakerType != TheaterSpeakerType.user &&

@@ -1,16 +1,129 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:whisnya/l10n/app_localizations.dart';
 import 'package:whisnya/models/ai_usage.dart';
 import 'package:whisnya/models/api_config.dart';
 import 'package:whisnya/models/app_settings.dart';
 import 'package:whisnya/models/novel_book.dart';
 import 'package:whisnya/models/theater.dart';
+import 'package:whisnya/screens/theater/theater_reply_settings.dart';
 import 'package:whisnya/screens/theater/theater_screens.dart';
 import 'package:whisnya/services/ai/ai_conversation_runner.dart';
 import 'package:whisnya/services/ai/ai_gateway.dart';
 import 'package:whisnya/services/local_storage_service.dart';
 
 void main() {
+  testWidgets('extra reply choices explicitly describe random additions', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        supportedLocales: AppLocalizations.supportedLocales,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        home: Scaffold(
+          body: TheaterReplySettings(
+            mainReplyCount: 1,
+            extraReplyMode: 0,
+            onMainReplyCountChanged: (_) {},
+            onExtraReplyModeChanged: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('随机追加 0～1 个角色'), findsOneWidget);
+    expect(find.text('随机追加 0～2 个角色'), findsOneWidget);
+  });
+
+  testWidgets('bottom continuation is labeled as continuing one round', (
+    tester,
+  ) async {
+    final storage = _MemoryStorage(session: _session, messages: _messages);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        home: TheaterChatScreen(
+          storage: storage,
+          aiService: _FakeGateway('回复'),
+          settings: const AppSettings(streamResponses: false),
+          session: _session,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byTooltip('继续一轮').evaluate().length +
+          find.byTooltip('Continue one round').evaluate().length,
+      1,
+    );
+    expect(find.byTooltip('再生成一轮'), findsNothing);
+    expect(find.byTooltip('Generate another round'), findsNothing);
+  });
+
+  testWidgets('turn-based continuation invokes only the next participant', (
+    tester,
+  ) async {
+    final storage = _MemoryStorage(session: _session, messages: _messages);
+    final service = _FakeGateway('接着说');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        home: TheaterChatScreen(
+          storage: storage,
+          aiService: service,
+          settings: const AppSettings(streamResponses: false),
+          session: _session,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.play_arrow));
+    await tester.pumpAndSettle();
+
+    expect(service.models, ['model-b']);
+    expect(storage.messages.last.speakerId, 'b');
+    expect(storage.savedSessions.last.nextSpeakerIndex, 0);
+  });
+
+  testWidgets('non-turn-based continuation uses only main reply count', (
+    tester,
+  ) async {
+    final session = _session.copyWith(
+      multiApiReplyMode: TheaterMultiApiReplyMode.parallel,
+      mainReplyCount: 1,
+      extraReplyMode: 2,
+    );
+    final storage = _MemoryStorage(session: session, messages: _messages);
+    final service = _FakeGateway('接着说');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        home: TheaterChatScreen(
+          storage: storage,
+          aiService: service,
+          settings: const AppSettings(streamResponses: false),
+          session: session,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.play_arrow));
+    await tester.pumpAndSettle();
+
+    expect(service.models, hasLength(1));
+    expect(
+      storage.messages.where((message) => message.round == 2),
+      hasLength(1),
+    );
+  });
+
   testWidgets('reply once only invokes the selected participant', (
     tester,
   ) async {
@@ -104,7 +217,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.replay));
+    await tester.tap(find.byIcon(Icons.play_arrow));
     await tester.pumpAndSettle();
 
     expect(

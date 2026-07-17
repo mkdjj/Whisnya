@@ -115,7 +115,7 @@ void main() {
       );
     });
 
-    test('extra and continue counts stay inside their configured bounds', () {
+    test('extra counts stay inside their configured bounds', () {
       expect(resolveExtraReplyCount(mode: 0, availableCount: 3), 0);
       for (var seed = 0; seed < 20; seed++) {
         expect(
@@ -134,12 +134,7 @@ void main() {
           ),
           inInclusiveRange(0, 1),
         );
-        expect(
-          resolveContinueTheaterCount(availableCount: 3, random: Random(seed)),
-          inInclusiveRange(1, 3),
-        );
       }
-      expect(resolveContinueTheaterCount(availableCount: 0), 0);
     });
   });
 
@@ -181,10 +176,6 @@ void main() {
       expect(
         request(TheaterGenerationIntent.userReply)[1]['content'],
         isNot(contains('本轮没有新的用户消息')),
-      );
-      expect(
-        request(TheaterGenerationIntent.continueTheater)[1]['content'],
-        contains('继续自然聊天'),
       );
     });
 

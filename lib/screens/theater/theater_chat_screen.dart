@@ -95,7 +95,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     await _generateReplies(round, TheaterGenerationIntent.userReply);
   }
 
-  Future<void> _regenerateRound() =>
+  Future<void> _continueOneRound() =>
       _beginContinuation(TheaterGenerationIntent.continueConversation);
 
   Future<void> _replyAsParticipant(String participantId) async {
@@ -187,33 +187,21 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
 
       if (_session.apiMode == TheaterApiMode.multiApi &&
           _session.multiApiReplyMode == TheaterMultiApiReplyMode.turnBased) {
-        final selected = intent == TheaterGenerationIntent.continueTheater
-            ? selectParticipants(
-                participants: available,
-                count: resolveContinueTheaterCount(
-                  availableCount: available.length,
-                ),
-              )
-            : null;
         await _generateTurnBased(
           round,
           generationId,
           cancelToken,
           oneParticipant:
               intent == TheaterGenerationIntent.continueConversation,
-          selectedParticipants: selected,
           generationIntent: intent,
           summaryUpdated: summaryUpdated,
         );
         return;
       }
 
-      final mainCount = intent == TheaterGenerationIntent.continueTheater
-          ? resolveContinueTheaterCount(availableCount: available.length)
-          : _session.mainReplyCount;
       final mainParticipants = selectParticipants(
         participants: available,
-        count: mainCount,
+        count: _session.mainReplyCount,
       );
       await _generateParticipantSet(
         mainParticipants,
@@ -224,7 +212,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
         phase: TheaterReplyPhase.main,
         summaryUpdated: summaryUpdated,
       );
-      if (intent == TheaterGenerationIntent.continueTheater ||
+      if (intent != TheaterGenerationIntent.userReply ||
           !mounted ||
           generationId != _generationId) {
         return;
@@ -517,7 +505,6 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     AiCancelToken cancelToken, {
     required bool oneParticipant,
     required TheaterGenerationIntent generationIntent,
-    List<TheaterParticipant>? selectedParticipants,
     required bool summaryUpdated,
   }) async {
     final participants = _session.aiParticipants;
@@ -530,10 +517,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
       for (var offset = 0; offset < participants.length; offset++)
         participants[(start + offset) % participants.length],
     ];
-    final selectedIds = selectedParticipants?.map((item) => item.id).toSet();
-    final targets = selectedIds == null
-        ? ordered.take(oneParticipant ? 1 : ordered.length)
-        : ordered.where((participant) => selectedIds.contains(participant.id));
+    final targets = ordered.take(oneParticipant ? 1 : ordered.length);
     for (final participant in targets) {
       if (!mounted || generationId != _generationId) return;
       final index = participants.indexWhere(
@@ -1165,7 +1149,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
               isGenerating: _isGenerating,
               hasBackground: hasBackground,
               inputOpacity: _session.inputOpacity,
-              onRegenerate: _regenerateRound,
+              onContinue: _continueOneRound,
               onSend: _send,
               onStop: _stopGeneration,
             ),

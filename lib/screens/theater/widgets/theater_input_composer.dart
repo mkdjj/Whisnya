@@ -6,7 +6,7 @@ class _TheaterInputComposer extends StatelessWidget {
     required this.isGenerating,
     required this.hasBackground,
     required this.inputOpacity,
-    required this.onRegenerate,
+    required this.onContinue,
     required this.onSend,
     required this.onStop,
   });
@@ -15,7 +15,7 @@ class _TheaterInputComposer extends StatelessWidget {
   final bool isGenerating;
   final bool hasBackground;
   final double inputOpacity;
-  final VoidCallback onRegenerate;
+  final VoidCallback onContinue;
   final VoidCallback onSend;
   final VoidCallback onStop;
 
@@ -44,9 +44,9 @@ class _TheaterInputComposer extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   IconButton(
-                    tooltip: context.t('再生成一轮'),
-                    onPressed: isGenerating ? null : onRegenerate,
-                    icon: const Icon(Icons.replay),
+                    tooltip: context.t('继续一轮'),
+                    onPressed: isGenerating ? null : onContinue,
+                    icon: const Icon(Icons.play_arrow),
                   ),
                   Expanded(
                     child: TextField(

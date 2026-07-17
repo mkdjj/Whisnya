@@ -68,11 +68,7 @@ enum TheaterSpeakerType {
   }
 }
 
-enum TheaterGenerationIntent {
-  userReply,
-  continueConversation,
-  continueTheater,
-}
+enum TheaterGenerationIntent { userReply, continueConversation }
 
 enum TheaterReplyPhase { main, extra }
 

@@ -46,14 +46,14 @@ class TheaterReplySettings extends StatelessWidget {
             _choice(context, '不追加', 0, extraReplyMode, onExtraReplyModeChanged),
             _choice(
               context,
-              '随机 0～1 人',
+              '随机追加 0～1 个角色',
               1,
               extraReplyMode,
               onExtraReplyModeChanged,
             ),
             _choice(
               context,
-              '随机 0～2 人',
+              '随机追加 0～2 个角色',
               2,
               extraReplyMode,
               onExtraReplyModeChanged,
