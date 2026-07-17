@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
+import '../../controllers/chat_conversation_controller.dart';
 import '../../models/api_config.dart';
 import '../../models/app_character.dart';
 import '../../models/app_settings.dart';
@@ -53,8 +54,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   var _apiConfig = ApiConfig.defaults();
   late AppCharacter _character;
-  var _summary = ChatSummary.empty('');
-  var _messages = <ChatMessage>[];
+  late final ChatConversationController _conversation;
+  List<ChatMessage> get _messages => _conversation.messages;
+  ChatSummary get _summary => _conversation.summary;
   var _selectedEndpointId = '';
   var _isLoading = true;
   var _isSending = false;
@@ -72,7 +74,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _character = widget.character;
-    _summary = ChatSummary.empty(_character.id);
+    _conversation = ChatConversationController(characterId: _character.id);
     unawaited(_load());
   }
 
@@ -118,8 +120,7 @@ class _ChatScreenState extends State<ChatScreen> {
       setState(() {
         _apiConfig = apiConfig;
         _selectedEndpointId = selectedEndpointId;
-        _summary = summary;
-        _messages = messages;
+        _conversation.load(messages: messages, summary: summary);
         _isLoading = false;
       });
     } catch (error) {
@@ -151,7 +152,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
 
     setState(() {
-      _messages = [..._messages, userMessage];
+      _conversation.append(userMessage);
       _isSending = true;
     });
     _inputController.clear();
@@ -186,7 +187,7 @@ class _ChatScreenState extends State<ChatScreen> {
       );
       if (streamResponses) {
         setState(() {
-          _messages = [..._messages, assistantMessage];
+          _conversation.append(assistantMessage);
         });
       }
 
@@ -201,10 +202,9 @@ class _ChatScreenState extends State<ChatScreen> {
             return;
           }
           setState(() {
-            _messages = [
-              ..._messages.take(_messages.length - 1),
+            _conversation.replaceLast(
               assistantMessage.copyWith(content: reply),
-            ];
+            );
           });
         },
       );
@@ -237,16 +237,18 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!mounted || generationId != _generationId || !_isSending) return;
       setState(() {
         final finalMessage = assistantMessage.copyWith(content: reply);
-        _messages = streamResponses
-            ? [..._messages.take(_messages.length - 1), finalMessage]
-            : [..._messages, finalMessage];
+        if (streamResponses) {
+          _conversation.replaceLast(finalMessage);
+        } else {
+          _conversation.append(finalMessage);
+        }
         _isSending = false;
       });
       await widget.storage.saveChat(_character.id, _messages);
     } catch (error) {
       if (!mounted || generationId != _generationId) return;
       setState(() {
-        _dropEmptyAssistantTail();
+        _conversation.dropEmptyAssistantTail();
         _isSending = false;
       });
       _showSnack(error.toString());
@@ -276,7 +278,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _editLastUserMessageAndResend() async {
     if (_isSending) return;
-    final index = _lastUserMessageIndex();
+    final index = _conversation.lastUserMessageIndex;
     if (index == -1) {
       _showSnack('没有可编辑的用户消息。');
       return;
@@ -316,12 +318,8 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
 
-    final nextMessages = [
-      ..._messages.take(index),
-      _messages[index].copyWith(content: edited, time: DateTime.now()),
-    ];
     setState(() {
-      _messages = nextMessages;
+      _conversation.editUserMessageAndTruncate(index, edited, DateTime.now());
       _isSending = true;
     });
     await widget.storage.saveChat(_character.id, _messages);
@@ -336,26 +334,11 @@ class _ChatScreenState extends State<ChatScreen> {
     _cancelToken = null;
     _generationId++;
     setState(() {
-      _dropEmptyAssistantTail();
+      _conversation.dropEmptyAssistantTail();
       _isSending = false;
     });
     unawaited(widget.storage.saveChat(_character.id, _messages));
     _showSnack('已停止生成');
-  }
-
-  void _dropEmptyAssistantTail() {
-    if (_messages.isNotEmpty &&
-        _messages.last.isAssistant &&
-        _messages.last.content.trim().isEmpty) {
-      _messages = _messages.sublist(0, _messages.length - 1);
-    }
-  }
-
-  int _lastUserMessageIndex() {
-    for (var i = _messages.length - 1; i >= 0; i--) {
-      if (_messages[i].isUser) return i;
-    }
-    return -1;
   }
 
   Future<void> _summarize() async {
@@ -373,7 +356,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     setState(() => _isSummarizing = true);
     try {
-      final messages = _chatMessagesOnly();
+      final messages = _conversation.chatMessagesOnly;
       final prompt = PromptBuilder.buildSummaryPrompt(
         messages,
         useCustomItems: widget.settings.useCustomChatSummaryItems,
@@ -413,7 +396,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
       if (!mounted) return;
       setState(() {
-        _summary = nextSummary;
+        _conversation.setSummary(nextSummary);
         _isSummarizing = false;
       });
       unawaited(_showSummaryDialog());
@@ -437,7 +420,7 @@ class _ChatScreenState extends State<ChatScreen> {
     await widget.storage.clearChat(_character.id);
     if (!mounted) return;
     setState(() {
-      _messages = [];
+      _conversation.clearMessages();
       _searchQuery = '';
       _searchResults = [];
       _activeSearchResult = 0;
@@ -580,12 +563,6 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  List<ChatMessage> _chatMessagesOnly() {
-    return _messages
-        .where((message) => message.isUser || message.isAssistant)
-        .toList();
-  }
-
   Future<bool> _updateRollingSummary(
     AiEndpointConfig endpoint,
     int generationId,
@@ -618,7 +595,7 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!mounted || generationId != _generationId || !_isSending) {
         return true;
       }
-      setState(() => _summary = nextSummary);
+      setState(() => _conversation.setSummary(nextSummary));
       return true;
     } finally {
       if (mounted) setState(() => _isSummarizing = false);
@@ -671,7 +648,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           final nextSummary = ChatSummary.empty(_character.id);
                           await widget.storage.saveSummary(nextSummary);
                           if (!mounted) return;
-                          setState(() => _summary = nextSummary);
+                          setState(() => _conversation.setSummary(nextSummary));
                           navigator.pop();
                           _showSnack('历史总结已删除');
                         }
@@ -703,13 +680,14 @@ class _ChatScreenState extends State<ChatScreen> {
                       summarizedMessageCount:
                           _summary.summarizedMessageCount == 0
                           ? manualSummaryBoundary(
-                              messageCount: _chatMessagesOnly().length,
+                              messageCount:
+                                  _conversation.chatMessagesOnly.length,
                             )
                           : _summary.summarizedMessageCount,
                     );
                     await widget.storage.saveSummary(nextSummary);
                     if (!mounted) return;
-                    setState(() => _summary = nextSummary);
+                    setState(() => _conversation.setSummary(nextSummary));
                     navigator.pop();
                     _showSnack('历史总结已保存');
                   },
@@ -967,7 +945,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   int _estimatedRequestMessageCount(AppCharacter character) {
-    final count = _chatMessagesOnly().length;
+    final count = _conversation.chatMessagesOnly.length;
     if (character.useFullChatContext) return count;
     final startIndex = PromptBuilder.recentContextStartIndex(
       messageCount: count,
@@ -999,19 +977,13 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _deleteMessage(int index) async {
-    if (index < 0 || index >= _messages.length) return;
-    final nextSummary = chatSummaryAfterMessageDeletion(
-      summary: _summary,
-      messages: _messages,
-      index: index,
-    );
-    if (!identical(nextSummary, _summary)) {
-      await widget.storage.saveSummary(nextSummary);
+    final deletion = _conversation.deleteAt(index);
+    if (deletion == ChatMessageDeletion.ignored) return;
+    if (deletion == ChatMessageDeletion.summaryInvalidated) {
+      await widget.storage.saveSummary(_summary);
       if (!mounted) return;
     }
     setState(() {
-      _summary = nextSummary;
-      _messages = [..._messages]..removeAt(index);
       _searchResults = _findSearchResults(_searchQuery);
       _activeSearchResult = _searchResults.isEmpty
           ? 0
@@ -1164,7 +1136,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 onRetry: _messages.isNotEmpty && _messages.last.isUser
                     ? _retryLastUserMessage
                     : null,
-                onEditResend: _lastUserMessageIndex() == -1
+                onEditResend: _conversation.lastUserMessageIndex == -1
                     ? null
                     : _editLastUserMessageAndResend,
               ),
