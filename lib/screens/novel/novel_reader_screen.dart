@@ -23,14 +23,17 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
   final _chatScrollController = ScrollController();
   final _readScrollController = ScrollController();
 
-  late NovelBook _book;
+  late final NovelReaderController _reader;
+  NovelBook get _book => _reader.book;
+  List<String> get _readChunks => _reader.readChunks;
+  List<NovelChapter> get _chapters => _reader.chapters;
+  List<ChatMessage> get _messages => _reader.messages;
+  ChatSummary get _chatSummary => _reader.chatSummary;
+  String get _readerSearchQuery => _reader.searchQuery;
+  double get _readProgress => _reader.readProgress;
   var _apiConfig = ApiConfig.defaults();
   var _selectedEndpointId = '';
   var _content = '';
-  var _readChunks = <String>[];
-  var _chapters = <NovelChapter>[];
-  var _messages = <ChatMessage>[];
-  var _chatSummary = ChatSummary.empty('');
   NovelSummaryCache? _summaryCache;
   var _isLoading = true;
   var _isBusy = false;
@@ -38,14 +41,12 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
   var _isSending = false;
   AiCancelToken? _cancelToken;
   StreamTextBuffer? _streamBuffer;
-  var _readerSearchQuery = '';
-  var _readProgress = 0.0;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    _book = widget.book;
+    _reader = NovelReaderController(widget.book);
     _readScrollController.addListener(_updateReadProgress);
     unawaited(_load());
   }
@@ -81,10 +82,12 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
         _selectedEndpointId =
             apiConfig.effectiveEndpoint(_selectedEndpointId)?.id ?? '';
         _content = content;
-        _readChunks = splitNovelText(content, 1600);
-        _chapters = _applyManualChapterTitles(buildNovelChapters(content));
-        _messages = chat.messages;
-        _chatSummary = chatSummary;
+        _reader.load(
+          readChunks: splitNovelText(content, 1600),
+          chapters: _applyManualChapterTitles(buildNovelChapters(content)),
+          messages: chat.messages,
+          chatSummary: chatSummary,
+        );
         _summaryCache = summaryCache;
         _isLoading = false;
       });
@@ -101,7 +104,7 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
     final next = book.copyWith(updatedAt: DateTime.now());
     await widget.storage.saveNovel(next);
     if (!mounted) return;
-    setState(() => _book = next);
+    setState(() => _reader.updateBook(next));
   }
 
   List<NovelChapter> _applyManualChapterTitles(List<NovelChapter> chapters) {
@@ -960,7 +963,9 @@ ${role.speakingStyle}
                   divisions: 14,
                   display: _book.fontSize.toStringAsFixed(0),
                   onChanged: (value) {
-                    setState(() => _book = _book.copyWith(fontSize: value));
+                    setState(
+                      () => _reader.updateBook(_book.copyWith(fontSize: value)),
+                    );
                     setSheetState(() {});
                   },
                   onChangeEnd: (value) {
@@ -975,7 +980,10 @@ ${role.speakingStyle}
                   divisions: 10,
                   display: _book.lineHeight.toStringAsFixed(1),
                   onChanged: (value) {
-                    setState(() => _book = _book.copyWith(lineHeight: value));
+                    setState(
+                      () =>
+                          _reader.updateBook(_book.copyWith(lineHeight: value)),
+                    );
                     setSheetState(() {});
                   },
                   onChangeEnd: (value) {
@@ -1138,7 +1146,7 @@ ${role.speakingStyle}
                 selected: _book.readerTheme == item.$1,
                 onSelected: (_) {
                   final next = _book.copyWith(readerTheme: item.$1);
-                  setState(() => _book = next);
+                  setState(() => _reader.updateBook(next));
                   setSheetState(() {});
                   unawaited(_saveBook(next));
                 },
@@ -1200,8 +1208,9 @@ ${role.speakingStyle}
     await _saveBook(next);
     if (!mounted) return;
     setState(() {
-      _book = next;
-      _chapters = _applyManualChapterTitles(buildNovelChapters(_content));
+      _reader.replaceChapters(
+        _applyManualChapterTitles(buildNovelChapters(_content)),
+      );
     });
   }
 
@@ -1215,10 +1224,7 @@ ${role.speakingStyle}
     if (!shouldClear) return;
     await widget.storage.clearNovelChat(_book.id);
     if (!mounted) return;
-    setState(() {
-      _messages = [];
-      _chatSummary = ChatSummary.empty('novel_chat_${_book.id}');
-    });
+    setState(_reader.clearChat);
     _showSnack('小说聊天已清空');
   }
 
@@ -1241,7 +1247,7 @@ ${role.speakingStyle}
       time: DateTime.now(),
     );
     setState(() {
-      _messages = [..._messages, userMessage];
+      _reader.appendMessage(userMessage);
       _isSending = true;
     });
     _inputController.clear();
@@ -1273,7 +1279,7 @@ ${role.speakingStyle}
       );
       final streamResponses = widget.settings.streamResponses;
       if (streamResponses) {
-        setState(() => _messages = [..._messages, assistantMessage]);
+        setState(() => _reader.appendMessage(assistantMessage));
       }
 
       var reply = '';
@@ -1282,10 +1288,9 @@ ${role.speakingStyle}
           reply += delta;
           if (!streamResponses || !mounted || !_isSending) return;
           setState(() {
-            _messages = [
-              ..._messages.take(_messages.length - 1),
+            _reader.replaceLastMessage(
               assistantMessage.copyWith(content: reply),
-            ];
+            );
           });
         },
       );
@@ -1323,16 +1328,18 @@ ${role.speakingStyle}
       if (!mounted) return;
       setState(() {
         final finalMessage = assistantMessage.copyWith(content: reply);
-        _messages = streamResponses
-            ? [..._messages.take(_messages.length - 1), finalMessage]
-            : [..._messages, finalMessage];
+        if (streamResponses) {
+          _reader.replaceLastMessage(finalMessage);
+        } else {
+          _reader.appendMessage(finalMessage);
+        }
         _isSending = false;
       });
       await widget.storage.saveNovelChat(_book.id, _messages);
     } catch (error) {
       if (!mounted || !_isSending) return;
       setState(() {
-        _dropEmptyAssistantTail();
+        _reader.dropEmptyAssistantTail();
         _isSending = false;
       });
       _showSnack(error.toString());
@@ -1353,7 +1360,7 @@ ${role.speakingStyle}
     _cancelToken?.cancel();
     _cancelToken = null;
     setState(() {
-      _dropEmptyAssistantTail();
+      _reader.dropEmptyAssistantTail();
       _isSending = false;
     });
     unawaited(widget.storage.saveNovelChat(_book.id, _messages));
@@ -1361,20 +1368,13 @@ ${role.speakingStyle}
   }
 
   Future<void> _deleteNovelMessage(int index) async {
-    if (index < 0 || index >= _messages.length) return;
-    final nextSummary = chatSummaryAfterMessageDeletion(
-      summary: _chatSummary,
-      messages: _messages,
-      index: index,
-    );
-    if (!identical(nextSummary, _chatSummary)) {
-      await widget.storage.saveSummary(nextSummary);
+    final deletion = _reader.deleteChatMessage(index);
+    if (deletion == NovelChatMessageDeletion.ignored) return;
+    if (deletion == NovelChatMessageDeletion.summaryInvalidated) {
+      await widget.storage.saveSummary(_chatSummary);
       if (!mounted) return;
     }
-    setState(() {
-      _chatSummary = nextSummary;
-      _messages = [..._messages]..removeAt(index);
-    });
+    setState(() {});
     await widget.storage.saveNovelChat(_book.id, _messages);
   }
 
@@ -1431,38 +1431,21 @@ ${role.speakingStyle}
       summarizedMessageCount: summarizeUntil,
     );
     await widget.storage.saveSummary(next);
-    if (mounted) setState(() => _chatSummary = next);
+    if (mounted) setState(() => _reader.setChatSummary(next));
     return true;
   }
 
-  void _dropEmptyAssistantTail() {
-    if (_messages.isNotEmpty &&
-        _messages.last.isAssistant &&
-        _messages.last.content.trim().isEmpty) {
-      _messages = _messages.sublist(0, _messages.length - 1);
-    }
-  }
-
-  int get _safeChapterIndex {
-    if (_chapters.isEmpty) {
-      return 0;
-    }
-    return _book.chapterIndex.clamp(0, _chapters.length - 1).toInt();
-  }
+  int get _safeChapterIndex => _reader.safeChapterIndex;
 
   Future<void> _setChapter(int index) async {
     if (_chapters.isEmpty) {
       return;
     }
-    await _saveBook(
-      _book.copyWith(
-        chapterIndex: index.clamp(0, _chapters.length - 1).toInt(),
-      ),
-    );
+    await _saveBook(_reader.bookForChapter(index));
     if (_readScrollController.hasClients) {
       _readScrollController.jumpTo(0);
     }
-    setState(() => _readProgress = 0);
+    setState(_reader.resetReadProgress);
   }
 
   Future<void> _chooseChapter() async {
@@ -1502,17 +1485,11 @@ ${role.speakingStyle}
     await _setChapter(selected);
   }
 
-  bool get _isCurrentChapterBookmarked =>
-      _book.bookmarkedChapterIndexes.contains(_safeChapterIndex);
+  bool get _isCurrentChapterBookmarked => _reader.isCurrentChapterBookmarked;
 
   Future<void> _toggleBookmark() async {
     if (_chapters.isEmpty) return;
-    final bookmarks = _book.bookmarkedChapterIndexes.toSet();
-    if (!bookmarks.remove(_safeChapterIndex)) {
-      bookmarks.add(_safeChapterIndex);
-    }
-    final next = bookmarks.toList()..sort();
-    await _saveBook(_book.copyWith(bookmarkedChapterIndexes: next));
+    await _saveBook(_reader.bookWithToggledCurrentBookmark());
   }
 
   Future<void> _showReaderSearchDialog() async {
@@ -1544,48 +1521,40 @@ ${role.speakingStyle}
     );
     controller.dispose();
     if (query == null) return;
-    setState(() => _readerSearchQuery = query);
-    if (query.isEmpty) return;
-
-    final lower = query.toLowerCase();
-    if (_book.readingMode == 1 && _chapters.isNotEmpty) {
-      final index = _chapters.indexWhere(
-        (chapter) =>
-            chapter.title.toLowerCase().contains(lower) ||
-            chapter.content.toLowerCase().contains(lower),
-      );
-      if (index >= 0) {
-        await _setChapter(index);
+    late NovelReaderSearchResult result;
+    setState(() => result = _reader.search(query));
+    switch (result.target) {
+      case NovelReaderSearchTarget.cleared:
         return;
-      }
-    } else {
-      final index = _readChunks.indexWhere(
-        (chunk) => chunk.toLowerCase().contains(lower),
-      );
-      if (index >= 0 && _readScrollController.hasClients) {
-        final max = _readScrollController.position.maxScrollExtent;
-        unawaited(
-          _readScrollController.animateTo(
-            (index * 260.0).clamp(0, max).toDouble(),
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOut,
-          ),
-        );
+      case NovelReaderSearchTarget.chapter:
+        await _setChapter(result.index);
         return;
-      }
+      case NovelReaderSearchTarget.chunk:
+        if (_readScrollController.hasClients) {
+          final max = _readScrollController.position.maxScrollExtent;
+          unawaited(
+            _readScrollController.animateTo(
+              (result.index * 260.0).clamp(0, max).toDouble(),
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOut,
+            ),
+          );
+        }
+        return;
+      case NovelReaderSearchTarget.notFound:
+        _showSnack('没有找到匹配内容');
     }
-    _showSnack('没有找到匹配内容');
   }
 
   void _updateReadProgress() {
     if (!_readScrollController.hasClients) return;
     final position = _readScrollController.position;
-    final max = position.maxScrollExtent;
-    final next = max <= 0
-        ? 1.0
-        : (position.pixels / max).clamp(0, 1).toDouble();
-    if ((next - _readProgress).abs() > 0.01 && mounted) {
-      setState(() => _readProgress = next);
+    final changed = _reader.updateReadProgress(
+      pixels: position.pixels,
+      maxExtent: position.maxScrollExtent,
+    );
+    if (changed && mounted) {
+      setState(() {});
     }
   }
 

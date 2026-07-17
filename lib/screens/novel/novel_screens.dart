@@ -6,6 +6,7 @@ import 'dart:ui';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../../controllers/novel_reader_controller.dart';
 import '../../models/api_config.dart';
 import '../../models/app_character.dart';
 import '../../models/app_settings.dart';
@@ -14,7 +15,6 @@ import '../../models/chat_summary.dart';
 import '../../models/novel_book.dart';
 import '../../prompts.dart';
 import '../../services/ai_service.dart';
-import '../../services/chat/chat_summary_service.dart';
 import '../../services/local_storage_service.dart';
 import '../../services/novel/novel_chat_service.dart';
 import '../../services/novel/novel_import_service.dart';
