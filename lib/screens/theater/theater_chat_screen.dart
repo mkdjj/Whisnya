@@ -698,11 +698,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
 
   String? _validateEndpoint(AiEndpointConfig? endpoint) {
     if (endpoint == null) return '请先到 API 设置添加配置。';
-    if (!endpoint.enabled) return '当前 API 配置已禁用。';
-    if (endpoint.apiKey.trim().isEmpty) return 'API Key 为空，请先配置。';
-    if (endpoint.baseUrl.trim().isEmpty) return 'Base URL 为空，请先配置。';
-    if (endpoint.model.trim().isEmpty) return 'Model 为空，请先配置。';
-    return null;
+    return endpoint.validationError;
   }
 
   Future<void> _saveMessages() {

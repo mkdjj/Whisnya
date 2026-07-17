@@ -311,34 +311,39 @@ class LocalStorageService {
   }
 
   Future<ApiConfig> _withSecureApiKeys(ApiConfig config) async {
-    final endpoints = <AiEndpointConfig>[];
-    for (final endpoint in config.endpoints) {
-      final apiKey = await _secureStorage.read(
-        key: _secureApiKeyKey(endpoint.id),
-      );
-      endpoints.add(
-        apiKey == null ? endpoint : endpoint.copyWith(apiKey: apiKey),
-      );
-    }
-    return config.copyWith(endpoints: endpoints);
+    final apiKeys = await Future.wait([
+      for (final endpoint in config.endpoints)
+        _secureStorage.read(key: _secureApiKeyKey(endpoint.id)),
+    ]);
+    return config.copyWith(
+      endpoints: [
+        for (var index = 0; index < config.endpoints.length; index++)
+          apiKeys[index] == null
+              ? config.endpoints[index]
+              : config.endpoints[index].copyWith(apiKey: apiKeys[index]),
+      ],
+    );
   }
 
   Future<void> _writeSecureApiKeys(ApiConfig config) async {
     final previousIds = await _readSecureApiKeyIds();
     final nextIds = <String>{};
+    final currentIds = config.endpoints.map((endpoint) => endpoint.id).toSet();
+    final operations = <Future<void>>[];
     for (final endpoint in config.endpoints) {
       final apiKey = endpoint.apiKey.trim();
       final key = _secureApiKeyKey(endpoint.id);
       if (apiKey.isEmpty) {
-        await _secureStorage.delete(key: key);
+        operations.add(_secureStorage.delete(key: key));
       } else {
-        await _secureStorage.write(key: key, value: apiKey);
+        operations.add(_secureStorage.write(key: key, value: apiKey));
         nextIds.add(endpoint.id);
       }
     }
-    for (final id in previousIds.difference(nextIds)) {
-      await _secureStorage.delete(key: _secureApiKeyKey(id));
+    for (final id in previousIds.difference(currentIds)) {
+      operations.add(_secureStorage.delete(key: _secureApiKeyKey(id)));
     }
+    await Future.wait(operations);
     await _writeSecureApiKeyIds(nextIds);
   }
 
@@ -1091,7 +1096,7 @@ class LocalStorageService {
     bool recoverOnInvalid = false,
   }) async {
     await jsonStore.waitFor(file);
-    await jsonStore.recover(file);
+    if (await jsonStore.recoveryNeeded(file)) await jsonStore.recover(file);
     return _readJsonNow(file, fallback, recoverOnInvalid: recoverOnInvalid);
   }
 

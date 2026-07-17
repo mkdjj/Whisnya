@@ -63,6 +63,14 @@ class AiEndpointConfig {
       baseUrl.trim().isNotEmpty &&
       model.trim().isNotEmpty;
 
+  String? get validationError {
+    if (!enabled) return '当前 API 配置已禁用。';
+    if (apiKey.trim().isEmpty) return 'API Key 为空，请先配置。';
+    if (baseUrl.trim().isEmpty) return 'Base URL 为空，请先配置。';
+    if (model.trim().isEmpty) return 'Model 为空，请先配置。';
+    return null;
+  }
+
   AiEndpointConfig copyWith({
     String? id,
     String? name,

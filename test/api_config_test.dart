@@ -3,6 +3,29 @@ import 'package:whisnya/services/local_storage_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('reports the first endpoint usability error', () {
+    final now = DateTime(2026);
+    final endpoint = AiEndpointConfig(
+      id: 'endpoint',
+      name: 'Endpoint',
+      apiKey: 'key',
+      baseUrl: 'https://example.test/v1',
+      model: 'model',
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    expect(endpoint.validationError, isNull);
+    expect(endpoint.copyWith(enabled: false).validationError, '当前 API 配置已禁用。');
+    expect(endpoint.copyWith(apiKey: ' ').validationError, 'API Key 为空，请先配置。');
+    expect(
+      endpoint.copyWith(baseUrl: ' ').validationError,
+      'Base URL 为空，请先配置。',
+    );
+    expect(endpoint.copyWith(model: ' ').validationError, 'Model 为空，请先配置。');
+  });
+
   test('migrates legacy provider config without losing keys', () {
     final config = ApiConfig.fromJson({
       'grok': {

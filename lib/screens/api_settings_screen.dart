@@ -230,10 +230,7 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
   }
 
   String? _validateEndpoint(AiEndpointConfig endpoint) {
-    if (endpoint.apiKey.trim().isEmpty) return 'API Key 为空，请先配置。';
-    if (endpoint.baseUrl.trim().isEmpty) return 'Base URL 为空，请先配置。';
-    if (endpoint.model.trim().isEmpty) return 'Model 为空，请先配置。';
-    return null;
+    return endpoint.copyWith(enabled: true).validationError;
   }
 
   String _newEndpointId() {
