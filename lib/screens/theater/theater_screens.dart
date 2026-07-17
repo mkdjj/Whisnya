@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../controllers/theater_chat_controller.dart';
 import '../../models/api_config.dart';
 import '../../models/app_character.dart';
 import '../../models/app_settings.dart';

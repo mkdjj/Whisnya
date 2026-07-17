@@ -21,8 +21,9 @@ class TheaterChatScreen extends StatefulWidget {
 class _TheaterChatScreenState extends State<TheaterChatScreen> {
   final _inputController = TextEditingController();
   final _scrollController = ScrollController();
-  late TheaterSession _session;
-  var _messages = <TheaterMessage>[];
+  late final TheaterChatController _chat;
+  TheaterSession get _session => _chat.session;
+  List<TheaterMessage> get _messages => _chat.messages;
   var _apiConfig = ApiConfig.defaults();
   var _novelSummary = '';
   var _isLoading = true;
@@ -35,7 +36,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   @override
   void initState() {
     super.initState();
-    _session = widget.session;
+    _chat = TheaterChatController(widget.session);
     unawaited(_load());
   }
 
@@ -63,7 +64,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     if (!mounted) return;
     setState(() {
       _apiConfig = apiConfig;
-      _messages = messages;
+      _chat.replaceMessages(messages);
       _novelSummary = novelSummary;
       _isLoading = false;
     });
@@ -86,7 +87,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
       time: now,
     );
     setState(() {
-      _messages = [..._messages, message];
+      _chat.appendMessage(message);
       _isGenerating = true;
     });
     _inputController.clear();
@@ -100,34 +101,29 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
 
   Future<void> _replyAsParticipant(String participantId) async {
     if (_isGenerating) return;
-    if (_messages.isEmpty) {
-      context.showSnack('请先输入第一句话');
-      return;
-    }
-    TheaterParticipant? participant;
-    for (final item in _session.participants) {
-      if (item.id == participantId) {
-        participant = item;
+    final selection = _chat.resolveParticipantReply(participantId);
+    switch (selection.status) {
+      case TheaterParticipantReplyStatus.missing:
+        context.showSnack('角色不存在或已被移除');
+        return;
+      case TheaterParticipantReplyStatus.disabled:
+        context.showSnack('该角色已禁用');
+        return;
+      case TheaterParticipantReplyStatus.muted:
+        context.showSnack('该角色已被禁言');
+        return;
+      case TheaterParticipantReplyStatus.noMessages:
+        context.showSnack('请先输入第一句话');
+        return;
+      case TheaterParticipantReplyStatus.ready:
         break;
-      }
     }
-    if (participant == null) {
-      context.showSnack('角色不存在或已被移除');
-      return;
-    }
-    if (!participant.enabled) {
-      context.showSnack('该角色已禁用');
-      return;
-    }
-    if (participant.isMuted) {
-      context.showSnack('该角色已被禁言');
-      return;
-    }
+    final participant = selection.participant!;
 
     final generationId = ++_generationId;
     final cancelToken = AiCancelToken();
     _cancelToken = cancelToken;
-    final round = _messages.last.round + 1;
+    final round = _chat.nextRound;
     setState(() => _isGenerating = true);
     try {
       final summaryUpdated = await _updateRollingSummary(
@@ -443,7 +439,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
                 displayed[message.id] = (displayed[message.id] ?? '') + delta;
                 if (!mounted || generationId != _generationId) return;
                 setState(
-                  () => _replaceMessage(
+                  () => _chat.replaceMessage(
                     message.id,
                     message.copyWith(content: displayed[message.id]),
                   ),
@@ -454,7 +450,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
             buffers[message.id] = buffer;
             flushers[message.id] = flush;
             _streamFlushers.add(flush);
-            setState(() => _messages = [..._messages, message]);
+            setState(() => _chat.appendMessage(message));
           case TheaterMessageDelta(:final messageId, :final delta):
             buffers[messageId]?.add(delta);
           case TheaterMessageFinished(:final message):
@@ -463,18 +459,18 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
             setState(() {
               if (widget.settings.streamResponses &&
                   _messages.any((item) => item.id == message.id)) {
-                _replaceMessage(message.id, message);
+                _chat.replaceMessage(message.id, message);
               } else {
-                _messages = [..._messages, message];
+                _chat.appendMessage(message);
               }
             });
             dirty = true;
           case TheaterMessageRemoved(:final messageId):
             removeBuffer(messageId);
-            setState(() => _removeMessage(messageId));
+            setState(() => _chat.removeMessage(messageId));
             dirty = true;
           case TheaterGenerationFailed(:final message):
-            setState(() => _messages = [..._messages, message]);
+            setState(() => _chat.appendMessage(message));
             dirty = true;
         }
       }
@@ -485,18 +481,6 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
       }
       if (dirty) await _saveMessages();
     }
-  }
-
-  void _replaceMessage(String id, TheaterMessage message) {
-    final index = _messages.indexWhere((item) => item.id == id);
-    if (index < 0) return;
-    final next = [..._messages];
-    next[index] = message;
-    _messages = next;
-  }
-
-  void _removeMessage(String id) {
-    _messages = _messages.where((item) => item.id != id).toList();
   }
 
   Future<void> _generateTurnBased(
@@ -512,12 +496,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
       await _appendSystemError('没有可自动回复的角色', round);
       return;
     }
-    final start = _session.nextSpeakerIndex % participants.length;
-    final ordered = [
-      for (var offset = 0; offset < participants.length; offset++)
-        participants[(start + offset) % participants.length],
-    ];
-    final targets = ordered.take(oneParticipant ? 1 : ordered.length);
+    final targets = _chat.turnBasedParticipants(oneParticipant: oneParticipant);
     for (final participant in targets) {
       if (!mounted || generationId != _generationId) return;
       final index = participants.indexWhere(
@@ -561,7 +540,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
       );
       if (!mounted) return;
     }
-    setState(() => _removeMessage(id));
+    setState(() => _chat.removeMessage(id));
     await _saveMessages();
   }
 
@@ -588,8 +567,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   Future<void> _appendSystemError(String error, int round) async {
     final now = DateTime.now();
     setState(() {
-      _messages = [
-        ..._messages,
+      _chat.appendMessage(
         TheaterMessage(
           id: 'theater_msg_${now.microsecondsSinceEpoch}_error',
           sessionId: _session.id,
@@ -602,7 +580,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
           errorMessage: error,
           time: now,
         ),
-      ];
+      );
     });
     await _saveMessages();
   }
@@ -638,7 +616,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     _cancelToken = cancelToken;
     setState(() {
       _isGenerating = true;
-      _messages = _messages.where((item) => item.id != message.id).toList();
+      _chat.removeMessage(message.id);
     });
     await _saveMessages();
     try {
@@ -674,7 +652,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     );
     setState(() {
       _isGenerating = true;
-      _messages = retry.messages;
+      _chat.replaceMessages(retry.messages);
     });
     await _saveMessages();
     try {
@@ -762,7 +740,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   Future<void> _saveSession(TheaterSession session) async {
     await widget.storage.saveTheaterSession(session);
     if (!mounted) return;
-    setState(() => _session = session);
+    setState(() => _chat.updateSession(session));
   }
 
   void _stopGeneration() {
@@ -774,13 +752,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     _cancelToken = null;
     _generationId++;
     setState(() {
-      _messages = _messages
-          .where(
-            (message) =>
-                message.speakerType != TheaterSpeakerType.role ||
-                message.content.trim().isNotEmpty,
-          )
-          .toList();
+      _chat.removeEmptyRoleMessages();
       _isGenerating = false;
     });
     unawaited(_saveMessages());
@@ -802,7 +774,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
         updatedAt: DateTime.now(),
       ),
     );
-    if (mounted) setState(() => _messages = []);
+    if (mounted) setState(_chat.clearMessages);
   }
 
   Future<void> _showSummaryDialog() async {
@@ -856,7 +828,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
         builder: (context, setSheetState) {
           void preview(TheaterSession next) {
             setSheetState(() => draft = next);
-            setState(() => _session = next);
+            setState(() => _chat.updateSession(next));
           }
 
           void apply(TheaterSession next) {
@@ -1036,7 +1008,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
       ),
     );
     if (session == null || !mounted) return;
-    setState(() => _session = session);
+    setState(() => _chat.updateSession(session));
   }
 
   String _currentModelLabel() {
