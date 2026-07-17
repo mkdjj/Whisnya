@@ -140,6 +140,36 @@ abstract class AppLocalizations {
   /// **'重新加载'**
   String get reload;
 
+  /// No description provided for @theaterReplyOnce.
+  ///
+  /// In zh, this message translates to:
+  /// **'让TA回复'**
+  String get theaterReplyOnce;
+
+  /// No description provided for @theaterReplyOnceTooltip.
+  ///
+  /// In zh, this message translates to:
+  /// **'只让当前角色回复一次'**
+  String get theaterReplyOnceTooltip;
+
+  /// No description provided for @theaterParticipantMissing.
+  ///
+  /// In zh, this message translates to:
+  /// **'角色不存在或已被移除'**
+  String get theaterParticipantMissing;
+
+  /// No description provided for @theaterParticipantDisabled.
+  ///
+  /// In zh, this message translates to:
+  /// **'该角色已禁用'**
+  String get theaterParticipantDisabled;
+
+  /// No description provided for @theaterParticipantMuted.
+  ///
+  /// In zh, this message translates to:
+  /// **'该角色已被禁言'**
+  String get theaterParticipantMuted;
+
   /// No description provided for @chatCount.
   ///
   /// In zh, this message translates to:

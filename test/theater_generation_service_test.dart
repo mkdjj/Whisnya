@@ -30,6 +30,25 @@ void main() {
     );
   });
 
+  test('a selected participant list generates only that participant', () async {
+    final service = TheaterGenerationService(_FakeGateway(['乙回复']));
+
+    final events = await service
+        .generate(
+          session: _session(apiMode: TheaterApiMode.multiApi),
+          apiConfig: _config,
+          participants: const [_second],
+          messages: const [],
+          novelSummary: '',
+          round: 2,
+        )
+        .toList();
+
+    final message = events.whereType<TheaterMessageFinished>().single.message;
+    expect(message.speakerId, 'b');
+    expect(message.round, 2);
+  });
+
   test('multi API retries one invalid role reply and sanitizes it', () async {
     final gateway = _FakeGateway(['[乙] 错误', '[甲] 正确']);
     final service = TheaterGenerationService(gateway);

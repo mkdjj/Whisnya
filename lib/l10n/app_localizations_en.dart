@@ -30,6 +30,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String get reload => 'Reload';
 
   @override
+  String get theaterReplyOnce => 'Reply once';
+
+  @override
+  String get theaterReplyOnceTooltip => 'Only let this character reply once';
+
+  @override
+  String get theaterParticipantMissing =>
+      'The character no longer exists or was removed';
+
+  @override
+  String get theaterParticipantDisabled => 'This character is disabled';
+
+  @override
+  String get theaterParticipantMuted => 'This character is muted';
+
+  @override
   String chatCount(int count) {
     return '$count chats';
   }

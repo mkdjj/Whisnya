@@ -10,7 +10,7 @@ class TheaterChatScreen extends StatefulWidget {
   });
 
   final LocalStorageService storage;
-  final AiService aiService;
+  final AiGateway aiService;
   final AppSettings settings;
   final TheaterSession session;
 
@@ -98,8 +98,58 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   Future<void> _regenerateRound() =>
       _beginContinuation(TheaterGenerationIntent.continueConversation);
 
-  Future<void> _continueTheater() =>
-      _beginContinuation(TheaterGenerationIntent.continueTheater);
+  Future<void> _replyAsParticipant(String participantId) async {
+    if (_isGenerating) return;
+    if (_messages.isEmpty) {
+      context.showSnack('请先输入第一句话');
+      return;
+    }
+    TheaterParticipant? participant;
+    for (final item in _session.participants) {
+      if (item.id == participantId) {
+        participant = item;
+        break;
+      }
+    }
+    if (participant == null) {
+      context.showSnack('角色不存在或已被移除');
+      return;
+    }
+    if (!participant.enabled) {
+      context.showSnack('该角色已禁用');
+      return;
+    }
+    if (participant.isMuted) {
+      context.showSnack('该角色已被禁言');
+      return;
+    }
+
+    final generationId = ++_generationId;
+    final cancelToken = AiCancelToken();
+    _cancelToken = cancelToken;
+    final round = _messages.last.round + 1;
+    setState(() => _isGenerating = true);
+    try {
+      final summaryUpdated = await _updateRollingSummary(
+        generationId,
+        cancelToken,
+      );
+      if (!mounted || generationId != _generationId) return;
+      await _generateForParticipant(
+        participant,
+        round,
+        generationId,
+        cancelToken,
+        generationIntent: TheaterGenerationIntent.continueConversation,
+        summaryUpdated: summaryUpdated,
+      );
+    } finally {
+      if (identical(_cancelToken, cancelToken)) _cancelToken = null;
+      if (mounted && generationId == _generationId) {
+        setState(() => _isGenerating = false);
+      }
+    }
+  }
 
   Future<void> _beginContinuation(TheaterGenerationIntent intent) async {
     if (_isGenerating) return;
@@ -1150,13 +1200,13 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
           final message = _messages[messageIndex];
           final participant = participants[message.speakerId];
           final canControlRole =
-              message.speakerType == TheaterSpeakerType.role &&
-              participant != null &&
-              !_isGenerating;
-          final onMute = canControlRole
+              message.speakerType == TheaterSpeakerType.role && !_isGenerating;
+          final onMute = canControlRole && participant != null
               ? () => _toggleParticipantMuted(participant)
               : null;
-          final onSpeakAgain = canControlRole ? _continueTheater : null;
+          final onSpeakAgain = canControlRole
+              ? () => _replyAsParticipant(message.speakerId)
+              : null;
           return RepaintBoundary(
             child: _TheaterMessageBubble(
               message: message,

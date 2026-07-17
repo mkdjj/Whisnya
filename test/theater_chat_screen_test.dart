@@ -1,0 +1,234 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:whisnya/models/ai_usage.dart';
+import 'package:whisnya/models/api_config.dart';
+import 'package:whisnya/models/app_settings.dart';
+import 'package:whisnya/models/novel_book.dart';
+import 'package:whisnya/models/theater.dart';
+import 'package:whisnya/screens/theater/theater_screens.dart';
+import 'package:whisnya/services/ai/ai_conversation_runner.dart';
+import 'package:whisnya/services/ai/ai_gateway.dart';
+import 'package:whisnya/services/local_storage_service.dart';
+
+void main() {
+  testWidgets('reply once only invokes the selected participant', (
+    tester,
+  ) async {
+    final storage = _MemoryStorage(session: _session, messages: _messages);
+    final service = _FakeGateway('乙单独回复');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        home: TheaterChatScreen(
+          storage: storage,
+          aiService: service,
+          settings: const AppSettings(streamResponses: false),
+          session: _session,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('theater-reply-once-role-b-message')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(service.models, ['model-b']);
+    expect(storage.messages, hasLength(_messages.length + 1));
+    expect(storage.messages.last.speakerId, 'b');
+    expect(storage.messages.last.content, '乙单独回复');
+    expect(
+      storage.savedSessions.every(
+        (session) => session.nextSpeakerIndex == _session.nextSpeakerIndex,
+      ),
+      isTrue,
+    );
+  });
+
+  testWidgets('reply once rejects a muted participant', (tester) async {
+    final mutedSession = _session.copyWith(
+      participants: [_first, _second.copyWith(isMuted: true)],
+    );
+    final storage = _MemoryStorage(session: mutedSession, messages: _messages);
+    final service = _FakeGateway('不应生成');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        home: TheaterChatScreen(
+          storage: storage,
+          aiService: service,
+          settings: const AppSettings(streamResponses: false),
+          session: mutedSession,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('theater-reply-once-role-b-message')),
+    );
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(service.models, isEmpty);
+    expect(find.byType(SnackBar), findsOneWidget);
+    expect(
+      find.textContaining(RegExp('该角色已被禁言|This character is muted')),
+      findsOneWidget,
+    );
+    expect(storage.messages, hasLength(_messages.length));
+  });
+}
+
+final class _FakeGateway implements AiGateway {
+  _FakeGateway(this.response);
+
+  final String response;
+  final models = <String>[];
+
+  @override
+  Stream<String> streamMessage({
+    required String apiKey,
+    required String baseUrl,
+    required String model,
+    required List<Map<String, String>> messages,
+    double temperature = 0.8,
+    AiCancelToken? cancelToken,
+    bool includeReasoning = false,
+    int? maxTokens,
+    void Function(AiUsage usage)? onUsage,
+  }) {
+    models.add(model);
+    return Stream.value(response);
+  }
+
+  @override
+  Future<String> sendMessage({
+    required String apiKey,
+    required String baseUrl,
+    required String model,
+    required List<Map<String, String>> messages,
+    double temperature = 0.8,
+    AiCancelToken? cancelToken,
+    int? maxTokens,
+    void Function(AiUsage usage)? onUsage,
+  }) => throw UnimplementedError();
+}
+
+const _first = TheaterParticipant(
+  id: 'a',
+  source: TheaterRoleSource.appCharacter,
+  name: '甲',
+  avatar: '',
+  description: '',
+  personality: '',
+  background: '',
+  speakingStyle: '',
+  endpointId: 'a',
+);
+
+const _second = TheaterParticipant(
+  id: 'b',
+  source: TheaterRoleSource.appCharacter,
+  name: '乙',
+  avatar: '',
+  description: '',
+  personality: '',
+  background: '',
+  speakingStyle: '',
+  endpointId: 'b',
+);
+
+final _session = TheaterSession(
+  id: 'session',
+  title: '群聊',
+  apiMode: TheaterApiMode.multiApi,
+  multiApiReplyMode: TheaterMultiApiReplyMode.turnBased,
+  nextSpeakerIndex: 1,
+  participants: const [_first, _second],
+  createdAt: DateTime(2026),
+  updatedAt: DateTime(2026),
+);
+
+final _messages = [
+  TheaterMessage(
+    id: 'user-message',
+    sessionId: 'session',
+    round: 1,
+    speakerType: TheaterSpeakerType.user,
+    speakerId: '',
+    speakerName: '我',
+    content: '你好',
+    time: DateTime(2026),
+  ),
+  TheaterMessage(
+    id: 'role-b-message',
+    sessionId: 'session',
+    round: 1,
+    speakerType: TheaterSpeakerType.role,
+    speakerId: 'b',
+    speakerName: '乙',
+    content: '你好',
+    time: DateTime(2026),
+  ),
+];
+
+final class _MemoryStorage extends LocalStorageService {
+  _MemoryStorage({
+    required this.session,
+    required List<TheaterMessage> messages,
+  }) : messages = [...messages];
+
+  final TheaterSession session;
+  List<TheaterMessage> messages;
+  final savedSessions = <TheaterSession>[];
+
+  @override
+  Future<ApiConfig> loadApiConfig() async => ApiConfig(
+    endpoints: [
+      for (final id in const ['a', 'b'])
+        AiEndpointConfig(
+          id: id,
+          name: id,
+          apiKey: 'key',
+          baseUrl: 'https://example.com/v1',
+          model: 'model-$id',
+          enabled: true,
+          createdAt: DateTime(2026),
+          updatedAt: DateTime(2026),
+        ),
+    ],
+  );
+
+  @override
+  Future<List<TheaterMessage>> loadTheaterMessages(String sessionId) async => [
+    ...messages,
+  ];
+
+  @override
+  Future<List<NovelBook>> loadNovels() async => const [];
+
+  @override
+  Future<void> saveTheaterMessages(
+    String sessionId,
+    List<TheaterMessage> messages,
+  ) async {
+    this.messages = [...messages];
+  }
+
+  @override
+  Future<void> saveTheaterSession(TheaterSession session) async {
+    savedSessions.add(session);
+  }
+
+  @override
+  Future<void> recordAiUsage({
+    required String requestType,
+    required String model,
+    required AiUsage usage,
+    required List<Map<String, String>> messages,
+    required bool summaryUpdated,
+  }) async {}
+}

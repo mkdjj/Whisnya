@@ -7,6 +7,11 @@
   "send": "发送",
   "stop": "停止",
   "reload": "重新加载",
+  "theaterReplyOnce": "让TA回复",
+  "theaterReplyOnceTooltip": "只让当前角色回复一次",
+  "theaterParticipantMissing": "角色不存在或已被移除",
+  "theaterParticipantDisabled": "该角色已禁用",
+  "theaterParticipantMuted": "该角色已被禁言",
   "chatCount": "{count} 条聊天",
   "@chatCount": {
     "placeholders": {"count": {"type": "int"}}

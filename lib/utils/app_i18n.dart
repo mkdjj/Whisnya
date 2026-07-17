@@ -563,7 +563,12 @@ const _en = {
   '未禁言': 'Active',
   '允许发言': 'Allow speaking',
   '再说一句': 'Speak again',
+  '让TA回复': 'Reply once',
+  '只让当前角色回复一次': 'Only let this character reply once',
   '拖动调整发言顺序': 'Drag to change speaking order',
+  '角色不存在或已被移除': 'The character no longer exists or was removed',
+  '该角色已禁用': 'This character is disabled',
+  '该角色已被禁言': 'This character is muted',
   '该角色已被禁言，请前往群聊设置取消禁言。':
       'This role is muted. Unmute it in theater settings first.',
   '角色按照顺序逐个回复，后一个角色可以看到前一个角色刚生成的内容。':

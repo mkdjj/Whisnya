@@ -30,6 +30,21 @@ class AppLocalizationsZh extends AppLocalizations {
   String get reload => '重新加载';
 
   @override
+  String get theaterReplyOnce => '让TA回复';
+
+  @override
+  String get theaterReplyOnceTooltip => '只让当前角色回复一次';
+
+  @override
+  String get theaterParticipantMissing => '角色不存在或已被移除';
+
+  @override
+  String get theaterParticipantDisabled => '该角色已禁用';
+
+  @override
+  String get theaterParticipantMuted => '该角色已被禁言';
+
+  @override
   String chatCount(int count) {
     return '$count 条聊天';
   }

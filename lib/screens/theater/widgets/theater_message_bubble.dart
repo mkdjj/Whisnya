@@ -93,16 +93,20 @@ class _TheaterMessageBubble extends StatelessWidget {
                               ),
                             ),
                           ),
-                          TextButton.icon(
-                            style: TextButton.styleFrom(
-                              visualDensity: VisualDensity.compact,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
+                          Tooltip(
+                            message: context.t('只让当前角色回复一次'),
+                            child: TextButton.icon(
+                              key: ValueKey('theater-reply-once-${message.id}'),
+                              style: TextButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                ),
                               ),
+                              onPressed: onSpeakAgain,
+                              icon: const Icon(Icons.reply, size: 17),
+                              label: Text(context.t('让TA回复')),
                             ),
-                            onPressed: onSpeakAgain,
-                            icon: const Icon(Icons.replay, size: 17),
-                            label: Text(context.t('继续群聊')),
                           ),
                         ],
                       ],

@@ -9,7 +9,7 @@ class TheaterEditScreen extends StatefulWidget {
   });
 
   final LocalStorageService storage;
-  final AiService aiService;
+  final AiGateway aiService;
   final TheaterSession? session;
 
   @override

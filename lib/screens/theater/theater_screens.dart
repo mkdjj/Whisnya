@@ -13,6 +13,7 @@ import '../../models/image_crop_region.dart';
 import '../../models/novel_book.dart';
 import '../../models/theater.dart';
 import '../../services/ai_service.dart';
+import '../../services/ai/ai_gateway.dart';
 import '../../services/local_storage_service.dart';
 import '../../services/theater/theater_generation_event.dart';
 import '../../services/theater/theater_generation_service.dart';
