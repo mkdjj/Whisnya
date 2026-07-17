@@ -128,6 +128,60 @@ void main() {
       expect(parallelGateway.requests[1].toString(), isNot(contains('甲回复')));
     },
   );
+
+  test('sequential generation continues after one participant fails', () async {
+    final service = TheaterGenerationService(
+      _FakeGateway([AiException('甲网络失败'), '乙回复']),
+    );
+
+    final events = await service
+        .generate(
+          session: _session(
+            apiMode: TheaterApiMode.multiApi,
+            mode: TheaterMultiApiReplyMode.randomSequential,
+          ),
+          apiConfig: _config,
+          participants: const [_first, _second],
+          messages: const [],
+          novelSummary: '',
+          round: 3,
+        )
+        .toList();
+
+    final failure = events.whereType<TheaterGenerationFailed>().single.message;
+    expect(failure.speakerId, 'a');
+    expect(failure.speakerName, '甲');
+    expect(failure.round, 3);
+    expect(failure.isError, isTrue);
+    expect(failure.errorMessage, contains('甲网络失败'));
+    expect(
+      events.whereType<TheaterMessageFinished>().single.message.speakerId,
+      'b',
+    );
+  });
+
+  test('parallel participant failure is emitted instead of thrown', () async {
+    final service = TheaterGenerationService(
+      _FakeGateway([AiException('甲超时'), '乙回复']),
+    );
+
+    final events = await service
+        .generate(
+          session: _session(
+            apiMode: TheaterApiMode.multiApi,
+            mode: TheaterMultiApiReplyMode.parallel,
+          ),
+          apiConfig: _config,
+          participants: const [_first, _second],
+          messages: const [],
+          novelSummary: '',
+          round: 4,
+        )
+        .toList();
+
+    expect(events.whereType<TheaterGenerationFailed>(), hasLength(1));
+    expect(events.whereType<TheaterMessageFinished>(), hasLength(1));
+  });
 }
 
 const _first = TheaterParticipant(
@@ -186,7 +240,7 @@ final _config = ApiConfig(
 class _FakeGateway implements AiGateway {
   _FakeGateway(this.responses);
 
-  final List<String> responses;
+  final List<Object> responses;
   final requests = <List<Map<String, String>>>[];
   var _index = 0;
 
@@ -203,7 +257,10 @@ class _FakeGateway implements AiGateway {
     void Function(AiUsage usage)? onUsage,
   }) {
     requests.add(messages);
-    return Stream.value(responses[_index++]);
+    final response = responses[_index++];
+    return response is Exception
+        ? Stream.error(response)
+        : Stream.value(response as String);
   }
 
   @override

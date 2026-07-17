@@ -377,7 +377,6 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     TheaterReplyPhase phase = TheaterReplyPhase.main,
     bool summaryUpdated = false,
     int maxTokens = 800,
-    bool saveOnComplete = true,
   }) => _runGenerationService(
     [participant],
     round,
@@ -391,7 +390,6 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     phase: phase,
     summaryUpdated: summaryUpdated,
     maxTokens: maxTokens,
-    saveOnComplete: saveOnComplete,
   );
 
   Future<void> _runGenerationService(
@@ -405,7 +403,6 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     required TheaterReplyPhase phase,
     required bool summaryUpdated,
     int maxTokens = 800,
-    bool saveOnComplete = true,
   }) async {
     if (participants.isEmpty) {
       await _appendSystemError('没有可自动回复的角色', round);
@@ -414,6 +411,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     final buffers = <String, StreamTextBuffer>{};
     final displayed = <String, String>{};
     final flushers = <String, void Function()>{};
+    var dirty = false;
 
     void removeBuffer(String id) {
       final flusher = flushers.remove(id);
@@ -482,19 +480,22 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
                 _messages = [..._messages, message];
               }
             });
+            dirty = true;
           case TheaterMessageRemoved(:final messageId):
             removeBuffer(messageId);
             setState(() => _removeMessage(messageId));
+            dirty = true;
           case TheaterGenerationFailed(:final message):
             setState(() => _messages = [..._messages, message]);
+            dirty = true;
         }
       }
-      if (saveOnComplete) await _saveMessages();
     } finally {
       for (final id in [...buffers.keys]) {
         buffers[id]?.flush();
         removeBuffer(id);
       }
+      if (dirty) await _saveMessages();
     }
   }
 

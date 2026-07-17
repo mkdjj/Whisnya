@@ -80,12 +80,55 @@ void main() {
     );
     expect(storage.messages, hasLength(_messages.length));
   });
+
+  testWidgets('parallel partial results are saved when one role fails', (
+    tester,
+  ) async {
+    final session = _session.copyWith(
+      multiApiReplyMode: TheaterMultiApiReplyMode.parallel,
+      mainReplyCount: 2,
+    );
+    final storage = _MemoryStorage(session: session, messages: _messages);
+    final service = _FakeGateway('甲完成', failures: const {'model-b'});
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        home: TheaterChatScreen(
+          storage: storage,
+          aiService: service,
+          settings: const AppSettings(streamResponses: false),
+          session: session,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.replay));
+    await tester.pumpAndSettle();
+
+    expect(
+      storage.messages.any(
+        (message) =>
+            message.round == 2 && message.speakerId == 'a' && !message.isError,
+      ),
+      isTrue,
+    );
+    expect(
+      storage.messages.any(
+        (message) =>
+            message.round == 2 && message.speakerId == 'b' && message.isError,
+      ),
+      isTrue,
+    );
+  });
 }
 
 final class _FakeGateway implements AiGateway {
-  _FakeGateway(this.response);
+  _FakeGateway(this.response, {this.failures = const {}});
 
   final String response;
+  final Set<String> failures;
   final models = <String>[];
 
   @override
@@ -101,6 +144,9 @@ final class _FakeGateway implements AiGateway {
     void Function(AiUsage usage)? onUsage,
   }) {
     models.add(model);
+    if (failures.contains(model)) {
+      return Stream.error(AiException('$model 请求失败'));
+    }
     return Stream.value(response);
   }
 

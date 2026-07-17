@@ -82,7 +82,16 @@ class TheaterGenerationService {
             onUsage: onUsage,
           ).listen(
             controller.add,
-            onError: controller.addError,
+            onError: (Object error) => controller.add(
+              TheaterGenerationFailed(
+                _roleError(
+                  session,
+                  participant,
+                  round,
+                  _exceptionMessage(error),
+                ),
+              ),
+            ),
             onDone: () {
               if (--remaining == 0) unawaited(controller.close());
             },
@@ -144,48 +153,69 @@ class TheaterGenerationService {
       return;
     }
     final placeholder = _roleMessage(session, participant, endpoint, round, '');
-    for (var attempt = 0; attempt < 2; attempt++) {
-      if (attempt > 0) yield TheaterMessageRemoved(placeholder.id);
-      yield TheaterMessageStarted(placeholder);
-      final request = PromptBuilder.buildTheaterParticipantRequest(
-        session: session,
-        participant: participant,
-        novelSummary: novelSummary,
-        messages: messages,
-        generationIntent: generationIntent,
-        phase: phase,
-        previousOutputInvalid: attempt == 1,
-      );
-      final raw = StringBuffer();
-      await for (final chunk in _gateway.streamMessage(
-        apiKey: endpoint.apiKey,
-        baseUrl: endpoint.baseUrl,
-        model: endpoint.model,
-        messages: request,
-        cancelToken: cancelToken,
-        includeReasoning: includeReasoning,
-        maxTokens: maxTokens,
-        onUsage: (usage) => onUsage?.call(usage, endpoint, request),
-      )) {
-        raw.write(chunk);
-        yield TheaterMessageDelta(placeholder.id, chunk);
+    var placeholderVisible = false;
+    try {
+      for (var attempt = 0; attempt < 2; attempt++) {
+        if (placeholderVisible) {
+          yield TheaterMessageRemoved(placeholder.id);
+        }
+        yield TheaterMessageStarted(placeholder);
+        placeholderVisible = true;
+        final request = PromptBuilder.buildTheaterParticipantRequest(
+          session: session,
+          participant: participant,
+          novelSummary: novelSummary,
+          messages: messages,
+          generationIntent: generationIntent,
+          phase: phase,
+          previousOutputInvalid: attempt == 1,
+        );
+        final raw = StringBuffer();
+        await for (final chunk in _gateway.streamMessage(
+          apiKey: endpoint.apiKey,
+          baseUrl: endpoint.baseUrl,
+          model: endpoint.model,
+          messages: request,
+          cancelToken: cancelToken,
+          includeReasoning: includeReasoning,
+          maxTokens: maxTokens,
+          onUsage: (usage) => onUsage?.call(usage, endpoint, request),
+        )) {
+          raw.write(chunk);
+          yield TheaterMessageDelta(placeholder.id, chunk);
+        }
+        final reply = sanitizeParticipantReply(
+          rawReply: raw.toString(),
+          targetName: participant.name,
+          allParticipantNames: session.participants
+              .map((item) => item.name)
+              .toList(),
+        );
+        if (reply != null) {
+          yield TheaterMessageFinished(placeholder.copyWith(content: reply));
+          return;
+        }
       }
-      final reply = sanitizeParticipantReply(
-        rawReply: raw.toString(),
-        targetName: participant.name,
-        allParticipantNames: session.participants
-            .map((item) => item.name)
-            .toList(),
+      yield TheaterMessageRemoved(placeholder.id);
+      yield TheaterGenerationFailed(
+        _roleError(session, participant, round, theaterMultipleRoleErrorText),
       );
-      if (reply != null) {
-        yield TheaterMessageFinished(placeholder.copyWith(content: reply));
-        return;
-      }
+    } on AiException catch (error) {
+      if (placeholderVisible) yield TheaterMessageRemoved(placeholder.id);
+      yield TheaterGenerationFailed(
+        _roleError(session, participant, round, error.message),
+      );
+    } on TimeoutException catch (error) {
+      if (placeholderVisible) yield TheaterMessageRemoved(placeholder.id);
+      yield TheaterGenerationFailed(
+        _roleError(session, participant, round, _exceptionMessage(error)),
+      );
+    } on Exception catch (error) {
+      if (placeholderVisible) yield TheaterMessageRemoved(placeholder.id);
+      yield TheaterGenerationFailed(
+        _roleError(session, participant, round, _exceptionMessage(error)),
+      );
     }
-    yield TheaterMessageRemoved(placeholder.id);
-    yield TheaterGenerationFailed(
-      _roleError(session, participant, round, theaterMultipleRoleErrorText),
-    );
   }
 
   Stream<TheaterGenerationEvent> _singleApi({
@@ -345,4 +375,10 @@ class TheaterGenerationService {
         errorMessage: message,
         time: DateTime.now(),
       );
+
+  String _exceptionMessage(Object error) => switch (error) {
+    AiException(:final message) => message,
+    TimeoutException(:final message) => message ?? '请求超时。',
+    _ => error.toString(),
+  };
 }
