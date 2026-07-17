@@ -94,6 +94,7 @@ class _ChatScreenState extends State<ChatScreen> {
     });
 
     try {
+      await widget.storage.markCharacterUsed(_character.id);
       final apiConfig = await widget.storage.loadApiConfig();
       final summary = await widget.storage.loadSummary(_character.id);
       final chat = await widget.storage.loadChat(_character.id);
@@ -158,7 +159,6 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollToEnd();
 
     await widget.storage.saveChat(_character.id, _messages);
-    await widget.storage.markCharacterUsed(_character.id);
 
     await _requestAssistantReply(endpoint!);
   }

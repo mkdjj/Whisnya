@@ -46,6 +46,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   var _isLoading = true;
   var _tabIndex = 0;
+  final _visitedTabs = <int>{0};
   var _novelGridView = false;
   String? _error;
   List<AppCharacter> _characters = const [];
@@ -117,7 +118,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!await _verifyCharacterOperation(character, '进入聊天')) {
       return;
     }
-    await widget.storage.markCharacterUsed(character.id);
     if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -236,7 +236,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _selectTab(int index) {
-    setState(() => _tabIndex = index);
+    setState(() {
+      _tabIndex = index;
+      _visitedTabs.add(index);
+    });
     if (index == 0) {
       unawaited(_load());
     }
@@ -365,31 +368,37 @@ class _HomeScreenState extends State<HomeScreen> {
       index: _tabIndex,
       children: [
         AppBackground(settings: widget.settings, child: _buildBody()),
-        AppBackground(
-          settings: widget.settings,
-          child: NovelScreen(
-            key: _novelKey,
-            storage: widget.storage,
-            aiService: widget.aiService,
-            settings: widget.settings,
-            useGridView: _novelGridView,
-          ),
-        ),
-        AppBackground(
-          settings: widget.settings,
-          child: TheaterListScreen(
-            key: _theaterKey,
-            storage: widget.storage,
-            aiService: widget.aiService,
-            settings: widget.settings,
-          ),
-        ),
-        SettingsScreen(
-          storage: widget.storage,
-          aiService: widget.aiService,
-          settings: widget.settings,
-          onSettingsChanged: widget.onSettingsChanged,
-        ),
+        _visitedTabs.contains(1)
+            ? AppBackground(
+                settings: widget.settings,
+                child: NovelScreen(
+                  key: _novelKey,
+                  storage: widget.storage,
+                  aiService: widget.aiService,
+                  settings: widget.settings,
+                  useGridView: _novelGridView,
+                ),
+              )
+            : const SizedBox.shrink(),
+        _visitedTabs.contains(2)
+            ? AppBackground(
+                settings: widget.settings,
+                child: TheaterListScreen(
+                  key: _theaterKey,
+                  storage: widget.storage,
+                  aiService: widget.aiService,
+                  settings: widget.settings,
+                ),
+              )
+            : const SizedBox.shrink(),
+        _visitedTabs.contains(3)
+            ? SettingsScreen(
+                storage: widget.storage,
+                aiService: widget.aiService,
+                settings: widget.settings,
+                onSettingsChanged: widget.onSettingsChanged,
+              )
+            : const SizedBox.shrink(),
       ],
     );
   }
