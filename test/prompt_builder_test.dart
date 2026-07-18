@@ -121,10 +121,16 @@ void main() {
       useFullContext: true,
     );
 
-    expect(request, hasLength(37));
-    expect(request[2]['content'], '消息 0');
-    expect(request.first['content'], isNot(contains('历史总结')));
-    expect(request[1]['content'], contains('历史总结'));
+    expect(request, hasLength(messages.length + 1));
+    expect(request.skip(1), [
+      for (final message in messages)
+        {'role': message.role, 'content': message.content},
+    ]);
+    expect(
+      request.where((message) => message['role'] == 'system'),
+      hasLength(1),
+    );
+    expect(request.toString(), isNot(contains('【动态历史总结】')));
   });
 
   test('builds rolling recent chat context with summary when requested', () {
@@ -358,8 +364,11 @@ void main() {
     );
     expect(request.first['content'], contains('<<<WhisnyaSpeaker:角色名>>>'));
     expect(request.first['content'], isNot(contains('JSON 数组')));
-    expect(request[1]['content'], contains('【当前禁言】'));
-    expect(request[1]['content'], contains('苏璃'));
+    expect(request, hasLength(3));
+    expect(request[1]['content'], contains('【群聊总结】'));
+    expect(request[1]['content'], isNot(contains('【当前禁言】')));
+    expect(request.last['content'], contains('【当前禁言】'));
+    expect(request.last['content'], contains('苏璃'));
   });
 
   test('reorders only AI participants and keeps user slot', () {

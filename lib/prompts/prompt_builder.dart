@@ -72,7 +72,8 @@ ${historySummary.trim().isEmpty ? '暂无。' : historySummary.trim()}
     final requestMessages = chatMessages.skip(startIndex);
     return [
       {'role': 'system', 'content': buildSystemPrompt(character)},
-      {'role': 'system', 'content': buildChatMemoryPrompt(historySummary)},
+      if (!useFullContext)
+        {'role': 'system', 'content': buildChatMemoryPrompt(historySummary)},
       for (final message in requestMessages)
         {'role': message.role, 'content': message.content},
     ];
@@ -280,15 +281,18 @@ ${_theaterParticipantsText(session.participants)}
       },
       {
         'role': 'system',
-        'content': _theaterDynamicMemory(
+        'content': _theaterSummaryMemory(session, novelSummary),
+      },
+      ..._theaterHistoryMessages(messages),
+      {
+        'role': 'system',
+        'content': _theaterTurnInstruction(
           session: session,
-          novelSummary: novelSummary,
           allowed: allowed,
           generationIntent: generationIntent,
           phase: phase,
         ),
       },
-      ..._theaterHistoryMessages(messages),
     ];
   }
 
@@ -327,9 +331,13 @@ ${_theaterParticipantsText(session.participants)}
       },
       {
         'role': 'system',
-        'content': _theaterDynamicMemory(
+        'content': _theaterSummaryMemory(session, novelSummary),
+      },
+      ..._theaterHistoryMessages(messages),
+      {
+        'role': 'system',
+        'content': _theaterTurnInstruction(
           session: session,
-          novelSummary: novelSummary,
           allowed: participant.isMuted ? const [] : [participant],
           currentParticipant: participant,
           generationIntent: generationIntent,
@@ -337,7 +345,6 @@ ${_theaterParticipantsText(session.participants)}
           previousOutputInvalid: previousOutputInvalid,
         ),
       },
-      ..._theaterHistoryMessages(messages),
     ];
   }
 
@@ -405,9 +412,25 @@ ${session.boundNovelTitle}
 ''';
   }
 
-  static String _theaterDynamicMemory({
+  static String _theaterSummaryMemory(
+    TheaterSession session,
+    String novelSummary,
+  ) {
+    return '''
+【小说总结】
+${novelSummary.trim().isEmpty ? '暂无。' : novelSummary.trim()}
+
+【群聊总结】
+${session.theaterSummary.trim().isEmpty ? '暂无。' : session.theaterSummary.trim()}
+
+【群聊上下文规则】
+最近原始群聊优先决定角色当前语气，群聊总结只保存长期状态。
+不要因为读到总结而把回复写成旁白、报告或剧情概述。
+''';
+  }
+
+  static String _theaterTurnInstruction({
     required TheaterSession session,
-    required String novelSummary,
     required List<TheaterParticipant> allowed,
     TheaterParticipant? currentParticipant,
     required TheaterGenerationIntent generationIntent,
@@ -423,16 +446,6 @@ ${session.boundNovelTitle}
 
 【当前用户身份】
 ${session.userParticipant?.name ?? '用户本人'}
-
-【小说总结】
-${novelSummary.trim().isEmpty ? '暂无。' : novelSummary.trim()}
-
-【群聊总结】
-${session.theaterSummary.trim().isEmpty ? '暂无。' : session.theaterSummary.trim()}
-
-【群聊上下文规则】
-最近原始群聊优先决定角色当前语气，群聊总结只保存长期状态。
-不要因为读到总结而把回复写成旁白、报告或剧情概述。
 
 【本轮允许发言】
 ${allowed.isEmpty ? '无' : allowed.map((participant) => participant.name).join('、')}

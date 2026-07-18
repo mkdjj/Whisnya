@@ -166,17 +166,117 @@ void main() {
           );
 
       expect(
-        request(TheaterGenerationIntent.continueConversation)[1]['content'],
+        request(TheaterGenerationIntent.continueConversation).last['content'],
         contains('本轮没有新的用户消息'),
       );
       expect(
-        request(TheaterGenerationIntent.continueConversation)[1]['content'],
+        request(TheaterGenerationIntent.continueConversation).last['content'],
         contains('最后一条非空角色消息'),
       );
       expect(
-        request(TheaterGenerationIntent.userReply)[1]['content'],
+        request(TheaterGenerationIntent.userReply).last['content'],
         isNot(contains('本轮没有新的用户消息')),
       );
+    });
+
+    test('orders participant request as fixed memory history then turn', () {
+      final request = PromptBuilder.buildTheaterParticipantRequest(
+        session: session(
+          participants: const [ai1, ai2],
+        ).copyWith(theaterSummary: '群聊总结'),
+        participant: ai1,
+        novelSummary: '小说总结',
+        messages: [
+          message('u', 1, TheaterSpeakerType.user, 'A'),
+          message('a', 1, TheaterSpeakerType.role, 'B'),
+        ],
+      );
+
+      expect(request, hasLength(5));
+      expect(request.first['content'], contains('【全部参与角色（固定顺序）】'));
+      expect(request[1]['content'], contains('【小说总结】\n小说总结'));
+      expect(request[1]['content'], contains('【群聊总结】\n群聊总结'));
+      expect(request[1]['content'], isNot(contains('当前发言角色')));
+      expect(request[2], {'role': 'user', 'content': '[我] A'});
+      expect(request[3], {'role': 'assistant', 'content': '[甲] B'});
+      expect(request.last['content'], contains('当前发言角色：甲'));
+      expect(request.last['content'], contains('【本轮生成意图】'));
+    });
+
+    test('orders single api request as fixed memory history then turn', () {
+      final request = PromptBuilder.buildTheaterSingleApiRequest(
+        session: session(
+          participants: const [ai1, ai2],
+        ).copyWith(theaterSummary: '群聊总结'),
+        novelSummary: '小说总结',
+        allowedParticipants: const [ai1],
+        messages: [
+          message('u', 1, TheaterSpeakerType.user, 'A'),
+          message('a', 1, TheaterSpeakerType.role, 'B'),
+        ],
+      );
+
+      expect(request, hasLength(5));
+      expect(request.first['content'], contains('<<<WhisnyaSpeaker:角色名>>>'));
+      expect(request[1]['content'], contains('【小说总结】\n小说总结'));
+      expect(request[1]['content'], contains('【群聊总结】\n群聊总结'));
+      expect(request[1]['content'], isNot(contains('【本轮允许发言】')));
+      expect(request[2], {'role': 'user', 'content': '[我] A'});
+      expect(request[3], {'role': 'assistant', 'content': '[甲] B'});
+      expect(request.last['content'], contains('【本轮允许发言】\n甲'));
+      expect(request.last['content'], contains('【本轮生成意图】'));
+    });
+
+    test('keeps cached theater prefix stable when history is appended', () {
+      final base = session(
+        participants: const [ai1, ai2],
+      ).copyWith(theaterSummary: '群聊总结');
+      final history = [
+        message('u', 1, TheaterSpeakerType.user, 'A'),
+        message('a', 1, TheaterSpeakerType.role, 'B'),
+      ];
+      List<Map<String, String>> request(List<TheaterMessage> messages) =>
+          PromptBuilder.buildTheaterSingleApiRequest(
+            session: base,
+            novelSummary: '小说总结',
+            messages: messages,
+            allowedParticipants: const [ai1],
+          );
+
+      final before = request(history);
+      final appended = message('c', 2, TheaterSpeakerType.user, 'C');
+      final after = request([...history, appended]);
+
+      expect(after.take(before.length - 1), before.take(before.length - 1));
+      expect(after[before.length - 1], {'role': 'user', 'content': '[我] C'});
+      expect(after.last, before.last);
+      expect(before.last['content'], contains('【本轮生成意图】'));
+    });
+
+    test('changes theater summary without rewriting fixed or history maps', () {
+      final base = session(participants: const [ai1, ai2]);
+      final history = [
+        message('u', 1, TheaterSpeakerType.user, 'A'),
+        message('a', 1, TheaterSpeakerType.role, 'B'),
+      ];
+      List<Map<String, String>> request(String summary) =>
+          PromptBuilder.buildTheaterSingleApiRequest(
+            session: base.copyWith(theaterSummary: summary),
+            novelSummary: '小说总结',
+            messages: history,
+            allowedParticipants: const [ai1],
+          );
+
+      final before = request('旧总结');
+      final after = request('新总结');
+
+      expect(after.first, before.first);
+      expect(after[1], isNot(before[1]));
+      expect(
+        after.skip(2).take(history.length),
+        before.skip(2).take(history.length),
+      );
+      expect(after.last, before.last);
     });
 
     test(
@@ -197,10 +297,10 @@ void main() {
         );
 
         expect(first.first, second.first);
-        expect(first[1]['content'], contains('当前发言角色：甲'));
-        expect(first[1]['content'], contains('【本轮唯一发言者】\n甲'));
-        expect(first[1]['content'], contains('严禁输出其他角色'));
-        expect(second[1]['content'], contains('当前发言角色：乙'));
+        expect(first.last['content'], contains('当前发言角色：甲'));
+        expect(first.last['content'], contains('【本轮唯一发言者】\n甲'));
+        expect(first.last['content'], contains('严禁输出其他角色'));
+        expect(second.last['content'], contains('当前发言角色：乙'));
         expect(first.first['content'], isNot(contains('当前发言角色：甲')));
       },
     );
@@ -214,8 +314,8 @@ void main() {
         previousOutputInvalid: true,
       );
 
-      expect(request[1]['content'], contains('【上次输出错误】'));
-      expect(request[1]['content'], contains('本次只能输出“甲”的回复正文'));
+      expect(request.last['content'], contains('【上次输出错误】'));
+      expect(request.last['content'], contains('本次只能输出“甲”的回复正文'));
     });
 
     test('filters placeholders and uses user and assistant history roles', () {
@@ -235,7 +335,9 @@ void main() {
         request.where((item) => item['role'] == 'assistant'),
         hasLength(1),
       );
-      expect(request.last['content'], contains('[甲] 你好呀'));
+      expect(request[2]['content'], '[我] 你好');
+      expect(request[3]['content'], '[甲] 你好呀');
+      expect(request.last['content'], contains('【本轮生成意图】'));
       expect(request.toString(), isNot(contains('empty')));
     });
   });
