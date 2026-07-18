@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'image_crop_region.dart';
+import 'user_profile.dart';
 
 class AppSettings {
   const AppSettings({
@@ -13,6 +14,8 @@ class AppSettings {
     this.chatTextColor,
     this.fontScale = 1,
     this.navigationBarOpacity = 1,
+    this.characterListCardOpacity = 1,
+    this.userProfile = const UserProfile(),
     this.streamResponses = true,
     this.showReasoningContent = false,
     this.useCustomChatSummaryItems = false,
@@ -36,6 +39,8 @@ class AppSettings {
   final int? chatTextColor;
   final double fontScale;
   final double navigationBarOpacity;
+  final double characterListCardOpacity;
+  final UserProfile userProfile;
   final bool streamResponses;
   final bool showReasoningContent;
   final bool useCustomChatSummaryItems;
@@ -69,6 +74,8 @@ class AppSettings {
     bool clearChatTextColor = false,
     double? fontScale,
     double? navigationBarOpacity,
+    double? characterListCardOpacity,
+    UserProfile? userProfile,
     bool? streamResponses,
     bool? showReasoningContent,
     bool? useCustomChatSummaryItems,
@@ -99,6 +106,11 @@ class AppSettings {
           : chatTextColor ?? this.chatTextColor,
       fontScale: fontScale ?? this.fontScale,
       navigationBarOpacity: navigationBarOpacity ?? this.navigationBarOpacity,
+      characterListCardOpacity:
+          (characterListCardOpacity ?? this.characterListCardOpacity)
+              .clamp(0, 1)
+              .toDouble(),
+      userProfile: userProfile ?? this.userProfile,
       streamResponses: streamResponses ?? this.streamResponses,
       showReasoningContent: showReasoningContent ?? this.showReasoningContent,
       useCustomChatSummaryItems:
@@ -121,6 +133,7 @@ class AppSettings {
   }
 
   factory AppSettings.fromJson(Map<String, dynamic>? json) {
+    final userProfile = json?['userProfile'];
     return AppSettings(
       themeMode: _themeModeFromString(json?['themeMode'] as String?),
       globalBackgroundImage: json?['globalBackgroundImage'] as String? ?? '',
@@ -136,6 +149,13 @@ class AppSettings {
         json?['navigationBarOpacity'],
         1,
       ).clamp(0, 1),
+      characterListCardOpacity: jsonDouble(
+        json?['characterListCardOpacity'],
+        1,
+      ).clamp(0, 1),
+      userProfile: UserProfile.fromJson(
+        userProfile is Map<String, dynamic> ? userProfile : null,
+      ),
       streamResponses: json?['streamResponses'] as bool? ?? true,
       showReasoningContent: json?['showReasoningContent'] as bool? ?? false,
       useCustomChatSummaryItems:
@@ -170,6 +190,8 @@ class AppSettings {
       'chatTextColor': chatTextColor,
       'fontScale': fontScale,
       'navigationBarOpacity': navigationBarOpacity,
+      'characterListCardOpacity': characterListCardOpacity,
+      'userProfile': userProfile.toJson(),
       'streamResponses': streamResponses,
       'showReasoningContent': showReasoningContent,
       'useCustomChatSummaryItems': useCustomChatSummaryItems,

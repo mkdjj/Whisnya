@@ -1,3 +1,4 @@
+import 'chat_bubble_theme.dart';
 import 'image_crop_region.dart';
 
 class AppCharacter {
@@ -9,7 +10,7 @@ class AppCharacter {
     this.backgroundImageRegion = ImageCropRegion.full,
     required this.backgroundImageOpacity,
     required this.backgroundBlur,
-    required this.bubbleOpacity,
+    this.bubbleTheme = ChatBubbleTheme.characterDefault,
     required this.inputOpacity,
     required this.description,
     required this.personality,
@@ -43,7 +44,7 @@ class AppCharacter {
   final ImageCropRegion backgroundImageRegion;
   final double backgroundImageOpacity;
   final double backgroundBlur;
-  final double bubbleOpacity;
+  final ChatBubbleTheme bubbleTheme;
   final double inputOpacity;
   final String description;
   final String personality;
@@ -73,7 +74,7 @@ class AppCharacter {
     ImageCropRegion? backgroundImageRegion,
     double? backgroundImageOpacity,
     double? backgroundBlur,
-    double? bubbleOpacity,
+    ChatBubbleTheme? bubbleTheme,
     double? inputOpacity,
     String? description,
     String? personality,
@@ -105,7 +106,7 @@ class AppCharacter {
       backgroundImageOpacity:
           backgroundImageOpacity ?? this.backgroundImageOpacity,
       backgroundBlur: backgroundBlur ?? this.backgroundBlur,
-      bubbleOpacity: bubbleOpacity ?? this.bubbleOpacity,
+      bubbleTheme: bubbleTheme ?? this.bubbleTheme,
       inputOpacity: inputOpacity ?? this.inputOpacity,
       description: description ?? this.description,
       personality: personality ?? this.personality,
@@ -143,7 +144,10 @@ class AppCharacter {
       ),
       backgroundImageOpacity: jsonDouble(json['backgroundImageOpacity'], 1),
       backgroundBlur: jsonDouble(json['backgroundBlur'], 0),
-      bubbleOpacity: jsonDouble(json['bubbleOpacity'], 0.92),
+      bubbleTheme: ChatBubbleTheme.fromJson(
+        json['bubbleTheme'],
+        legacyOpacity: jsonDouble(json['bubbleOpacity'], 0.92),
+      ),
       inputOpacity: jsonDouble(json['inputOpacity'], 0.92),
       description: json['description'] as String? ?? '',
       personality: json['personality'] as String? ?? '',
@@ -185,7 +189,7 @@ class AppCharacter {
       'backgroundImageRegion': backgroundImageRegion.toJson(),
       'backgroundImageOpacity': backgroundImageOpacity,
       'backgroundBlur': backgroundBlur,
-      'bubbleOpacity': bubbleOpacity,
+      'bubbleTheme': bubbleTheme.toJson(),
       'inputOpacity': inputOpacity,
       'description': description,
       'personality': personality,

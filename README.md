@@ -19,7 +19,9 @@ source if you want to build Whisnya yourself.
 - Pick and crop avatars, chat backgrounds, and interface backgrounds locally.
 - Chat with full context or automatic rolling summaries plus recent messages.
 - Create theater/group chats with multiple character or novel-role participants.
-- Import TXT novels with UTF-8/GBK detection, read by detected chapters, summarize novels, and chat with extracted roles.
+- Import TXT novels with UTF-8/GBK detection, read by detected chapters, summarize novels, and move extracted roles into theater chats.
+- Customize chat bubbles, input opacity, and shared character/novel/theater list-card opacity.
+- Maintain a reusable user profile for character and theater conversations.
 - Switch the novel library between list and grid views.
 - Export and import all local data, with API keys excluded by default.
 - Privacy password for locked characters and novels.
@@ -49,7 +51,7 @@ The APK will be generated at:
 build/app/outputs/flutter-apk/app-release.apk
 ```
 
-Current release version is `1.3.5+13`. Keep both `versionName` and
+Current release version is `1.3.6+14`. Keep both `versionName` and
 `versionCode` increasing for every public release. The Android package name is
 `com.mkdjj.whisnya`.
 
@@ -66,7 +68,7 @@ Then edit `android/key.properties` with your real passwords. Both
 Recommended release asset name:
 
 ```text
-Whisnya-android-v1.3.5-release.apk
+Whisnya-android-v1.3.6-release.apk
 ```
 
 ## Other Platforms
@@ -88,7 +90,7 @@ Ship the whole `Release` folder, not only the `.exe`.
 Recommended Windows release asset name:
 
 ```text
-Whisnya-windows-x64-v1.3.5.zip
+Whisnya-windows-x64-v1.3.6.zip
 ```
 
 Generate iOS or macOS platform files, then build on macOS with Xcode installed:

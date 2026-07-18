@@ -1,7 +1,7 @@
 import 'ai_provider.dart';
 
 String? endpointValidationError(AiEndpointConfig? endpoint) =>
-    endpoint?.validationError ?? '请先到 API 设置添加配置。';
+    endpoint == null ? '请先到 API 设置添加配置。' : endpoint.validationError;
 
 class AiEndpointConfig {
   const AiEndpointConfig({

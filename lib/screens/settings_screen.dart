@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 
 import '../models/app_settings.dart';
 import '../models/image_crop_region.dart';
+import '../models/user_profile.dart';
 import '../services/ai_service.dart';
 import '../services/local_storage_service.dart';
 import '../utils/app_i18n.dart';
@@ -16,8 +17,10 @@ import '../utils/page_layout.dart';
 import '../utils/password_lock.dart';
 import '../utils/snack.dart';
 import '../widgets/app_background.dart';
+import '../widgets/color_picker_dialog.dart';
 import 'api_settings_screen.dart';
 import 'image_crop_screen.dart';
+import 'user_profile_edit_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
@@ -76,6 +79,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ApiSettingsScreen(storage: widget.storage, aiService: aiService),
       ),
     );
+  }
+
+  Future<void> _openUserProfileSettings() async {
+    final profile = await Navigator.of(context).push<UserProfile>(
+      MaterialPageRoute(
+        builder: (_) => UserProfileEditScreen(
+          storage: widget.storage,
+          profile: _settings.userProfile,
+          title: '用户设定',
+        ),
+      ),
+    );
+    if (profile != null) {
+      _applySettings(_settings.copyWith(userProfile: profile));
+    }
   }
 
   Future<void> _pickBackground() async {
@@ -297,86 +315,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required int? value,
     required ValueChanged<int?> onChanged,
   }) async {
-    var red = value == null ? 17 : (value >> 16) & 0xFF;
-    var green = value == null ? 24 : (value >> 8) & 0xFF;
-    var blue = value == null ? 39 : value & 0xFF;
-
-    await showDialog<void>(
+    final result = await showColorPickerDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          final color = Color(_argb(red, green, blue));
-          return AlertDialog(
-            title: Text(title),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: double.infinity,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Theme.of(context).dividerColor),
-                  ),
-                ),
-                _rgbSlider('R', red, (value) {
-                  setDialogState(() => red = value.round());
-                }),
-                _rgbSlider('G', green, (value) {
-                  setDialogState(() => green = value.round());
-                }),
-                _rgbSlider('B', blue, (value) {
-                  setDialogState(() => blue = value.round());
-                }),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  onChanged(null);
-                  Navigator.of(context).pop();
-                },
-                child: Text(context.t('默认')),
-              ),
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: Text(context.t('取消')),
-              ),
-              FilledButton(
-                onPressed: () {
-                  onChanged(_argb(red, green, blue));
-                  Navigator.of(context).pop();
-                },
-                child: Text(context.t('应用')),
-              ),
-            ],
-          );
-        },
-      ),
+      title: title,
+      value: value,
     );
-  }
-
-  Widget _rgbSlider(String label, int value, ValueChanged<double> onChanged) {
-    return Row(
-      children: [
-        SizedBox(width: 20, child: Text(label)),
-        Expanded(
-          child: Slider(
-            value: value.toDouble(),
-            min: 0,
-            max: 255,
-            divisions: 255,
-            onChanged: onChanged,
-          ),
-        ),
-        SizedBox(width: 36, child: Text('$value', textAlign: TextAlign.end)),
-      ],
-    );
-  }
-
-  int _argb(int red, int green, int blue) {
-    return 0xFF000000 | (red << 16) | (green << 8) | blue;
+    if (result != null) onChanged(result.color);
   }
 
   Widget _compactSlider({
@@ -932,6 +876,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onTap: _pickLanguage,
             ),
             _tile(
+              icon: Icons.person_outline,
+              title: context.t('用户设定'),
+              subtitle: _settings.userProfile.name,
+              onTap: _openUserProfileSettings,
+            ),
+            _tile(
               icon: Icons.checkroom_outlined,
               title: context.t('主题设置'),
               subtitle: context.t('与界面和颜色相关的一些设置'),
@@ -1169,6 +1119,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
           },
           onChangeEnd: (value) {
             apply(_settings.copyWith(navigationBarOpacity: value));
+          },
+        ),
+      ),
+      _tile(
+        icon: Icons.view_agenda_outlined,
+        title: context.t('列表卡片透明度'),
+        subtitle: '${(_settings.characterListCardOpacity * 100).round()}%',
+        child: _compactSlider(
+          value: _settings.characterListCardOpacity.clamp(0, 1).toDouble(),
+          min: 0,
+          max: 1,
+          divisions: 100,
+          onChanged: (value) {
+            preview(_settings.copyWith(characterListCardOpacity: value));
+          },
+          onChangeEnd: (value) {
+            apply(_settings.copyWith(characterListCardOpacity: value));
           },
         ),
       ),

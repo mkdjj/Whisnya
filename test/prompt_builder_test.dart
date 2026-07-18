@@ -3,10 +3,9 @@ import 'dart:io';
 import 'package:whisnya/models/app_character.dart';
 import 'package:whisnya/models/app_settings.dart';
 import 'package:whisnya/models/chat_message.dart';
-import 'package:whisnya/models/novel_book.dart';
 import 'package:whisnya/models/theater.dart';
+import 'package:whisnya/models/user_profile.dart';
 import 'package:whisnya/prompts/prompt_builder.dart';
-import 'package:whisnya/screens/novel/novel_screens.dart';
 import 'package:whisnya/services/local_storage_service.dart';
 import 'package:whisnya/services/novel_parser.dart';
 import 'package:whisnya/utils/app_i18n.dart';
@@ -16,6 +15,29 @@ import 'package:whisnya/utils/role_import_parser.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('adds only non-empty user profile text to character prompt', () {
+    final prompt = PromptBuilder.buildSystemPrompt(
+      AppCharacter.fromJson(const {'id': 'character', 'name': '角色'}),
+      userProfile: const UserProfile(
+        name: '小明',
+        avatar: r'E:\private\avatar.png',
+        description: '旅行者',
+        personality: '',
+        speakingStyle: '简洁',
+        extraPrompt: '',
+      ),
+    );
+
+    expect(prompt, contains('【用户设定】'));
+    expect(prompt, contains('名称：小明'));
+    expect(prompt, contains('身份简介：旅行者'));
+    expect(prompt, contains('说话方式：简洁'));
+    expect(prompt, isNot(contains('性格：')));
+    expect(prompt, isNot(contains('补充设定：')));
+    expect(prompt, isNot(contains('avatar.png')));
+    expect(prompt, contains('不要代替用户行动或发言'));
+  });
+
   test('keeps role system prompt stable and moves summary to memory', () {
     final character = AppCharacter(
       id: 'c1',
@@ -24,7 +46,6 @@ void main() {
       backgroundImage: '',
       backgroundImageOpacity: 1,
       backgroundBlur: 0,
-      bubbleOpacity: 0.92,
       inputOpacity: 0.92,
       description: '简介',
       personality: '温和',
@@ -95,7 +116,6 @@ void main() {
       backgroundImage: '',
       backgroundImageOpacity: 1,
       backgroundBlur: 0,
-      bubbleOpacity: 0.92,
       inputOpacity: 0.92,
       description: '',
       personality: '',
@@ -141,7 +161,6 @@ void main() {
       backgroundImage: '',
       backgroundImageOpacity: 1,
       backgroundBlur: 0,
-      bubbleOpacity: 0.92,
       inputOpacity: 0.92,
       description: '',
       personality: '',
@@ -183,7 +202,6 @@ void main() {
       backgroundImage: '',
       backgroundImageOpacity: 1,
       backgroundBlur: 0,
-      bubbleOpacity: 0.92,
       inputOpacity: 0.92,
       description: '',
       personality: '',
@@ -567,7 +585,6 @@ void main() {
       backgroundImage: '',
       backgroundImageOpacity: 1,
       backgroundBlur: 0,
-      bubbleOpacity: 0.92,
       inputOpacity: 0.92,
       description: '住在海边的朋友',
       personality: '温柔',
@@ -729,45 +746,6 @@ Two.
     expect(appLocaleFromCode(appLanguageSystem), isNull);
   });
 
-  test('keeps novel role indexes valid after deleting a role', () {
-    expect(
-      novelRoleIndexAfterDelete(
-        selectedIndex: 2,
-        deletedIndex: 1,
-        newLength: 4,
-        keepReplacement: true,
-      ),
-      1,
-    );
-    expect(
-      novelRoleIndexAfterDelete(
-        selectedIndex: 1,
-        deletedIndex: 1,
-        newLength: 2,
-        keepReplacement: true,
-      ),
-      1,
-    );
-    expect(
-      novelRoleIndexAfterDelete(
-        selectedIndex: 1,
-        deletedIndex: 1,
-        newLength: 2,
-        keepReplacement: false,
-      ),
-      -1,
-    );
-    expect(
-      novelRoleIndexAfterDelete(
-        selectedIndex: 0,
-        deletedIndex: 0,
-        newLength: 0,
-        keepReplacement: true,
-      ),
-      -1,
-    );
-  });
-
   test('novel merge prompt skips minor roles', () {
     final prompt = PromptBuilder.buildNovelMergePrompt(['女主反复出现，路人甲只出现一次。']);
 
@@ -779,64 +757,5 @@ Two.
       contains('只输出 name、description、personality、background、speakingStyle'),
     );
     expect(prompt, contains('不要输出开场白、补充设定'));
-  });
-
-  test('novel chat prompt includes selected user role', () {
-    final book = NovelBook(
-      id: 'n1',
-      title: '测试小说',
-      textPath: '',
-      summary: '设定',
-      createdAt: DateTime(2026),
-      updatedAt: DateTime(2026),
-      lastOpenedAt: DateTime(2026, 2),
-    );
-    const aiRole = NovelRoleCandidate(
-      name: '小夏',
-      description: 'AI 角色',
-      personality: '温和',
-      speakingStyle: '简洁',
-      background: '背景',
-    );
-    const userRole = NovelRoleCandidate(
-      name: '阿青',
-      description: '用户角色',
-      personality: '直接',
-      speakingStyle: '短句',
-      background: '用户背景',
-    );
-
-    final prompt = PromptBuilder.buildNovelChatSystemPrompt(
-      book,
-      aiRole,
-      userRole,
-    );
-
-    expect(prompt, contains('用户选择扮演：阿青'));
-    expect(prompt, contains('不要替用户说话或行动'));
-    expect(NovelBook.fromJson(book.toJson()).lastOpenedAt, DateTime(2026, 2));
-    expect(book.lastOpenedSortTime, DateTime(2026, 2));
-    final legacyBookJson = book.toJson()..remove('lastOpenedAt');
-    expect(
-      NovelBook.fromJson(legacyBookJson).lastOpenedSortTime,
-      book.updatedAt,
-    );
-
-    final request = PromptBuilder.buildNovelChatRequestMessages(
-      book: book,
-      aiRole: aiRole,
-      userRole: userRole,
-      historySummary: '小说聊天历史',
-      summarizedMessageCount: 20,
-      messages: [
-        for (var i = 1; i <= 25; i++)
-          ChatMessage(role: 'user', content: '消息 $i', time: DateTime(2026)),
-      ],
-    );
-    expect(request, hasLength(14));
-    expect(request.first['content'], isNot(contains('小说聊天历史')));
-    expect(request[1]['content'], contains('小说聊天历史'));
-    expect(request[1]['content'], contains('最近原始聊天优先'));
-    expect(request[2]['content'], '消息 14');
   });
 }

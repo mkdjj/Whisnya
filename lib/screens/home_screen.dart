@@ -8,6 +8,7 @@ import '../models/app_character.dart';
 import '../models/app_settings.dart';
 import '../services/ai_service.dart';
 import '../services/local_storage_service.dart';
+import '../services/migration/legacy_novel_chat_migration_service.dart';
 import '../utils/app_i18n.dart';
 import '../utils/character_import_flow.dart';
 import '../utils/confirm_dialog.dart';
@@ -64,8 +65,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
     try {
       await widget.storage.ensureReady();
+      final migration = await LegacyNovelChatMigrationService(
+        widget.storage,
+      ).migrateAll();
       final characters = await widget.storage.loadCharacters();
-      final recoveryMessages = widget.storage.takeRecoveryMessages();
+      final recoveryMessages = [
+        ...migration.recoveryMessages,
+        ...widget.storage.takeRecoveryMessages(),
+      ];
       if (!mounted) return;
       setState(() {
         _characters = characters;
@@ -73,7 +80,9 @@ class _HomeScreenState extends State<HomeScreen> {
       });
       if (recoveryMessages.isNotEmpty) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) context.showSnack(recoveryMessages.join('\n'));
+          if (mounted) {
+            context.showSnack(recoveryMessages.map(context.t).join('\n'));
+          }
         });
       }
     } catch (error) {
@@ -527,8 +536,20 @@ class _HomeScreenState extends State<HomeScreen> {
                         const SizedBox(height: 8),
                     itemBuilder: (context, index) {
                       final character = characters[index];
+                      final opacity = widget.settings.characterListCardOpacity
+                          .clamp(0, 1)
+                          .toDouble();
                       return Card(
+                        key: ValueKey('character-card-${character.id}'),
                         margin: EdgeInsets.zero,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surface.withValues(alpha: opacity),
+                        surfaceTintColor: Colors.transparent,
+                        elevation: opacity == 0 ? 0 : opacity,
+                        shadowColor: Colors.black.withValues(
+                          alpha: 0.22 * opacity,
+                        ),
                         child: ListTile(
                           leading: _CharacterAvatar(character: character),
                           title: Row(

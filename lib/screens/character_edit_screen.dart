@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 
 import '../models/api_config.dart';
 import '../models/app_character.dart';
+import '../models/chat_bubble_theme.dart';
 import '../models/image_crop_region.dart';
 import '../services/local_storage_service.dart';
 import '../utils/app_i18n.dart';
@@ -108,7 +109,7 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
           : _backgroundImageRegion,
       backgroundImageOpacity: existing?.backgroundImageOpacity ?? 1,
       backgroundBlur: existing?.backgroundBlur ?? 0,
-      bubbleOpacity: existing?.bubbleOpacity ?? 0.92,
+      bubbleTheme: existing?.bubbleTheme ?? ChatBubbleTheme.characterDefault,
       inputOpacity: existing?.inputOpacity ?? 0.92,
       description: _descriptionController.text.trim(),
       personality: _personalityController.text.trim(),

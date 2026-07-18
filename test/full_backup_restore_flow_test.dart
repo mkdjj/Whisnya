@@ -6,6 +6,7 @@ import 'package:whisnya/models/app_character.dart';
 import 'package:whisnya/models/app_settings.dart';
 import 'package:whisnya/models/chat_message.dart';
 import 'package:whisnya/models/theater.dart';
+import 'package:whisnya/models/user_profile.dart';
 import 'package:whisnya/services/local_storage_service.dart';
 
 void main() {
@@ -28,23 +29,35 @@ void main() {
   test(
     'full backup restores settings, chats, novel, theater, and media',
     () async {
-      final sourceDirectory = await Directory.systemTemp.createTemp(
-        'backup-src-',
+      final sourceRoot = await Directory.systemTemp.createTemp('backup-src-');
+      final targetRoot = await Directory.systemTemp.createTemp('backup-dst-');
+      final sourceDirectory = Directory(
+        '${sourceRoot.path}${Platform.pathSeparator}app_data',
       );
-      final targetDirectory = await Directory.systemTemp.createTemp(
-        'backup-dst-',
+      final targetDirectory = Directory(
+        '${targetRoot.path}${Platform.pathSeparator}app_data',
       );
-      addTearDown(() => sourceDirectory.delete(recursive: true));
-      addTearDown(() => targetDirectory.delete(recursive: true));
+      addTearDown(() => sourceRoot.delete(recursive: true));
+      addTearDown(() => targetRoot.delete(recursive: true));
       final source = LocalStorageService(appDataDirectory: sourceDirectory);
       final target = LocalStorageService(appDataDirectory: targetDirectory);
       final now = DateTime(2026);
 
-      await source.saveSettings(const AppSettings(languageCode: 'en'));
       final avatar = await source.saveMediaImage(
         folder: 'avatars',
         characterId: 'c',
         bytes: Uint8List.fromList([1, 2, 3, 4]),
+      );
+      final userAvatar = await source.saveMediaImage(
+        folder: 'user_avatars',
+        characterId: 'global_user',
+        bytes: Uint8List.fromList([5, 6, 7, 8]),
+      );
+      await source.saveSettings(
+        AppSettings(
+          languageCode: 'en',
+          userProfile: UserProfile(name: '小明', avatar: userAvatar),
+        ),
       );
       final character = AppCharacter.fromJson({
         'id': 'c',
@@ -81,7 +94,19 @@ void main() {
       final archive = await source.exportAllData();
       await target.importAllData(archive);
 
-      expect((await target.loadSettings()).languageCode, 'en');
+      final restoredSettings = await target.loadSettings();
+      expect(restoredSettings.languageCode, 'en');
+      expect(restoredSettings.userProfile.name, '小明');
+      expect(
+        restoredSettings.userProfile.avatar,
+        startsWith(targetDirectory.path),
+      );
+      expect(await File(restoredSettings.userProfile.avatar).readAsBytes(), [
+        5,
+        6,
+        7,
+        8,
+      ]);
       final restoredCharacter = (await target.loadCharacters()).single;
       expect(restoredCharacter.name, '角色');
       expect(restoredCharacter.defaultEndpointId, 'custom-endpoint');

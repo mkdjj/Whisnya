@@ -1,7 +1,4 @@
-import '../models/chat_message.dart';
-import '../models/chat_summary.dart';
 import '../models/novel_book.dart';
-import '../services/chat/chat_summary_service.dart';
 import '../services/novel_parser.dart';
 
 enum NovelReaderSearchTarget { cleared, chapter, chunk, notFound }
@@ -13,25 +10,18 @@ final class NovelReaderSearchResult {
   final int index;
 }
 
-enum NovelChatMessageDeletion { ignored, removed, summaryInvalidated }
-
 final class NovelReaderController {
-  NovelReaderController(this._book)
-    : _chatSummary = ChatSummary.empty('novel_chat_${_book.id}');
+  NovelReaderController(this._book);
 
   NovelBook _book;
   var _readChunks = <String>[];
   var _chapters = <NovelChapter>[];
-  var _messages = <ChatMessage>[];
-  ChatSummary _chatSummary;
   var _searchQuery = '';
   var _readProgress = 0.0;
 
   NovelBook get book => _book;
   List<String> get readChunks => _readChunks;
   List<NovelChapter> get chapters => _chapters;
-  List<ChatMessage> get messages => _messages;
-  ChatSummary get chatSummary => _chatSummary;
   String get searchQuery => _searchQuery;
   double get readProgress => _readProgress;
 
@@ -45,13 +35,9 @@ final class NovelReaderController {
   void load({
     required List<String> readChunks,
     required List<NovelChapter> chapters,
-    required List<ChatMessage> messages,
-    required ChatSummary chatSummary,
   }) {
     _readChunks = [...readChunks];
     _chapters = [...chapters];
-    _messages = [...messages];
-    _chatSummary = chatSummary;
   }
 
   void updateBook(NovelBook book) => _book = book;
@@ -108,51 +94,4 @@ final class NovelReaderController {
   }
 
   void resetReadProgress() => _readProgress = 0;
-
-  void replaceMessages(List<ChatMessage> messages) {
-    _messages = [...messages];
-  }
-
-  void appendMessage(ChatMessage message) {
-    _messages = [..._messages, message];
-  }
-
-  void replaceLastMessage(ChatMessage message) {
-    if (_messages.isEmpty) return;
-    _messages = [..._messages.take(_messages.length - 1), message];
-  }
-
-  void setChatSummary(ChatSummary summary) => _chatSummary = summary;
-
-  bool dropEmptyAssistantTail() {
-    if (_messages.isEmpty ||
-        !_messages.last.isAssistant ||
-        _messages.last.content.trim().isNotEmpty) {
-      return false;
-    }
-    _messages = _messages.sublist(0, _messages.length - 1);
-    return true;
-  }
-
-  NovelChatMessageDeletion deleteChatMessage(int index) {
-    if (index < 0 || index >= _messages.length) {
-      return NovelChatMessageDeletion.ignored;
-    }
-    final nextSummary = chatSummaryAfterMessageDeletion(
-      summary: _chatSummary,
-      messages: _messages,
-      index: index,
-    );
-    final summaryInvalidated = !identical(nextSummary, _chatSummary);
-    _chatSummary = nextSummary;
-    _messages = [..._messages]..removeAt(index);
-    return summaryInvalidated
-        ? NovelChatMessageDeletion.summaryInvalidated
-        : NovelChatMessageDeletion.removed;
-  }
-
-  void clearChat() {
-    _messages = [];
-    _chatSummary = ChatSummary.empty('novel_chat_${_book.id}');
-  }
 }

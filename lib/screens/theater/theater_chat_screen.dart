@@ -941,20 +941,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
                     displayWidth: 52,
                   ),
                   SettingSlider(
-                    label: '文本框透明度',
-                    value: draft.bubbleOpacity,
-                    min: 0,
-                    max: 1,
-                    divisions: 100,
-                    display: '${(draft.bubbleOpacity * 100).round()}%',
-                    onChanged: (value) =>
-                        preview(draft.copyWith(bubbleOpacity: value)),
-                    onChangeEnd: (value) =>
-                        apply(draft.copyWith(bubbleOpacity: value)),
-                    height: 26,
-                    displayWidth: 52,
-                  ),
-                  SettingSlider(
+                    key: const ValueKey('theater-chat-input-opacity-setting'),
                     label: '输入框透明度',
                     value: draft.inputOpacity,
                     min: 0,
@@ -967,6 +954,23 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
                         apply(draft.copyWith(inputOpacity: value)),
                     height: 26,
                     displayWidth: 52,
+                  ),
+                  ExpansionTile(
+                    key: const ValueKey('theater-chat-bubble-theme-expansion'),
+                    initiallyExpanded: false,
+                    tilePadding: EdgeInsets.zero,
+                    title: Text(context.t('聊天气泡样式')),
+                    children: [
+                      ChatBubbleThemeEditor(
+                        theme: draft.bubbleTheme,
+                        defaultTheme: ChatBubbleTheme.theaterDefault,
+                        isTheater: true,
+                        onPreview: (theme) =>
+                            preview(draft.copyWith(bubbleTheme: theme)),
+                        onSave: (theme) =>
+                            apply(draft.copyWith(bubbleTheme: theme)),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 16),
                   OutlinedButton.icon(
@@ -1050,63 +1054,67 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     final hasBackground = _session.backgroundImage.trim().isNotEmpty;
-    return MediaBackground(
-      imagePath: _session.backgroundImage,
-      region: _session.backgroundImageRegion,
-      opacity: _session.backgroundImageOpacity,
-      blur: _session.backgroundBlur,
-      overlayOpacity: 0.18,
-      child: Scaffold(
-        backgroundColor: hasBackground ? Colors.transparent : null,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          surfaceTintColor: Colors.transparent,
-          systemOverlayStyle: appSystemOverlayStyle(context),
-          title: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(_session.title),
-              Text(
-                _session.boundNovelTitle.isEmpty
-                    ? '${context.t('我的身份')}：${_session.userParticipant?.name ?? context.t('我自己')}'
-                    : '${_session.boundNovelTitle} · ${context.t('我的身份')}：${_session.userParticipant?.name ?? context.t('我自己')}',
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelSmall,
+    return ColoredBox(
+      key: const ValueKey('theater-chat-background-base'),
+      color: Colors.white,
+      child: MediaBackground(
+        imagePath: _session.backgroundImage,
+        region: _session.backgroundImageRegion,
+        opacity: _session.backgroundImageOpacity,
+        blur: _session.backgroundBlur,
+        overlayOpacity: 0.18,
+        child: Scaffold(
+          backgroundColor: hasBackground ? Colors.transparent : null,
+          appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            surfaceTintColor: Colors.transparent,
+            systemOverlayStyle: appSystemOverlayStyle(context),
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(_session.title),
+                Text(
+                  _session.boundNovelTitle.isEmpty
+                      ? '${context.t('我的身份')}：${_session.userParticipant?.name ?? context.t('我自己')}'
+                      : '${_session.boundNovelTitle} · ${context.t('我的身份')}：${_session.userParticipant?.name ?? context.t('我自己')}',
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
+              ],
+            ),
+            actions: [
+              IconButton(
+                tooltip: context.t('群聊总结'),
+                onPressed: _showSummaryDialog,
+                icon: const Icon(Icons.summarize_outlined),
+              ),
+              IconButton(
+                tooltip: context.t('清空群聊消息'),
+                onPressed: _clearMessages,
+                icon: const Icon(Icons.delete_sweep_outlined),
+              ),
+              IconButton(
+                tooltip: context.t('群聊设置'),
+                onPressed: _openSettings,
+                icon: const Icon(Icons.settings_outlined),
               ),
             ],
           ),
-          actions: [
-            IconButton(
-              tooltip: context.t('群聊总结'),
-              onPressed: _showSummaryDialog,
-              icon: const Icon(Icons.summarize_outlined),
-            ),
-            IconButton(
-              tooltip: context.t('清空群聊消息'),
-              onPressed: _clearMessages,
-              icon: const Icon(Icons.delete_sweep_outlined),
-            ),
-            IconButton(
-              tooltip: context.t('群聊设置'),
-              onPressed: _openSettings,
-              icon: const Icon(Icons.settings_outlined),
-            ),
-          ],
-        ),
-        body: Column(
-          children: [
-            if (_isSummarizing) const LinearProgressIndicator(minHeight: 2),
-            Expanded(child: _buildMessages()),
-            _TheaterInputComposer(
-              controller: _inputController,
-              isGenerating: _isGenerating,
-              hasBackground: hasBackground,
-              inputOpacity: _session.inputOpacity,
-              onContinue: _continueOneRound,
-              onSend: _send,
-              onStop: _stopGeneration,
-            ),
-          ],
+          body: Column(
+            children: [
+              if (_isSummarizing) const LinearProgressIndicator(minHeight: 2),
+              Expanded(child: _buildMessages()),
+              _TheaterInputComposer(
+                controller: _inputController,
+                isGenerating: _isGenerating,
+                hasBackground: hasBackground,
+                inputOpacity: _session.inputOpacity,
+                onContinue: _continueOneRound,
+                onSend: _send,
+                onStop: _stopGeneration,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1131,7 +1139,10 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
         itemCount: _messages.length + (showTyping ? 1 : 0),
         itemBuilder: (context, index) {
           if (showTyping && index == 0) {
-            return const _TheaterTypingBubble();
+            return _TheaterTypingBubble(
+              appearance: _session.bubbleTheme.role,
+              chatTextColor: widget.settings.chatTextColor,
+            );
           }
           final messageIndex =
               _messages.length - 1 - (index - (showTyping ? 1 : 0));
@@ -1149,7 +1160,9 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
             child: _TheaterMessageBubble(
               message: message,
               participant: participant,
-              bubbleOpacity: _session.bubbleOpacity,
+              appearance: message.isUser
+                  ? _session.bubbleTheme.user
+                  : _session.bubbleTheme.role,
               chatTextColor: widget.settings.chatTextColor,
               onCopy: () => _copy(message),
               onDelete: _isGenerating

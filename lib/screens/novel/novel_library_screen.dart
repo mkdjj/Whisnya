@@ -178,8 +178,8 @@ class NovelScreenState extends State<NovelScreen> {
       context: context,
       title: '删除小说',
       content: context.isEnglish
-          ? 'Delete "${book.title}"? Novel chats will also be deleted.'
-          : '确定删除《${book.title}》吗？小说内聊天也会一起删除。',
+          ? 'Delete "${book.title}"? Its text, summary, and roles will also be deleted.'
+          : '确定删除《${book.title}》吗？正文、总结和角色也会一起删除。',
       confirmLabel: '删除',
     );
     if (!shouldDelete) return;
@@ -192,6 +192,12 @@ class NovelScreenState extends State<NovelScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final cardOpacity = widget.settings.characterListCardOpacity
+        .clamp(0, 1)
+        .toDouble();
+    final cardColor = Theme.of(
+      context,
+    ).colorScheme.surface.withValues(alpha: cardOpacity);
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -250,7 +256,12 @@ class NovelScreenState extends State<NovelScreen> {
             itemBuilder: (context, index) {
               final book = _books[index];
               return Card(
+                key: ValueKey('novel-card-${book.id}'),
                 margin: EdgeInsets.zero,
+                color: cardColor,
+                surfaceTintColor: Colors.transparent,
+                elevation: cardOpacity == 0 ? 0 : cardOpacity,
+                shadowColor: Colors.black.withValues(alpha: 0.22 * cardOpacity),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(8),
                   onTap: () => _openBook(book),
@@ -258,7 +269,7 @@ class NovelScreenState extends State<NovelScreen> {
                     padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
                     child: Row(
                       children: [
-                        Icon(book.isChatMode ? Icons.chat : Icons.menu_book),
+                        const Icon(Icons.menu_book),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(
@@ -299,9 +310,14 @@ class NovelScreenState extends State<NovelScreen> {
             itemBuilder: (context, index) {
               final book = _books[index];
               return Card(
+                key: ValueKey('novel-card-${book.id}'),
                 margin: EdgeInsets.zero,
+                color: cardColor,
+                surfaceTintColor: Colors.transparent,
+                elevation: cardOpacity == 0 ? 0 : cardOpacity,
+                shadowColor: Colors.black.withValues(alpha: 0.22 * cardOpacity),
                 child: ListTile(
-                  leading: Icon(book.isChatMode ? Icons.chat : Icons.menu_book),
+                  leading: const Icon(Icons.menu_book),
                   title: Text(
                     _bookListTitle(book),
                     maxLines: 1,
@@ -385,21 +401,3 @@ class NovelScreenState extends State<NovelScreen> {
 enum _NovelAction { hide, lock, delete }
 
 enum _NovelSummaryMode { low, range, full }
-
-int novelRoleIndexAfterDelete({
-  required int selectedIndex,
-  required int deletedIndex,
-  required int newLength,
-  required bool keepReplacement,
-}) {
-  if (selectedIndex < 0 || newLength <= 0) {
-    return -1;
-  }
-  if (selectedIndex == deletedIndex) {
-    return keepReplacement ? deletedIndex.clamp(0, newLength - 1).toInt() : -1;
-  }
-  if (selectedIndex > deletedIndex) {
-    return selectedIndex - 1;
-  }
-  return selectedIndex.clamp(0, newLength - 1).toInt();
-}

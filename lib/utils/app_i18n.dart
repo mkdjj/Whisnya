@@ -25,6 +25,8 @@ final _configSavedPattern = RegExp(r'^(.+) 配置已保存$');
 final _connectedPattern = RegExp(r'^(.+) 连接成功：(.+)$');
 final _incompleteConfigPattern = RegExp(r'^(.+) 配置不完整，请先到设置里配置 API。$');
 final _apiErrorPattern = RegExp(r'^API 返回错误 (\d+)：(.+)$');
+final _novelRoleCountPattern = RegExp(r'^共 (\d+) 个角色$');
+final _migratedNovelChatsPattern = RegExp(r'^已将 (\d+) 本小说的旧聊天迁移到群聊$');
 
 const _dynamicPrefixes = {
   '设置文件异常': 'Settings file is invalid',
@@ -108,6 +110,14 @@ String? _dynamicEn(String text) {
 
   match = _apiErrorPattern.firstMatch(text);
   if (match != null) return 'API returned error ${match[1]}: ${match[2]}';
+
+  match = _novelRoleCountPattern.firstMatch(text);
+  if (match != null) return '${match[1]} novel roles';
+
+  match = _migratedNovelChatsPattern.firstMatch(text);
+  if (match != null) {
+    return 'Migrated legacy chats from ${match[1]} novels to theater chats';
+  }
 
   for (final entry in _dynamicPrefixes.entries) {
     final prefix = '${entry.key}：';
@@ -469,41 +479,24 @@ const _en = {
   '结束章节': 'End chapter',
   '请输入起始章节': 'Enter a start chapter',
   '还没有角色，请先总结小说。': 'No roles yet. Summarize the novel first.',
-  '选择 AI 扮演的角色': 'Choose the AI role',
-  '选择你扮演的角色': 'Choose your role',
-  '不选择固定角色': 'No fixed role',
-  '聊天时自由扮演自己或临时角色': 'Chat as yourself or any temporary role',
   '导出到角色': 'Export to characters',
   '导出': 'Export',
   '小说设置': 'Novel settings',
-  '总结和聊天模型': 'Summary and chat model',
   '按章节阅读': 'Read by chapter',
   '小说正文为空': 'Novel text is empty',
   '目录': 'Table of contents',
   '阅读字体大小': 'Reading font size',
   '阅读行距': 'Reading line height',
-  '聊天模式': 'Chat mode',
-  '需要先总结小说并选择角色': 'Summarize the novel and choose a role first',
-  '在小说内聊天': 'Chat inside the novel',
   '总结小说并生成角色': 'Summarize novel and generate roles',
   '首次生成': 'First generation',
   '重新生成': 'Regenerate',
   '重新开始': 'Start over',
   '继续上次总结': 'Continue previous summary',
   '清理总结缓存': 'Clear summary cache',
-  '选择 AI 角色': 'Choose AI role',
   '未选择': 'Not selected',
-  '选择用户角色': 'Choose user role',
   '查看小说设定档': 'View novel profile',
-  '小说聊天背景': 'Novel chat background',
-  '聊天背景透明度': 'Chat background opacity',
-  '聊天背景模糊度': 'Chat background blur',
   '清除聊天背景': 'Clear chat background',
-  '清空小说聊天': 'Clear novel chat',
   '小说设定档': 'Novel profile',
-  '确定清空这本小说里的聊天记录吗？小说正文和总结不会被删除。':
-      'Clear this novel\'s chat history? The novel text and summary will not be deleted.',
-  '小说聊天已清空': 'Novel chat cleared',
   '上一章': 'Previous chapter',
   '下一章': 'Next chapter',
   '编辑目录': 'Edit catalog',
@@ -518,8 +511,6 @@ const _en = {
   '没有找到匹配内容': 'No matching content',
   '书签': 'Bookmark',
   '阅读进度': 'Reading progress',
-  '开始小说内聊天吧。': 'Start chatting inside the novel.',
-  '小说聊天背景已设置': 'Novel chat background set',
   '还没有群聊': 'No theater chats yet',
   '新建群聊': 'New theater chat',
   '群聊外观': 'Theater appearance',
@@ -632,4 +623,46 @@ const _en = {
   '批量导入': 'Batch import',
   '搜索角色': 'Search characters',
   '没有匹配的角色': 'No matching characters',
+  '聊天气泡样式': 'Chat bubble style',
+  '角色气泡': 'Character bubble',
+  '我的气泡': 'My bubble',
+  '气泡颜色': 'Bubble color',
+  '文字颜色': 'Text color',
+  '气泡透明度': 'Bubble opacity',
+  '恢复当前默认': 'Restore this default',
+  '恢复全部默认': 'Restore all defaults',
+  '默认圆润': 'Rounded',
+  '极简方角': 'Square',
+  '胶囊气泡': 'Capsule',
+  '玻璃磨砂': 'Glass',
+  '纸张便签': 'Note',
+  '漫画对白框': 'Comic',
+  '像素复古': 'Pixel',
+  '软糖气泡': 'Candy',
+  '描边透明': 'Outline',
+  '无气泡纯文字': 'Text only',
+  '角色甲：我们继续吧。': 'Role A: Let us continue.',
+  '角色乙：我也准备好了。': 'Role B: I am ready too.',
+  '很高兴见到你。': 'Nice to meet you.',
+  '好的，开始吧。': 'Okay, let us begin.',
+  '列表卡片透明度': 'List card opacity',
+  '小说角色': 'Novel roles',
+  '管理小说角色': 'Manage novel roles',
+  '创建小说群聊': 'Create novel theater chat',
+  '导入全部小说角色并配置群聊': 'Import all novel roles and configure the theater chat',
+  '小说群聊已创建': 'Novel theater chat created',
+  '用户设定': 'User profile',
+  '用户昵称': 'Nickname',
+  '身份简介': 'Identity description',
+  '说话方式': 'Speaking style',
+  '更换头像': 'Change avatar',
+  '清除头像': 'Clear avatar',
+  '编辑我的身份': 'Edit my identity',
+  '选择你在群聊中的身份': 'Choose who you are in this chat',
+  '使用默认用户设定': 'Use default user profile',
+  '扮演小说角色': 'Play a novel character',
+  '自定义临时身份': 'Use a temporary identity',
+  '至少添加一个 AI 角色': 'Add at least one AI role',
+  '部分小说聊天迁移失败，旧数据已保留，下次启动会重试':
+      'Some novel chats failed to migrate. Old data was kept and migration will retry next launch.',
 };

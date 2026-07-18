@@ -54,6 +54,7 @@ class TheaterListScreenState extends State<TheaterListScreen> {
         builder: (_) => TheaterEditScreen(
           storage: widget.storage,
           aiService: widget.aiService,
+          initialUserProfile: widget.settings.userProfile,
         ),
       ),
     );
@@ -111,6 +112,21 @@ class TheaterListScreenState extends State<TheaterListScreen> {
       session.copyWith(title: title, updatedAt: DateTime.now()),
     );
     await _load();
+  }
+
+  Future<void> _edit(TheaterSession session) async {
+    if (!await _verifySessionOperation(session, '编辑群聊')) return;
+    if (!mounted) return;
+    final updated = await Navigator.of(context).push<TheaterSession>(
+      MaterialPageRoute(
+        builder: (_) => TheaterEditScreen(
+          storage: widget.storage,
+          aiService: widget.aiService,
+          session: session,
+        ),
+      ),
+    );
+    if (updated != null && mounted) await _load();
   }
 
   Future<void> _delete(TheaterSession session) async {
@@ -175,6 +191,12 @@ class TheaterListScreenState extends State<TheaterListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final cardOpacity = widget.settings.characterListCardOpacity
+        .clamp(0, 1)
+        .toDouble();
+    final cardColor = Theme.of(
+      context,
+    ).colorScheme.surface.withValues(alpha: cardOpacity);
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -226,7 +248,12 @@ class TheaterListScreenState extends State<TheaterListScreen> {
             itemBuilder: (context, index) {
               final session = _sessions[index];
               return Card(
+                key: ValueKey('theater-card-${session.id}'),
                 margin: EdgeInsets.zero,
+                color: cardColor,
+                surfaceTintColor: Colors.transparent,
+                elevation: cardOpacity == 0 ? 0 : cardOpacity,
+                shadowColor: Colors.black.withValues(alpha: 0.22 * cardOpacity),
                 child: ListTile(
                   dense: true,
                   leading: _TheaterSessionAvatar(
@@ -249,12 +276,20 @@ class TheaterListScreenState extends State<TheaterListScreen> {
                   onTap: () => _open(session),
                   trailing: PopupMenuButton<String>(
                     onSelected: (value) {
+                      if (value == 'edit') unawaited(_edit(session));
                       if (value == 'rename') unawaited(_rename(session));
                       if (value == 'hide') unawaited(_toggleHidden(session));
                       if (value == 'lock') unawaited(_toggleLock(session));
                       if (value == 'delete') unawaited(_delete(session));
                     },
                     itemBuilder: (context) => [
+                      PopupMenuItem(
+                        value: 'edit',
+                        child: ListTile(
+                          leading: const Icon(Icons.tune),
+                          title: Text(context.t('编辑群聊')),
+                        ),
+                      ),
                       PopupMenuItem(
                         value: 'rename',
                         child: ListTile(

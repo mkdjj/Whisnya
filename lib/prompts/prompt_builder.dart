@@ -1,15 +1,19 @@
 import '../models/app_character.dart';
 import '../models/app_settings.dart';
 import '../models/chat_message.dart';
-import '../models/novel_book.dart';
 import '../models/theater.dart';
+import '../models/user_profile.dart';
 import '../services/theater/theater_reply_engine.dart' as theater_engine;
 import '../utils/chat_context_policy.dart';
 
 class PromptBuilder {
   const PromptBuilder._();
 
-  static String buildSystemPrompt(AppCharacter character) {
+  static String buildSystemPrompt(
+    AppCharacter character, {
+    UserProfile userProfile = const UserProfile(),
+  }) {
+    final userSection = _userProfileSection(userProfile);
     return '''
 你正在扮演用户创建的角色，请严格按照角色设定回复。
 
@@ -31,12 +35,35 @@ ${character.speakingStyle}
 【补充设定】
 ${character.extraPrompt}
 
+$userSection
+
 要求：
 1. 尽量保持角色设定。
 2. 用户让你写代码、写文章、分析问题时，也要完成任务。
 3. 不要主动说自己是程序或模型，除非用户明确询问。
 4. 回复语言跟随用户。
 5. 不要编造聊天记录中没有的信息。
+''';
+  }
+
+  static String _userProfileSection(UserProfile profile) {
+    final fields = <String>[
+      if (profile.name.trim().isNotEmpty) '名称：${profile.name.trim()}',
+      if (profile.description.trim().isNotEmpty)
+        '身份简介：${profile.description.trim()}',
+      if (profile.personality.trim().isNotEmpty)
+        '性格：${profile.personality.trim()}',
+      if (profile.speakingStyle.trim().isNotEmpty)
+        '说话方式：${profile.speakingStyle.trim()}',
+      if (profile.extraPrompt.trim().isNotEmpty)
+        '补充设定：${profile.extraPrompt.trim()}',
+    ];
+    if (fields.isEmpty) return '';
+    return '''
+【用户设定】
+${fields.join('\n')}
+
+用户设定仅用于帮助理解用户，不要模仿用户，不要代替用户行动或发言，也不必每句话都称呼用户昵称。
 ''';
   }
 
@@ -55,6 +82,7 @@ ${historySummary.trim().isEmpty ? '暂无。' : historySummary.trim()}
 
   static List<Map<String, String>> buildChatRequestMessages({
     required AppCharacter character,
+    UserProfile userProfile = const UserProfile(),
     required String historySummary,
     required int summarizedMessageCount,
     required List<ChatMessage> messages,
@@ -71,7 +99,10 @@ ${historySummary.trim().isEmpty ? '暂无。' : historySummary.trim()}
           );
     final requestMessages = chatMessages.skip(startIndex);
     return [
-      {'role': 'system', 'content': buildSystemPrompt(character)},
+      {
+        'role': 'system',
+        'content': buildSystemPrompt(character, userProfile: userProfile),
+      },
       if (!useFullContext)
         {'role': 'system', 'content': buildChatMemoryPrompt(historySummary)},
       for (final message in requestMessages)
@@ -580,90 +611,5 @@ $chunk
 分段摘要：
 ${summaries.join('\n\n---\n\n')}
 ''';
-  }
-
-  static String buildNovelChatSystemPrompt(
-    NovelBook book,
-    NovelRoleCandidate role,
-    NovelRoleCandidate? userRole,
-  ) {
-    final userRoleText = userRole == null
-        ? '用户未指定固定角色，可以扮演自己、原作角色或临时角色。'
-        : '''
-用户选择扮演：${userRole.name}
-用户角色简介：${userRole.description}
-用户角色性格：${userRole.personality}
-用户角色背景：${userRole.background}
-互动时把用户当作该角色，不要替用户说话或行动。''';
-
-    return '''
-你正在小说《${book.title}》的私密聊天模式中扮演角色。
-
-【小说设定档】
-${book.summary}
-
-【你扮演的角色】
-${role.name}
-
-【角色简介】
-${role.description}
-
-【性格设定】
-${role.personality}
-
-【背景故事】
-${role.background}
-
-【说话风格】
-${role.speakingStyle}
-
-【用户扮演】
-$userRoleText
-
-要求：
-1. 严格保持小说设定和角色口吻。
-2. 用户没有固定角色时，可以扮演自己、原作角色或临时角色，你要自然接戏。
-3. 不要主动说自己是 AI 或模型。
-4. 不要把小说原文整段复述给用户。
-5. 回复语言跟随用户。
-''';
-  }
-
-  static List<Map<String, String>> buildNovelChatRequestMessages({
-    required NovelBook book,
-    required NovelRoleCandidate aiRole,
-    required NovelRoleCandidate? userRole,
-    required String historySummary,
-    required int summarizedMessageCount,
-    required List<ChatMessage> messages,
-  }) {
-    final chatMessages = messages
-        .where((message) => message.isUser || message.isAssistant)
-        .toList();
-    final start = chatContextStartIndex(
-      summarizedMessageCount: summarizedMessageCount,
-      messageCount: chatMessages.length,
-    );
-    return [
-      {
-        'role': 'system',
-        'content': buildNovelChatSystemPrompt(book, aiRole, userRole),
-      },
-      {
-        'role': 'system',
-        'content':
-            '''
-【小说聊天历史总结】
-${historySummary.trim().isEmpty ? '暂无。' : historySummary.trim()}
-
-【上下文使用规则】
-历史总结只保存长期事实；后面的最近原始聊天优先级高于总结。
-必须继承最近原始聊天中的称呼、语气、句式长度、动作描写格式、括号格式、情绪强度和未完成话题。
-如果总结与最近原始聊天冲突，以最近原始聊天为准，不要把总结写成角色说话语气。
-''',
-      },
-      for (final message in chatMessages.skip(start))
-        {'role': message.role, 'content': message.content},
-    ];
   }
 }

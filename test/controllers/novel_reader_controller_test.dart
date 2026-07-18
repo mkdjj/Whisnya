@@ -1,7 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whisnya/controllers/novel_reader_controller.dart';
-import 'package:whisnya/models/chat_message.dart';
-import 'package:whisnya/models/chat_summary.dart';
 import 'package:whisnya/models/novel_book.dart';
 import 'package:whisnya/services/novel_parser.dart';
 
@@ -14,8 +12,6 @@ void main() {
         NovelChapter(title: '第一章', content: '开头内容'),
         NovelChapter(title: '第二章', content: '目标章节'),
       ],
-      messages: const [],
-      chatSummary: ChatSummary.empty('novel_chat_book'),
     );
 
     expect(controller.safeChapterIndex, 0);
@@ -34,33 +30,6 @@ void main() {
       isFalse,
     );
   });
-
-  test('owns novel chat tail cleanup and summary invalidation', () {
-    final controller = NovelReaderController(_book);
-    controller.load(
-      readChunks: const [],
-      chapters: const [],
-      messages: [
-        _message('user', '问题'),
-        _message('assistant', '回答'),
-        _message('assistant', ''),
-      ],
-      chatSummary: ChatSummary(
-        characterId: 'novel_chat_book',
-        summary: '总结',
-        updatedAt: DateTime(2026),
-        summarizedMessageCount: 2,
-      ),
-    );
-
-    expect(controller.dropEmptyAssistantTail(), isTrue);
-    expect(
-      controller.deleteChatMessage(0),
-      NovelChatMessageDeletion.summaryInvalidated,
-    );
-    expect(controller.chatSummary.summary, isEmpty);
-    expect(controller.messages.single.content, '回答');
-  });
 }
 
 final _book = NovelBook(
@@ -73,6 +42,3 @@ final _book = NovelBook(
   createdAt: DateTime(2026),
   updatedAt: DateTime(2026),
 );
-
-ChatMessage _message(String role, String content) =>
-    ChatMessage(role: role, content: content, time: DateTime(2026));

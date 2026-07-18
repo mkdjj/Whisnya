@@ -1,8 +1,61 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whisnya/models/app_settings.dart';
 import 'package:whisnya/models/image_crop_region.dart';
+import 'package:whisnya/models/user_profile.dart';
 
 void main() {
+  test('defaults missing user profile and round trips new settings', () {
+    expect(
+      AppSettings.fromJson(const {}).userProfile.toJson(),
+      const UserProfile().toJson(),
+    );
+
+    const profile = UserProfile(
+      name: '小明',
+      avatar: 'avatar.png',
+      description: '旅行者',
+      personality: '开朗',
+      speakingStyle: '简洁',
+      extraPrompt: '喜欢猫',
+    );
+    final settings = const AppSettings(
+      languageCode: 'en',
+    ).copyWith(userProfile: profile);
+    final restored = AppSettings.fromJson(settings.toJson());
+
+    expect(restored.userProfile.toJson(), profile.toJson());
+    expect(restored.languageCode, 'en');
+  });
+
+  test('ignores a malformed user profile field', () {
+    expect(
+      AppSettings.fromJson(const {'userProfile': 'invalid'}).userProfile.name,
+      '用户',
+    );
+  });
+
+  test('character list card opacity defaults and clamps', () {
+    expect(const AppSettings().characterListCardOpacity, 1);
+    expect(
+      AppSettings.fromJson({
+        'characterListCardOpacity': 0,
+      }).characterListCardOpacity,
+      0,
+    );
+    expect(
+      AppSettings.fromJson({
+        'characterListCardOpacity': 0.5,
+      }).characterListCardOpacity,
+      0.5,
+    );
+    expect(
+      AppSettings.fromJson({
+        'characterListCardOpacity': 2,
+      }).characterListCardOpacity,
+      1,
+    );
+  });
+
   test('round trips background crop coordinates', () {
     final settings = const AppSettings().copyWith(
       globalBackgroundImage: 'original.jpg',

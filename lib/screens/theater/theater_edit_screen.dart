@@ -5,12 +5,14 @@ class TheaterEditScreen extends StatefulWidget {
     required this.storage,
     required this.aiService,
     this.session,
+    this.initialUserProfile,
     super.key,
   });
 
   final LocalStorageService storage;
   final AiGateway aiService;
   final TheaterSession? session;
+  final UserProfile? initialUserProfile;
 
   @override
   State<TheaterEditScreen> createState() => _TheaterEditScreenState();
@@ -29,7 +31,7 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
   var _backgroundImageRegion = ImageCropRegion.full;
   var _backgroundImageOpacity = 1.0;
   var _backgroundBlur = 0.0;
-  var _bubbleOpacity = 0.94;
+  var _bubbleTheme = ChatBubbleTheme.theaterDefault;
   var _inputOpacity = 0.92;
   var _topBarOpacity = 0.0;
   var _apiMode = TheaterApiMode.singleApi;
@@ -64,7 +66,7 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
       _backgroundImageRegion = session.backgroundImageRegion;
       _backgroundImageOpacity = session.backgroundImageOpacity;
       _backgroundBlur = session.backgroundBlur;
-      _bubbleOpacity = session.bubbleOpacity;
+      _bubbleTheme = session.bubbleTheme;
       _inputOpacity = session.inputOpacity;
       _topBarOpacity = session.topBarOpacity;
       _boundNovelId = session.boundNovelId;
@@ -78,6 +80,13 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
       _customRoundsController.text = session.keepRoundCount.toString();
       _useCustomRounds = ![15, 30, 50].contains(session.keepRoundCount);
       _selectedParticipants = [...session.participants];
+    } else if (widget.initialUserProfile case final profile?) {
+      final user = TheaterParticipant.fromUserProfile(
+        profile,
+        id: _participantId('user'),
+      );
+      _selectedParticipants = [user];
+      _userParticipantId = user.id;
     }
     unawaited(_load());
   }
@@ -112,6 +121,7 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
   }
 
   String _effectiveEndpointId(String requested) {
+    if (requested.trim().isEmpty) return '';
     return _apiConfig.effectiveEndpoint(requested)?.id ?? '';
   }
 
@@ -202,6 +212,50 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
       .where((participant) => participant.id != _userParticipantId)
       .toList();
 
+  TheaterParticipant? get _userParticipant {
+    for (final participant in _selectedParticipants) {
+      if (participant.id == _userParticipantId) return participant;
+    }
+    return null;
+  }
+
+  Future<void> _editUserParticipant() async {
+    final current = _userParticipant;
+    final profile = await Navigator.of(context).push<UserProfile>(
+      MaterialPageRoute(
+        builder: (_) => UserProfileEditScreen(
+          storage: widget.storage,
+          profile: current == null
+              ? const UserProfile()
+              : UserProfile(
+                  name: current.name,
+                  avatar: current.avatar,
+                  description: current.description,
+                  personality: current.personality,
+                  speakingStyle: current.speakingStyle,
+                  extraPrompt: current.background,
+                ),
+          title: '编辑我的身份',
+        ),
+      ),
+    );
+    if (profile == null || !mounted) return;
+    final participant = TheaterParticipant.fromUserProfile(
+      profile,
+      id: current?.id ?? _participantId('user'),
+    );
+    setState(() {
+      _speakerSequenceChanged = true;
+      if (current == null) {
+        _selectedParticipants.add(participant);
+      } else {
+        final index = _selectedParticipants.indexOf(current);
+        _selectedParticipants[index] = participant;
+      }
+      _userParticipantId = participant.id;
+    });
+  }
+
   void _setParticipantMuted(String participantId, bool isMuted) {
     setState(() {
       _speakerSequenceChanged = true;
@@ -236,6 +290,10 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
     final title = _titleController.text.trim();
     if (title.isEmpty) {
       context.showSnack('请输入群聊名称');
+      return;
+    }
+    if (_aiParticipants.isEmpty) {
+      context.showSnack('至少添加一个 AI 角色');
       return;
     }
     if (_selectedParticipants.length < 2) {
@@ -279,7 +337,7 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
           : _backgroundImageRegion,
       backgroundImageOpacity: _backgroundImageOpacity,
       backgroundBlur: _backgroundBlur,
-      bubbleOpacity: _bubbleOpacity,
+      bubbleTheme: _bubbleTheme,
       inputOpacity: _inputOpacity,
       topBarOpacity: _topBarOpacity,
       boundNovelId: book?.id ?? '',
@@ -504,27 +562,42 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
                 ],
               ),
             const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              key: ValueKey('userParticipant:$_userParticipantId'),
-              initialValue:
-                  _selectedParticipants.any(
-                    (item) => item.id == _userParticipantId,
-                  )
-                  ? _userParticipantId
-                  : '',
-              decoration: InputDecoration(labelText: context.t('我的身份')),
-              items: [
-                DropdownMenuItem(value: '', child: Text(context.t('我自己'))),
-                for (final participant in _selectedParticipants)
-                  DropdownMenuItem(
-                    value: participant.id,
-                    child: Text(participant.name),
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    key: ValueKey('userParticipant:$_userParticipantId'),
+                    initialValue:
+                        _selectedParticipants.any(
+                          (item) => item.id == _userParticipantId,
+                        )
+                        ? _userParticipantId
+                        : '',
+                    decoration: InputDecoration(labelText: context.t('我的身份')),
+                    items: [
+                      DropdownMenuItem(
+                        value: '',
+                        child: Text(context.t('我自己')),
+                      ),
+                      for (final participant in _selectedParticipants)
+                        DropdownMenuItem(
+                          value: participant.id,
+                          child: Text(participant.name),
+                        ),
+                    ],
+                    onChanged: (value) => setState(() {
+                      _speakerSequenceChanged = true;
+                      _userParticipantId = value ?? '';
+                    }),
                   ),
+                ),
+                IconButton(
+                  key: const ValueKey('edit-theater-user-profile'),
+                  tooltip: context.t('编辑我的身份'),
+                  onPressed: _editUserParticipant,
+                  icon: const Icon(Icons.edit_outlined),
+                ),
               ],
-              onChanged: (value) => setState(() {
-                _speakerSequenceChanged = true;
-                _userParticipantId = value ?? '';
-              }),
             ),
             const SizedBox(height: 16),
             _sectionTitle('API 模式'),
@@ -722,17 +795,7 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
           },
         ),
         SettingSlider(
-          label: '文本框透明度',
-          value: _bubbleOpacity,
-          min: 0,
-          max: 1,
-          divisions: 100,
-          display: '${(_bubbleOpacity * 100).round()}%',
-          onChanged: (value) {
-            setState(() => _bubbleOpacity = value);
-          },
-        ),
-        SettingSlider(
+          key: const ValueKey('theater-edit-input-opacity-setting'),
           label: '输入框透明度',
           value: _inputOpacity,
           min: 0,
@@ -742,6 +805,21 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
           onChanged: (value) {
             setState(() => _inputOpacity = value);
           },
+        ),
+        ExpansionTile(
+          key: const ValueKey('theater-edit-bubble-theme-expansion'),
+          initiallyExpanded: false,
+          tilePadding: EdgeInsets.zero,
+          title: Text(context.t('聊天气泡样式')),
+          children: [
+            ChatBubbleThemeEditor(
+              theme: _bubbleTheme,
+              defaultTheme: ChatBubbleTheme.theaterDefault,
+              isTheater: true,
+              onPreview: (theme) => setState(() => _bubbleTheme = theme),
+              onSave: (theme) => setState(() => _bubbleTheme = theme),
+            ),
+          ],
         ),
         if (_backgroundImage.isNotEmpty)
           Align(

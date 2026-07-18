@@ -563,6 +563,45 @@ class LocalStorageService {
     if (await summary.exists()) await summary.delete();
   }
 
+  Future<bool> legacyNovelChatDataExists(String novelId) async {
+    final paths = await _paths;
+    return await paths.novelChat(novelId).exists() ||
+        await paths.summary('novel_chat_$novelId').exists();
+  }
+
+  Future<void> deleteLegacyNovelChatData(String novelId) async {
+    final paths = await _paths;
+    final files = [
+      paths.novelChat(novelId),
+      paths.summary('novel_chat_$novelId'),
+    ];
+    final moved = <({File original, File backup})>[];
+    try {
+      for (final file in files) {
+        if (!await file.exists()) continue;
+        final backup = File(
+          '${file.path}.migrated_${DateTime.now().microsecondsSinceEpoch}',
+        );
+        await file.rename(backup.path);
+        moved.add((original: file, backup: backup));
+      }
+    } catch (_) {
+      for (final item in moved.reversed) {
+        if (await item.backup.exists() && !await item.original.exists()) {
+          await item.backup.rename(item.original.path);
+        }
+      }
+      rethrow;
+    }
+    for (final item in moved) {
+      try {
+        await item.backup.delete();
+      } on FileSystemException {
+        // Target data is verified and legacy paths are already inactive.
+      }
+    }
+  }
+
   Future<ChatSummary> loadSummary(String characterId) async {
     final file = (await _paths).summary(characterId);
     final decoded = await _readJson(
@@ -893,6 +932,12 @@ class LocalStorageService {
         decoded['globalBackgroundImage'] = fixPath(
           decoded['globalBackgroundImage'] as String? ?? '',
         );
+        final userProfile = decoded['userProfile'];
+        if (userProfile is Map<String, dynamic>) {
+          userProfile['avatar'] = fixPath(
+            userProfile['avatar'] as String? ?? '',
+          );
+        }
       }
     });
     await updateJson('characters.json', (decoded) {

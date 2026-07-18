@@ -13,6 +13,45 @@ import 'package:whisnya/services/local_storage_service.dart';
 import 'package:whisnya/utils/app_i18n.dart';
 
 void main() {
+  testWidgets('theater bubble settings follow input opacity', (tester) async {
+    final storage = _MemoryStorage(session: _session, messages: _messages);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TheaterChatScreen(
+          storage: storage,
+          aiService: _FakeGateway('回复'),
+          settings: const AppSettings(),
+          session: _session,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.settings_outlined));
+    await tester.pumpAndSettle();
+
+    final expansion = find.byKey(
+      const ValueKey('theater-chat-bubble-theme-expansion'),
+    );
+    await tester.scrollUntilVisible(
+      expansion,
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(tester.widget<ExpansionTile>(expansion).initiallyExpanded, isFalse);
+
+    final settings = tester.widget<ListView>(find.byType(ListView).last);
+    final children =
+        (settings.childrenDelegate as SliverChildListDelegate).children;
+    expect(
+      children.map((child) => child.key),
+      containsAllInOrder(const [
+        ValueKey('theater-chat-input-opacity-setting'),
+        ValueKey('theater-chat-bubble-theme-expansion'),
+      ]),
+    );
+  });
+
   testWidgets('extra reply choices explicitly describe random additions', (
     tester,
   ) async {
@@ -61,6 +100,31 @@ void main() {
     );
     expect(find.byTooltip('再生成一轮'), findsNothing);
     expect(find.byTooltip('Generate another round'), findsNothing);
+  });
+
+  testWidgets('background image opacity fades over white', (tester) async {
+    final session = _session.copyWith(
+      backgroundImage: 'missing-background.png',
+      backgroundImageOpacity: 0.25,
+    );
+    final storage = _MemoryStorage(session: session, messages: _messages);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TheaterChatScreen(
+          storage: storage,
+          aiService: _FakeGateway('回复'),
+          settings: const AppSettings(),
+          session: session,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final background = tester.widget<ColoredBox>(
+      find.byKey(const ValueKey('theater-chat-background-base')),
+    );
+    expect(background.color, Colors.white);
   });
 
   testWidgets('turn-based continuation invokes only the next participant', (

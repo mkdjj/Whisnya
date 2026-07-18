@@ -8,8 +8,10 @@ import '../../controllers/chat_conversation_controller.dart';
 import '../../models/api_config.dart';
 import '../../models/app_character.dart';
 import '../../models/app_settings.dart';
+import '../../models/chat_bubble_theme.dart';
 import '../../models/chat_message.dart';
 import '../../models/chat_summary.dart';
+import '../../models/user_profile.dart';
 import '../../prompts/prompt_builder.dart';
 import '../../services/ai/ai_gateway.dart';
 import '../../services/ai_service.dart';
@@ -22,6 +24,8 @@ import '../../utils/page_layout.dart';
 import '../../utils/snack.dart';
 import '../../utils/stream_text_buffer.dart';
 import '../../widgets/app_background.dart';
+import '../../widgets/chat_bubble.dart';
+import '../../widgets/chat_bubble_theme_editor.dart';
 import '../../widgets/endpoint_picker.dart';
 import '../../widgets/message_content.dart';
 import '../../widgets/setting_slider.dart';
@@ -135,12 +139,8 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
 
-    final endpoint = _apiConfig.effectiveEndpoint(_selectedEndpointId);
-    final configError = endpointValidationError(endpoint);
-    if (configError != null) {
-      context.showSnack(configError);
-      return;
-    }
+    final endpoint = await _reloadEndpoint();
+    if (endpoint == null) return;
 
     final userMessage = ChatMessage(
       role: 'user',
@@ -157,7 +157,28 @@ class _ChatScreenState extends State<ChatScreen> {
 
     await widget.storage.saveChat(_character.id, _messages);
 
-    await _requestAssistantReply(endpoint!);
+    await _requestAssistantReply(endpoint);
+  }
+
+  Future<AiEndpointConfig?> _reloadEndpoint() async {
+    try {
+      final config = await widget.storage.loadApiConfig();
+      final endpoint = config.effectiveEndpoint(_selectedEndpointId);
+      if (!mounted) return null;
+      setState(() {
+        _apiConfig = config;
+        _selectedEndpointId = endpoint?.id ?? '';
+      });
+      final error = endpointValidationError(endpoint);
+      if (error != null) {
+        context.showSnack(error);
+        return null;
+      }
+      return endpoint;
+    } catch (error) {
+      if (mounted) context.showSnack(error.toString());
+      return null;
+    }
   }
 
   Future<void> _requestAssistantReply(AiEndpointConfig endpoint) async {
@@ -172,7 +193,8 @@ class _ChatScreenState extends State<ChatScreen> {
       );
       if (!mounted || generationId != _generationId || !_isSending) return;
 
-      final requestMessages = _buildChatRequestMessages();
+      final userProfile = (await widget.storage.loadSettings()).userProfile;
+      final requestMessages = _buildChatRequestMessages(userProfile);
       final streamResponses = widget.settings.streamResponses;
       final assistantMessage = ChatMessage(
         role: 'assistant',
@@ -261,15 +283,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _retryLastUserMessage() async {
     if (_isSending || _messages.isEmpty || !_messages.last.isUser) return;
-    final endpoint = _apiConfig.effectiveEndpoint(_selectedEndpointId);
-    final configError = endpointValidationError(endpoint);
-    if (configError != null) {
-      context.showSnack(configError);
-      return;
-    }
+    final endpoint = await _reloadEndpoint();
+    if (endpoint == null) return;
     setState(() => _isSending = true);
     _scrollToEnd();
-    await _requestAssistantReply(endpoint!);
+    await _requestAssistantReply(endpoint);
   }
 
   Future<void> _editLastUserMessageAndResend() async {
@@ -308,12 +326,8 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!mounted) return;
     if (edited == null || edited.isEmpty) return;
 
-    final endpoint = _apiConfig.effectiveEndpoint(_selectedEndpointId);
-    final configError = endpointValidationError(endpoint);
-    if (configError != null) {
-      context.showSnack(configError);
-      return;
-    }
+    final endpoint = await _reloadEndpoint();
+    if (endpoint == null) return;
 
     setState(() {
       _conversation.editUserMessageAndTruncate(index, edited, DateTime.now());
@@ -321,7 +335,7 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     await widget.storage.saveChat(_character.id, _messages);
     _scrollToEnd();
-    await _requestAssistantReply(endpoint!);
+    await _requestAssistantReply(endpoint);
   }
 
   void _stopGeneration() {
@@ -344,12 +358,8 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
 
-    final endpoint = _apiConfig.effectiveEndpoint(_selectedEndpointId);
-    final configError = endpointValidationError(endpoint);
-    if (configError != null) {
-      context.showSnack(configError);
-      return;
-    }
+    final endpoint = await _reloadEndpoint();
+    if (endpoint == null) return;
 
     setState(() => _isSummarizing = true);
     try {
@@ -360,7 +370,7 @@ class _ChatScreenState extends State<ChatScreen> {
         customItems: widget.settings.customChatSummaryItems,
       );
       final summaryText = await widget.aiService.sendMessage(
-        apiKey: endpoint!.apiKey,
+        apiKey: endpoint.apiKey,
         baseUrl: endpoint.baseUrl,
         model: endpoint.model,
         messages: [
@@ -549,9 +559,10 @@ class _ChatScreenState extends State<ChatScreen> {
     return results;
   }
 
-  List<Map<String, String>> _buildChatRequestMessages() {
+  List<Map<String, String>> _buildChatRequestMessages(UserProfile userProfile) {
     return PromptBuilder.buildChatRequestMessages(
       character: _character,
+      userProfile: userProfile,
       historySummary: _summary.summary,
       summarizedMessageCount: _summary.summarizedMessageCount,
       messages: _messages,
@@ -841,22 +852,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   },
                 ),
                 SettingSlider(
-                  label: '聊天气泡透明度',
-                  value: draft.bubbleOpacity,
-                  min: 0,
-                  max: 1,
-                  divisions: 100,
-                  display: '${(draft.bubbleOpacity * 100).round()}%',
-                  onChanged: (value) {
-                    preview(draft.copyWith(bubbleOpacity: value));
-                  },
-                  onChangeEnd: (value) {
-                    _applyCharacterSettings(
-                      draft.copyWith(bubbleOpacity: value),
-                    );
-                  },
-                ),
-                SettingSlider(
+                  key: const ValueKey('chat-input-opacity-setting'),
                   label: '输入框透明度',
                   value: draft.inputOpacity,
                   min: 0,
@@ -872,8 +868,26 @@ class _ChatScreenState extends State<ChatScreen> {
                     );
                   },
                 ),
+                ExpansionTile(
+                  key: const ValueKey('chat-bubble-theme-expansion'),
+                  initiallyExpanded: false,
+                  tilePadding: EdgeInsets.zero,
+                  title: Text(context.t('聊天气泡样式')),
+                  children: [
+                    ChatBubbleThemeEditor(
+                      theme: draft.bubbleTheme,
+                      defaultTheme: ChatBubbleTheme.characterDefault,
+                      onPreview: (theme) =>
+                          preview(draft.copyWith(bubbleTheme: theme)),
+                      onSave: (theme) => _applyCharacterSettings(
+                        draft.copyWith(bubbleTheme: theme),
+                      ),
+                    ),
+                  ],
+                ),
                 const Divider(),
                 ListTile(
+                  key: const ValueKey('chat-clear-history-setting'),
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(
                     Icons.delete_sweep_outlined,
@@ -1168,14 +1182,19 @@ class _ChatScreenState extends State<ChatScreen> {
         itemCount: _messages.length + (showTyping ? 1 : 0),
         itemBuilder: (context, index) {
           if (showTyping && index == 0) {
-            return const _TypingBubble();
+            return _TypingBubble(
+              appearance: _character.bubbleTheme.role,
+              chatTextColor: widget.settings.chatTextColor,
+            );
           }
           final messageIndex =
               _messages.length - 1 - (index - (showTyping ? 1 : 0));
           final message = _messages[messageIndex];
           return _MessageBubble(
             message: message,
-            bubbleOpacity: _character.bubbleOpacity,
+            appearance: message.isUser
+                ? _character.bubbleTheme.user
+                : _character.bubbleTheme.role,
             chatTextColor: widget.settings.chatTextColor,
             isHighlighted: messageIndex == highlightedIndex,
             searchQuery: _searchQuery,
@@ -1379,7 +1398,7 @@ class _InputComposer extends StatelessWidget {
 class _MessageBubble extends StatelessWidget {
   const _MessageBubble({
     required this.message,
-    required this.bubbleOpacity,
+    required this.appearance,
     required this.chatTextColor,
     required this.isHighlighted,
     required this.searchQuery,
@@ -1388,7 +1407,7 @@ class _MessageBubble extends StatelessWidget {
   });
 
   final ChatMessage message;
-  final double bubbleOpacity;
+  final ChatBubbleAppearance appearance;
   final int? chatTextColor;
   final bool isHighlighted;
   final String searchQuery;
@@ -1397,41 +1416,27 @@ class _MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final isUser = message.isUser;
-    final baseColor = isUser
-        ? theme.colorScheme.primaryContainer
-        : theme.colorScheme.surfaceContainerHighest;
-    final color = baseColor.withValues(
-      alpha: bubbleOpacity.clamp(0, 1).toDouble(),
-    );
-    final align = isUser ? Alignment.centerRight : Alignment.centerLeft;
-    final radius = BorderRadius.circular(8);
     final screenWidth = MediaQuery.sizeOf(context).width;
     final maxBubbleWidth = isCompactWidth(screenWidth)
         ? screenWidth * 0.82
         : 760.0;
 
-    return Align(
-      alignment: align,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: maxBubbleWidth),
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 10),
-          padding: const EdgeInsets.fromLTRB(12, 10, 6, 6),
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: radius,
-            border: isHighlighted
-                ? Border.all(color: theme.colorScheme.primary, width: 2)
-                : null,
-          ),
-          child: Column(
+    return ChatBubble(
+      isUser: isUser,
+      appearance: appearance,
+      highlighted: isHighlighted,
+      fallbackTextColor: chatTextColor,
+      maxWidth: maxBubbleWidth,
+      child: Builder(
+        builder: (context) {
+          final theme = Theme.of(context);
+          return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               MessageContent(
                 text: message.content,
-                textColor: chatTextColor,
+                textColor: appearance.textColor ?? chatTextColor,
                 highlightQuery: searchQuery,
               ),
               const SizedBox(height: 4),
@@ -1467,8 +1472,8 @@ class _MessageBubble extends StatelessWidget {
                 ],
               ),
             ],
-          ),
-        ),
+          );
+        },
       ),
     );
   }
@@ -1480,30 +1485,27 @@ class _MessageBubble extends StatelessWidget {
 }
 
 class _TypingBubble extends StatelessWidget {
-  const _TypingBubble();
+  const _TypingBubble({required this.appearance, this.chatTextColor});
+
+  final ChatBubbleAppearance appearance;
+  final int? chatTextColor;
 
   @override
   Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox.square(
-              dimension: 16,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-            const SizedBox(width: 8),
-            Text(context.t('生成中')),
-          ],
-        ),
+    return ChatBubble(
+      isUser: false,
+      appearance: appearance,
+      fallbackTextColor: chatTextColor,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox.square(
+            dimension: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(width: 8),
+          Text(context.t('生成中')),
+        ],
       ),
     );
   }

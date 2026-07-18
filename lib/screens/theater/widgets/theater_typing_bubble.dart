@@ -1,18 +1,20 @@
 part of '../theater_screens.dart';
 
 class _TheaterTypingBubble extends StatelessWidget {
-  const _TheaterTypingBubble();
+  const _TheaterTypingBubble({required this.appearance, this.chatTextColor});
+
+  final ChatBubbleAppearance appearance;
+  final int? chatTextColor;
 
   @override
   Widget build(BuildContext context) {
-    return const Align(
-      alignment: Alignment.centerLeft,
-      child: Padding(
-        padding: EdgeInsets.all(12),
-        child: SizedBox.square(
-          dimension: 20,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
+    return ChatBubble(
+      isUser: false,
+      appearance: appearance,
+      fallbackTextColor: chatTextColor,
+      child: const SizedBox.square(
+        dimension: 20,
+        child: CircularProgressIndicator(strokeWidth: 2),
       ),
     );
   }

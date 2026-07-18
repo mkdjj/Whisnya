@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:whisnya/models/novel_book.dart';
 import 'package:whisnya/services/novel_parser.dart';
 import 'package:whisnya/services/novel_summary_service.dart';
 import 'package:charset/charset.dart';
@@ -73,5 +74,20 @@ Chapter 3 Reunion
     expect(restored.canResume, isTrue);
     expect(restored.completedSummaries, ['sa']);
     expect(restored.currentIndex, 1);
+  });
+
+  test('round trips novel last-opened time and defaults legacy data', () {
+    final book = NovelBook(
+      id: 'novel',
+      title: 'Novel',
+      textPath: 'novel.txt',
+      createdAt: DateTime(2026),
+      updatedAt: DateTime(2026, 1, 2),
+      lastOpenedAt: DateTime(2026, 2),
+    );
+
+    expect(NovelBook.fromJson(book.toJson()).lastOpenedAt, DateTime(2026, 2));
+    final legacyJson = book.toJson()..remove('lastOpenedAt');
+    expect(NovelBook.fromJson(legacyJson).lastOpenedSortTime, book.updatedAt);
   });
 }

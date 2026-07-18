@@ -349,7 +349,6 @@ class CharacterImportService {
       backgroundImage: imagePath,
       backgroundImageOpacity: 1,
       backgroundBlur: 0,
-      bubbleOpacity: 0.92,
       inputOpacity: 0.92,
       description: parsed.description,
       personality: parsed.personality,

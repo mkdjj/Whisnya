@@ -7,6 +7,7 @@ import 'package:whisnya/models/app_settings.dart';
 import 'package:whisnya/models/chat_session.dart';
 import 'package:whisnya/models/chat_summary.dart';
 import 'package:whisnya/models/novel_book.dart';
+import 'package:whisnya/models/theater.dart';
 import 'package:whisnya/screens/chat/chat_screen.dart';
 import 'package:whisnya/screens/home_screen.dart';
 import 'package:whisnya/screens/novel/novel_screens.dart';
@@ -70,6 +71,115 @@ void main() {
 
     expect(storage.markCharacterUsedCalls, 1);
   });
+
+  for (final entry in const [(0.0, 0), (0.5, 128), (1.0, 255)]) {
+    testWidgets('character card opacity ${entry.$1}', (tester) async {
+      final colorScheme = ColorScheme.fromSeed(
+        seedColor: Colors.blue,
+        brightness: entry.$1 == 0.5 ? Brightness.dark : Brightness.light,
+      );
+      final storage = _TrackingStorage(
+        characters: [
+          AppCharacter.fromJson({'id': 'character', 'name': 'Character'}),
+        ],
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(colorScheme: colorScheme),
+          home: HomeScreen(
+            storage: storage,
+            aiService: AiService(
+              client: MockClient((request) async => throw UnimplementedError()),
+            ),
+            settings: AppSettings(characterListCardOpacity: entry.$1),
+            onSettingsChanged: () async {},
+          ),
+        ),
+      );
+      await _pumpFrames(tester);
+
+      final card = tester.widget<Card>(
+        find.byKey(const ValueKey('character-card-character')),
+      );
+      expect(card.color?.a, closeTo(entry.$2 / 255, 0.01));
+      expect(card.color?.withValues(alpha: 1), colorScheme.surface);
+      expect(find.text('Character'), findsOneWidget);
+      expect(find.byIcon(Icons.more_vert), findsOneWidget);
+      expect(find.byType(CircleAvatar), findsOneWidget);
+      expect(
+        find.ancestor(
+          of: find.text('Character'),
+          matching: find.byType(Opacity),
+        ),
+        findsNothing,
+      );
+    });
+  }
+
+  testWidgets('list card opacity affects novel and theater lists', (
+    tester,
+  ) async {
+    final now = DateTime(2026);
+    final storage = _TrackingStorage(
+      novels: [
+        NovelBook(
+          id: 'novel',
+          title: 'Novel',
+          textPath: 'novel.txt',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      ],
+      theaterSessions: [
+        TheaterSession(
+          id: 'theater',
+          title: 'Theater',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: HomeScreen(
+          storage: storage,
+          aiService: AiService(
+            client: MockClient((request) async => throw UnimplementedError()),
+          ),
+          settings: const AppSettings(characterListCardOpacity: 0.5),
+          onSettingsChanged: () async {},
+        ),
+      ),
+    );
+    await _pumpFrames(tester);
+
+    await tester.tap(find.byIcon(Icons.menu_book_outlined));
+    await _pumpFrames(tester);
+    final novelCard = tester.widget<Card>(
+      find.byKey(const ValueKey('novel-card-novel')),
+    );
+    expect(novelCard.color?.a, closeTo(0.5, 0.01));
+
+    await tester.tap(find.byIcon(Icons.forum_outlined));
+    await _pumpFrames(tester);
+    final theaterCardFinder = find.byKey(
+      const ValueKey('theater-card-theater'),
+    );
+    final theaterCard = tester.widget<Card>(theaterCardFinder);
+    expect(theaterCard.color?.a, closeTo(0.5, 0.01));
+
+    await tester.tap(
+      find.descendant(
+        of: theaterCardFinder,
+        matching: find.byIcon(Icons.more_vert),
+      ),
+    );
+    await _pumpFrames(tester);
+    expect(
+      find.textContaining(RegExp('编辑群聊|Edit theater chat')),
+      findsOneWidget,
+    );
+  });
 }
 
 Future<void> _pumpFrames(WidgetTester tester) async {
@@ -79,7 +189,15 @@ Future<void> _pumpFrames(WidgetTester tester) async {
 }
 
 final class _TrackingStorage extends LocalStorageService {
-  _TrackingStorage() : super();
+  _TrackingStorage({
+    this.characters = const [],
+    this.novels = const [],
+    this.theaterSessions = const [],
+  }) : super();
+
+  final List<AppCharacter> characters;
+  final List<NovelBook> novels;
+  final List<TheaterSession> theaterSessions;
 
   var markCharacterUsedCalls = 0;
 
@@ -87,13 +205,19 @@ final class _TrackingStorage extends LocalStorageService {
   Future<void> ensureReady() async {}
 
   @override
-  Future<List<AppCharacter>> loadCharacters() async => const [];
+  Future<List<AppCharacter>> loadCharacters() async => characters;
 
   @override
   List<String> takeRecoveryMessages() => const [];
 
   @override
-  Future<List<NovelBook>> loadNovels() async => const [];
+  Future<List<NovelBook>> loadNovels() async => novels;
+
+  @override
+  Future<List<TheaterSession>> loadTheaterSessions() async => theaterSessions;
+
+  @override
+  Future<AppSettings> loadSettings() async => const AppSettings();
 
   @override
   Future<ApiConfig> loadApiConfig() async => ApiConfig();

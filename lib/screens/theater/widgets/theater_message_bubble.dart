@@ -4,7 +4,7 @@ class _TheaterMessageBubble extends StatelessWidget {
   const _TheaterMessageBubble({
     required this.message,
     required this.participant,
-    required this.bubbleOpacity,
+    required this.appearance,
     required this.chatTextColor,
     required this.onCopy,
     this.onDelete,
@@ -15,7 +15,7 @@ class _TheaterMessageBubble extends StatelessWidget {
 
   final TheaterMessage message;
   final TheaterParticipant? participant;
-  final double bubbleOpacity;
+  final ChatBubbleAppearance appearance;
   final int? chatTextColor;
   final VoidCallback onCopy;
   final VoidCallback? onDelete;
@@ -25,31 +25,20 @@ class _TheaterMessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final isUser = message.isUser;
-    final color =
-        (isUser
-                ? theme.colorScheme.primaryContainer
-                : message.isError
-                ? theme.colorScheme.errorContainer
-                : theme.colorScheme.surfaceContainerHighest)
-            .withValues(alpha: bubbleOpacity.clamp(0, 1).toDouble());
-    final align = isUser ? Alignment.centerRight : Alignment.centerLeft;
     final maxWidth = isCompactWidth(MediaQuery.sizeOf(context).width)
         ? MediaQuery.sizeOf(context).width * 0.86
         : 760.0;
-    return Align(
-      alignment: align,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: maxWidth),
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 10),
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Column(
+    return ChatBubble(
+      isUser: isUser,
+      appearance: appearance,
+      isError: message.isError,
+      fallbackTextColor: chatTextColor,
+      maxWidth: maxWidth,
+      child: Builder(
+        builder: (context) {
+          final theme = Theme.of(context);
+          return Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -115,7 +104,12 @@ class _TheaterMessageBubble extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 8),
-              MessageContent(text: message.content, textColor: chatTextColor),
+              MessageContent(
+                text: message.content,
+                textColor: message.isError
+                    ? null
+                    : appearance.textColor ?? chatTextColor,
+              ),
               const SizedBox(height: 4),
               Row(
                 mainAxisSize: MainAxisSize.min,
@@ -159,8 +153,8 @@ class _TheaterMessageBubble extends StatelessWidget {
                   message.errorMessage.trim() != message.content.trim())
                 Text(message.errorMessage, style: theme.textTheme.labelSmall),
             ],
-          ),
-        ),
+          );
+        },
       ),
     );
   }
