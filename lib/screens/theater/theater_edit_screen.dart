@@ -235,16 +235,16 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
   Future<void> _save() async {
     final title = _titleController.text.trim();
     if (title.isEmpty) {
-      _showSnack('请输入群聊名称');
+      context.showSnack('请输入群聊名称');
       return;
     }
     if (_selectedParticipants.length < 2) {
-      _showSnack('至少选择 2 个参与角色');
+      context.showSnack('至少选择 2 个参与角色');
       return;
     }
     if (_apiMode == TheaterApiMode.singleApi &&
         !_endpointReady(_singleEndpointId)) {
-      _showSnack('请先选择完整的 API 配置');
+      context.showSnack('请先选择完整的 API 配置');
       return;
     }
     if (_apiMode == TheaterApiMode.multiApi) {
@@ -253,7 +253,7 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
           continue;
         }
         if (!_endpointReady(participant.endpointId)) {
-          _showSnack('请为每个 AI 角色选择 API 配置');
+          context.showSnack('请为每个 AI 角色选择 API 配置');
           return;
         }
       }
@@ -261,7 +261,7 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
     final customRoundCount = int.tryParse(_customRoundsController.text.trim());
     final roundCount = _useCustomRounds ? customRoundCount : _keepRoundCount;
     if (roundCount == null || roundCount < 5 || roundCount > 100) {
-      _showSnack('自定义轮数必须在 5-100 之间');
+      context.showSnack('自定义轮数必须在 5-100 之间');
       return;
     }
 
@@ -401,10 +401,6 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
       outputWidth: 1080,
       outputHeight: 1920,
     );
-  }
-
-  void _showSnack(String text) {
-    context.showSnack(text);
   }
 
   @override

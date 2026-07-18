@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:io';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -10,7 +8,6 @@ import '../../controllers/chat_conversation_controller.dart';
 import '../../models/api_config.dart';
 import '../../models/app_character.dart';
 import '../../models/app_settings.dart';
-import '../../models/image_crop_region.dart';
 import '../../models/chat_message.dart';
 import '../../models/chat_summary.dart';
 import '../../prompts.dart';
@@ -141,7 +138,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final endpoint = _apiConfig.effectiveEndpoint(_selectedEndpointId);
     final configError = _validateEndpointConfig(endpoint);
     if (configError != null) {
-      _showSnack(configError);
+      context.showSnack(configError);
       return;
     }
 
@@ -250,7 +247,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _conversation.dropEmptyAssistantTail();
         _isSending = false;
       });
-      _showSnack(error.toString());
+      context.showSnack(error.toString());
     } finally {
       final streamBuffer = _streamBuffer;
       if (streamBuffer != null) {
@@ -267,7 +264,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final endpoint = _apiConfig.effectiveEndpoint(_selectedEndpointId);
     final configError = _validateEndpointConfig(endpoint);
     if (configError != null) {
-      _showSnack(configError);
+      context.showSnack(configError);
       return;
     }
     setState(() => _isSending = true);
@@ -279,7 +276,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_isSending) return;
     final index = _conversation.lastUserMessageIndex;
     if (index == -1) {
-      _showSnack('没有可编辑的用户消息。');
+      context.showSnack('没有可编辑的用户消息。');
       return;
     }
 
@@ -308,12 +305,13 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
     );
     controller.dispose();
+    if (!mounted) return;
     if (edited == null || edited.isEmpty) return;
 
     final endpoint = _apiConfig.effectiveEndpoint(_selectedEndpointId);
     final configError = _validateEndpointConfig(endpoint);
     if (configError != null) {
-      _showSnack(configError);
+      context.showSnack(configError);
       return;
     }
 
@@ -337,19 +335,19 @@ class _ChatScreenState extends State<ChatScreen> {
       _isSending = false;
     });
     unawaited(widget.storage.saveChat(_character.id, _messages));
-    _showSnack('已停止生成');
+    context.showSnack('已停止生成');
   }
 
   Future<void> _summarize() async {
     if (_messages.isEmpty || _isSummarizing) {
-      _showSnack('当前没有可总结的聊天记录。');
+      context.showSnack('当前没有可总结的聊天记录。');
       return;
     }
 
     final endpoint = _apiConfig.effectiveEndpoint(_selectedEndpointId);
     final configError = _validateEndpointConfig(endpoint);
     if (configError != null) {
-      _showSnack(configError);
+      context.showSnack(configError);
       return;
     }
 
@@ -401,7 +399,7 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (error) {
       if (!mounted) return;
       setState(() => _isSummarizing = false);
-      _showSnack(error.toString());
+      context.showSnack(error.toString());
     }
   }
 
@@ -423,12 +421,12 @@ class _ChatScreenState extends State<ChatScreen> {
       _searchResults = [];
       _activeSearchResult = 0;
     });
-    _showSnack('聊天记录已清空');
+    context.showSnack('聊天记录已清空');
   }
 
   Future<void> _showSearchDialog() async {
     if (_messages.isEmpty) {
-      _showSnack('当前没有可搜索的聊天记录');
+      context.showSnack('当前没有可搜索的聊天记录');
       return;
     }
 
@@ -648,7 +646,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           if (!mounted) return;
                           setState(() => _conversation.setSummary(nextSummary));
                           navigator.pop();
-                          _showSnack('历史总结已删除');
+                          context.showSnack('历史总结已删除');
                         }
                       : null,
                   child: Text(context.t('删除历史总结')),
@@ -658,7 +656,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     final navigator = Navigator.of(dialogContext);
                     final nextText = controller.text.trim();
                     if (nextText.isEmpty) {
-                      _showSnack('总结内容不能为空，想删除请点删除历史总结');
+                      context.showSnack('总结内容不能为空，想删除请点删除历史总结');
                       return;
                     }
                     if (nextText == text) {
@@ -687,7 +685,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     if (!mounted) return;
                     setState(() => _conversation.setSummary(nextSummary));
                     navigator.pop();
-                    _showSnack('历史总结已保存');
+                    context.showSnack('历史总结已保存');
                   },
                   child: Text(context.t('保存')),
                 ),
@@ -971,7 +969,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _copyMessage(ChatMessage message) async {
     await Clipboard.setData(ClipboardData(text: message.content));
     if (!mounted) return;
-    _showSnack('已复制消息');
+    context.showSnack('已复制消息');
   }
 
   Future<void> _deleteMessage(int index) async {
@@ -1045,10 +1043,6 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  void _showSnack(String message) {
-    context.showSnack(message);
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1109,11 +1103,12 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     }
 
-    return _ChatBackground(
+    return MediaBackground(
       imagePath: _character.backgroundImage,
       region: _character.backgroundImageRegion,
       opacity: _character.backgroundImageOpacity,
       blur: _character.backgroundBlur,
+      overlayOpacity: 0.18,
       child: Stack(
         children: [
           Column(
@@ -1326,52 +1321,6 @@ class _AnimatedTopBar extends StatelessWidget {
           child: child,
         ),
       ),
-    );
-  }
-}
-
-class _ChatBackground extends StatelessWidget {
-  const _ChatBackground({
-    required this.imagePath,
-    required this.region,
-    required this.opacity,
-    required this.blur,
-    required this.child,
-  });
-
-  final String imagePath;
-  final ImageCropRegion region;
-  final double opacity;
-  final double blur;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final path = imagePath.trim();
-    final alpha = opacity.clamp(0, 1).toDouble();
-
-    if (path.isEmpty) {
-      return child;
-    }
-    final file = File(path);
-
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Opacity(
-          opacity: alpha,
-          child: ImageFiltered(
-            imageFilter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-            child: croppedFileImage(context, file, region: region),
-          ),
-        ),
-        DecoratedBox(
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.18 * alpha),
-          ),
-          child: child,
-        ),
-      ],
     );
   }
 }

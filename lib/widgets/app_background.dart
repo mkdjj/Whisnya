@@ -14,31 +14,58 @@ class AppBackground extends StatelessWidget {
   final Widget child;
 
   @override
+  Widget build(BuildContext context) => MediaBackground(
+    imagePath: settings.globalBackgroundImage,
+    region: settings.globalBackgroundRegion,
+    opacity: settings.globalBackgroundOpacity,
+    blur: settings.globalBackgroundBlur,
+    child: child,
+  );
+}
+
+class MediaBackground extends StatelessWidget {
+  const MediaBackground({
+    required this.imagePath,
+    required this.opacity,
+    required this.blur,
+    required this.child,
+    this.region = ImageCropRegion.full,
+    this.overlayOpacity = 0,
+    super.key,
+  });
+
+  final String imagePath;
+  final ImageCropRegion region;
+  final double opacity;
+  final double blur;
+  final double overlayOpacity;
+  final Widget child;
+
+  @override
   Widget build(BuildContext context) {
-    final path = settings.globalBackgroundImage.trim();
-    if (path.isEmpty) {
-      return child;
-    }
-    final file = File(path);
+    final path = imagePath.trim();
+    if (path.isEmpty) return child;
+    final alpha = opacity.clamp(0, 1).toDouble();
 
     return Stack(
       fit: StackFit.expand,
       children: [
         Opacity(
-          opacity: settings.globalBackgroundOpacity.clamp(0, 1).toDouble(),
+          opacity: alpha,
           child: ImageFiltered(
-            imageFilter: ImageFilter.blur(
-              sigmaX: settings.globalBackgroundBlur,
-              sigmaY: settings.globalBackgroundBlur,
-            ),
-            child: croppedFileImage(
-              context,
-              file,
-              region: settings.globalBackgroundRegion,
-            ),
+            imageFilter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+            child: croppedFileImage(context, File(path), region: region),
           ),
         ),
-        child,
+        if (overlayOpacity > 0)
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: overlayOpacity * alpha),
+            ),
+            child: child,
+          )
+        else
+          child,
       ],
     );
   }

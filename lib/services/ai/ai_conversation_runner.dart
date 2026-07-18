@@ -71,18 +71,9 @@ class AiRunResult {
   final AiUsage usage;
 }
 
-abstract interface class AiProviderAdapter {
-  Uri buildUri(AiRequest request);
-  Map<String, String> buildHeaders(AiRequest request);
-  Map<String, dynamic> buildBody(AiRequest request);
-  AiStreamEvent? parseStream(String line, {required bool includeReasoning});
-  AiRunResult parseResponse(dynamic json);
-}
-
-class OpenAiCompatibleAdapter implements AiProviderAdapter {
+class OpenAiCompatibleAdapter {
   const OpenAiCompatibleAdapter();
 
-  @override
   Uri buildUri(AiRequest request) {
     final normalized = request.baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
     final url = normalized.toLowerCase().endsWith('/chat/completions')
@@ -95,13 +86,11 @@ class OpenAiCompatibleAdapter implements AiProviderAdapter {
     return uri;
   }
 
-  @override
   Map<String, String> buildHeaders(AiRequest request) => {
     'Authorization': 'Bearer ${request.apiKey.trim()}',
     'Content-Type': 'application/json',
   };
 
-  @override
   Map<String, dynamic> buildBody(AiRequest request) => {
     'model': request.model.trim(),
     'messages': request.messages,
@@ -109,7 +98,6 @@ class OpenAiCompatibleAdapter implements AiProviderAdapter {
     if (request.stream) 'stream': true,
   };
 
-  @override
   AiStreamEvent? parseStream(String line, {required bool includeReasoning}) {
     if (line.isEmpty) return null;
     final payload = line.startsWith('data:') ? line.substring(5).trim() : line;
@@ -154,7 +142,6 @@ class OpenAiCompatibleAdapter implements AiProviderAdapter {
     }
   }
 
-  @override
   AiRunResult parseResponse(dynamic json) {
     if (json is! Map<String, dynamic>) {
       throw AiException('API 返回格式异常。');
@@ -183,13 +170,11 @@ class OpenAiCompatibleAdapter implements AiProviderAdapter {
 }
 
 class AiConversationRunner {
-  AiConversationRunner({
-    http.Client? client,
-    this._adapter = const OpenAiCompatibleAdapter(),
-  }) : _client = client ?? http.Client();
+  AiConversationRunner({http.Client? client})
+    : _client = client ?? http.Client();
 
   final http.Client _client;
-  final AiProviderAdapter _adapter;
+  static const _adapter = OpenAiCompatibleAdapter();
 
   Future<AiRunResult> send(
     AiRequest request, {

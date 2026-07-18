@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:ui';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -36,7 +35,6 @@ import 'theater_reply_settings.dart';
 part 'theater_list_screen.dart';
 part 'theater_edit_screen.dart';
 part 'theater_chat_screen.dart';
-part 'widgets/theater_background.dart';
 part 'widgets/theater_shared_widgets.dart';
 part 'widgets/theater_input_composer.dart';
 part 'widgets/theater_message_bubble.dart';

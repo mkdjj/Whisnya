@@ -78,7 +78,7 @@ class NovelScreenState extends State<NovelScreen> {
       await _openBook(book);
     } catch (error) {
       if (!mounted) return;
-      _showSnack(error.toString());
+      context.showSnack(error.toString());
     }
   }
 
@@ -138,13 +138,13 @@ class NovelScreenState extends State<NovelScreen> {
       book.copyWith(isHidden: !book.isHidden, updatedAt: DateTime.now()),
     );
     if (!mounted) return;
-    _showSnack(book.isHidden ? '已显示设定' : '已隐藏设定');
+    context.showSnack(book.isHidden ? '已显示设定' : '已隐藏设定');
     await _load();
   }
 
   Future<void> _toggleBookLock(NovelBook book) async {
     if (!book.isLocked && !widget.settings.hasPrivacyPassword) {
-      _showSnack('请先到设置里设置隐私密码');
+      context.showSnack('请先到设置里设置隐私密码');
       return;
     }
     if (book.isLocked && !await _verifyBookOperation(book, '解除上锁')) {
@@ -154,7 +154,7 @@ class NovelScreenState extends State<NovelScreen> {
       book.copyWith(isLocked: !book.isLocked, updatedAt: DateTime.now()),
     );
     if (!mounted) return;
-    _showSnack(book.isLocked ? '已解除上锁' : '已上锁');
+    context.showSnack(book.isLocked ? '已解除上锁' : '已上锁');
     await _load();
   }
 
@@ -192,12 +192,8 @@ class NovelScreenState extends State<NovelScreen> {
 
     await widget.storage.deleteNovel(book);
     if (!mounted) return;
-    _showSnack('已删除小说');
+    context.showSnack('已删除小说');
     await _load();
-  }
-
-  void _showSnack(String message) {
-    context.showSnack(message);
   }
 
   @override

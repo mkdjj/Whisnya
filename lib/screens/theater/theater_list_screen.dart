@@ -140,13 +140,13 @@ class TheaterListScreenState extends State<TheaterListScreen> {
       session.copyWith(isHidden: !session.isHidden, updatedAt: DateTime.now()),
     );
     if (!mounted) return;
-    _showSnack(session.isHidden ? '已显示设定' : '已隐藏设定');
+    context.showSnack(session.isHidden ? '已显示设定' : '已隐藏设定');
     await _load();
   }
 
   Future<void> _toggleLock(TheaterSession session) async {
     if (!session.isLocked && !widget.settings.hasPrivacyPassword) {
-      _showSnack('请先到设置里设置隐私密码');
+      context.showSnack('请先到设置里设置隐私密码');
       return;
     }
     if (session.isLocked && !await _verifySessionOperation(session, '解除上锁')) {
@@ -156,7 +156,7 @@ class TheaterListScreenState extends State<TheaterListScreen> {
       session.copyWith(isLocked: !session.isLocked, updatedAt: DateTime.now()),
     );
     if (!mounted) return;
-    _showSnack(session.isLocked ? '已解除上锁' : '已上锁');
+    context.showSnack(session.isLocked ? '已解除上锁' : '已上锁');
     await _load();
   }
 
@@ -175,10 +175,6 @@ class TheaterListScreenState extends State<TheaterListScreen> {
       storage: widget.storage,
       title: title,
     );
-  }
-
-  void _showSnack(String text) {
-    context.showSnack(text);
   }
 
   @override

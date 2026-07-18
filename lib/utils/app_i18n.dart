@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 const appLanguageSystem = 'system';
 const appLanguageZh = 'zh';
 const appLanguageEn = 'en';
+const appSupportedLocales = [Locale('zh'), Locale('en')];
+const appLocalizationsDelegates = GlobalMaterialLocalizations.delegates;
 
 final _parsedFieldsPattern = RegExp(r'^已识别 (\d+) 个字段$');
 final _importedCharacterPattern = RegExp(r'^已导入角色：(.+)$');

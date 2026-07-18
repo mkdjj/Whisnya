@@ -126,7 +126,7 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
 
     final endpoint = _apiConfig.effectiveEndpoint(_selectedEndpointId);
     if (endpoint == null || !endpoint.isComplete) {
-      _showSnack('请先到 API 设置添加完整配置。');
+      context.showSnack('请先到 API 设置添加完整配置。');
       return;
     }
 
@@ -265,11 +265,12 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
         _summaryCache = null;
       });
       await _chooseRole();
-      _showSnack('小说总结完成');
+      if (!mounted) return;
+      context.showSnack('小说总结完成');
     } catch (error) {
       if (!mounted) return;
       setState(() => _isBusy = false);
-      _showSnack(error.toString());
+      context.showSnack(error.toString());
     } finally {
       if (identical(_cancelToken, cancelToken)) _cancelToken = null;
     }
@@ -446,7 +447,7 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
                 for (final controller in controllers) {
                   final start = int.tryParse(controller.text.trim());
                   if (start == null || start < 1 || start > total) {
-                    _showSnack('起始章节必须在 1-$total 之间');
+                    context.showSnack('起始章节必须在 1-$total 之间');
                     return;
                   }
                   starts.add(start);
@@ -514,7 +515,7 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
                   start < 1 ||
                   end > total ||
                   start > end) {
-                _showSnack('请输入 1-$total 之间的有效范围');
+                context.showSnack('请输入 1-$total 之间的有效范围');
                 return;
               }
               Navigator.of(context).pop((start: start, end: end));
@@ -584,7 +585,7 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
 
   Future<void> _chooseRole() async {
     if (_book.roles.isEmpty) {
-      _showSnack('还没有角色，请先总结小说。');
+      context.showSnack('还没有角色，请先总结小说。');
       return;
     }
 
@@ -609,7 +610,7 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
 
   Future<void> _chooseUserRole() async {
     if (_book.roles.isEmpty) {
-      _showSnack('还没有角色，请先总结小说。');
+      context.showSnack('还没有角色，请先总结小说。');
       return;
     }
 
@@ -698,7 +699,7 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
                   final deleted = await _deleteNovelRole(role, index);
                   if (!deleted || !mounted) return;
                   navigator.pop(true);
-                  _showSnack('已删除角色：${role.name}');
+                  context.showSnack('已删除角色：${role.name}');
                 },
                 icon: const Icon(Icons.delete_outline),
                 label: Text(context.t('删除')),
@@ -709,7 +710,7 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
                   final exported = await _exportRoleToCharacter(role);
                   if (!exported || !mounted) return;
                   navigator.pop();
-                  _showSnack('已导出到角色：${role.name}');
+                  context.showSnack('已导出到角色：${role.name}');
                 },
                 icon: const Icon(Icons.person_add_alt_1),
                 label: Text(context.t('导出到角色')),
@@ -1191,7 +1192,7 @@ ${role.speakingStyle}
                   .where((line) => line.isNotEmpty)
                   .toList();
               if (lines.length != _chapters.length) {
-                _showSnack('目录行数必须和当前章节数一致');
+                context.showSnack('目录行数必须和当前章节数一致');
                 return;
               }
               Navigator.of(context).pop(lines);
@@ -1224,7 +1225,7 @@ ${role.speakingStyle}
     await widget.storage.clearNovelChat(_book.id);
     if (!mounted) return;
     setState(_reader.clearChat);
-    _showSnack('小说聊天已清空');
+    context.showSnack('小说聊天已清空');
   }
 
   Future<void> _sendNovelMessage() async {
@@ -1236,7 +1237,7 @@ ${role.speakingStyle}
 
     final endpoint = _apiConfig.effectiveEndpoint(_selectedEndpointId);
     if (endpoint == null || !endpoint.isComplete) {
-      _showSnack('请先到 API 设置添加完整配置。');
+      context.showSnack('请先到 API 设置添加完整配置。');
       return;
     }
 
@@ -1340,7 +1341,7 @@ ${role.speakingStyle}
         _reader.dropEmptyAssistantTail();
         _isSending = false;
       });
-      _showSnack(error.toString());
+      context.showSnack(error.toString());
     } finally {
       final streamBuffer = _streamBuffer;
       if (streamBuffer != null) {
@@ -1362,7 +1363,7 @@ ${role.speakingStyle}
       _isSending = false;
     });
     unawaited(widget.storage.saveNovelChat(_book.id, _messages));
-    _showSnack('已停止生成');
+    context.showSnack('已停止生成');
   }
 
   Future<void> _deleteNovelMessage(int index) async {
@@ -1447,7 +1448,7 @@ ${role.speakingStyle}
 
   Future<void> _chooseChapter() async {
     if (_chapters.isEmpty) {
-      _showSnack('小说正文为空');
+      context.showSnack('小说正文为空');
       return;
     }
 
@@ -1517,6 +1518,7 @@ ${role.speakingStyle}
       ),
     );
     controller.dispose();
+    if (!mounted) return;
     if (query == null) return;
     late NovelReaderSearchResult result;
     setState(() => result = _reader.search(query));
@@ -1539,7 +1541,7 @@ ${role.speakingStyle}
         }
         return;
       case NovelReaderSearchTarget.notFound:
-        _showSnack('没有找到匹配内容');
+        context.showSnack('没有找到匹配内容');
     }
   }
 
@@ -1570,10 +1572,6 @@ ${role.speakingStyle}
 
   bool get _showNovelTypingBubble =>
       _isSending && (_messages.isEmpty || !_messages.last.isAssistant);
-
-  void _showSnack(String message) {
-    context.showSnack(message);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -1754,10 +1752,11 @@ ${role.speakingStyle}
   }
 
   Widget _buildChatMode() {
-    return _NovelChatBackground(
+    return MediaBackground(
       imagePath: _book.chatBackgroundImage,
       opacity: _book.chatBackgroundOpacity,
       blur: _book.chatBackgroundBlur,
+      overlayOpacity: 0.16,
       child: Column(
         children: [
           Material(

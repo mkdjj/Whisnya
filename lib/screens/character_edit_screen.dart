@@ -140,7 +140,7 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
       Navigator.of(context).pop(true);
     } catch (error) {
       if (!mounted) return;
-      _showSnack(error.toString());
+      context.showSnack(error.toString());
       setState(() => _isSaving = false);
     }
   }
@@ -225,7 +225,7 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
       setIfNotEmpty(_openingMessageController, parsed.openingMessage);
       setIfNotEmpty(_extraPromptController, parsed.extraPrompt);
     });
-    _showSnack(
+    context.showSnack(
       parsed.filledCount == 0 ? '未识别到明确字段' : '已识别 ${parsed.filledCount} 个字段',
     );
   }
@@ -237,7 +237,7 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
       ClipboardData(text: RoleImportParser.formatCharacter(character)),
     );
     if (!mounted) return;
-    _showSnack('角色设定已复制');
+    context.showSnack('角色设定已复制');
   }
 
   Future<void> _exportCharacterPackage() async {
@@ -251,10 +251,10 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
         bytes: bytes,
       );
       if (!mounted) return;
-      _showSnack('角色包已导出');
+      context.showSnack('角色包已导出');
     } catch (error) {
       if (!mounted) return;
-      _showSnack(error.toString());
+      context.showSnack(error.toString());
     }
   }
 
@@ -285,8 +285,9 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
         final file = await widget.storage.saveTemporaryImage(picked.bytes!);
         sourcePath = file.path;
       }
+      if (!mounted) return;
       if (sourcePath == null) {
-        _showSnack('没有拿到可读取的图片路径。');
+        context.showSnack('没有拿到可读取的图片路径。');
         return;
       }
 
@@ -318,7 +319,7 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
       setState(() => kind.controller(this).text = savedPath);
     } catch (error) {
       if (!mounted) return;
-      _showSnack(error.toString());
+      context.showSnack(error.toString());
     } finally {
       if (mounted) {
         setState(() => _isPickingImage = false);
@@ -329,7 +330,7 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
   Future<void> _cropCurrentImage(_CharacterImageKind kind) async {
     final path = kind.controller(this).text.trim();
     if (path.isEmpty || !File(path).existsSync()) {
-      _showSnack('当前没有可裁剪的图片。');
+      context.showSnack('当前没有可裁剪的图片。');
       return;
     }
 
@@ -383,10 +384,6 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
         ),
       ),
     );
-  }
-
-  void _showSnack(String message) {
-    context.showSnack(message);
   }
 
   @override

@@ -74,7 +74,7 @@ class _HomeScreenState extends State<HomeScreen> {
       });
       if (recoveryMessages.isNotEmpty) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _showSnack(recoveryMessages.join('\n'));
+          if (mounted) context.showSnack(recoveryMessages.join('\n'));
         });
       }
     } catch (error) {
@@ -146,7 +146,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     await widget.storage.saveCharacter(next);
     if (!mounted) return;
-    _showSnack(next.isPinned ? '已置顶角色' : '已取消置顶');
+    context.showSnack(next.isPinned ? '已置顶角色' : '已取消置顶');
     await _load();
   }
 
@@ -164,13 +164,13 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     await widget.storage.saveCharacter(next);
     if (!mounted) return;
-    _showSnack(next.isHidden ? '已隐藏设定' : '已显示设定');
+    context.showSnack(next.isHidden ? '已隐藏设定' : '已显示设定');
     await _load();
   }
 
   Future<void> _toggleLock(AppCharacter character) async {
     if (!character.isLocked && !widget.settings.hasPrivacyPassword) {
-      _showSnack('请先到设置里设置隐私密码');
+      context.showSnack('请先到设置里设置隐私密码');
       return;
     }
     if (character.isLocked && !await _verifyPassword('解除上锁')) {
@@ -183,7 +183,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     await widget.storage.saveCharacter(next);
     if (!mounted) return;
-    _showSnack(next.isLocked ? '已上锁' : '已解除上锁');
+    context.showSnack(next.isLocked ? '已上锁' : '已解除上锁');
     await _load();
   }
 
@@ -227,11 +227,11 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       await widget.storage.deleteCharacter(character.id);
       if (!mounted) return;
-      _showSnack('已删除角色');
+      context.showSnack('已删除角色');
       await _load();
     } catch (error) {
       if (!mounted) return;
-      _showSnack(error.toString());
+      context.showSnack(error.toString());
     }
   }
 
@@ -243,10 +243,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (index == 0) {
       unawaited(_load());
     }
-  }
-
-  void _showSnack(String message) {
-    context.showSnack(message);
   }
 
   @override

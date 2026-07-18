@@ -1,33 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:whisnya/l10n/app_localizations.dart';
+import 'package:whisnya/utils/app_i18n.dart';
 
 void main() {
-  test('common Chinese and English copy comes from ARB resources', () async {
-    final zh = await AppLocalizations.delegate.load(const Locale('zh'));
-    final en = await AppLocalizations.delegate.load(const Locale('en'));
-    expect(zh.save, '保存');
-    expect(en.save, 'Save');
-    expect(zh.retry, '重试');
-    expect(en.retry, 'Retry');
-  });
+  testWidgets('native delegates support static and dynamic app translations', (
+    tester,
+  ) async {
+    late String save;
+    late String progress;
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('en'),
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        home: Builder(
+          builder: (context) {
+            save = context.t('保存');
+            progress = context.t('正在总结 2 / 5');
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
 
-  test(
-    'one-placeholder copy is localized without punctuation matching',
-    () async {
-      final zh = await AppLocalizations.delegate.load(const Locale('zh'));
-      final en = await AppLocalizations.delegate.load(const Locale('en'));
-      expect(zh.chatCount(3), '3 条聊天');
-      expect(en.chatCount(3), '3 chats');
-      expect(en.apiHttpError(429), 'API HTTP error: 429');
-    },
-  );
-
-  test('two-placeholder copy is localized independently', () async {
-    final zh = await AppLocalizations.delegate.load(const Locale('zh'));
-    final en = await AppLocalizations.delegate.load(const Locale('en'));
-    expect(zh.summarizingProgress(2, 5), '正在总结 2/5');
-    expect(en.summarizingProgress(2, 5), 'Summarizing 2/5');
-    expect(en.importResult(4, 1), 'Imported 4; 1 failed');
+    expect(save, 'Save');
+    expect(progress, 'Summarizing 2 / 5');
   });
 }

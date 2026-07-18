@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:ui';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -26,6 +25,7 @@ import '../../utils/page_layout.dart';
 import '../../utils/privacy_password_prompt.dart';
 import '../../utils/snack.dart';
 import '../../utils/stream_text_buffer.dart';
+import '../../widgets/app_background.dart';
 import '../../widgets/endpoint_picker.dart';
 import '../../widgets/message_content.dart';
 import '../../widgets/setting_slider.dart';
@@ -34,5 +34,4 @@ part 'novel_library_screen.dart';
 part 'novel_reader_screen.dart';
 part 'novel_analysis_dialog.dart';
 part 'widgets/reader_text.dart';
-part 'widgets/novel_chat_background.dart';
 part 'widgets/novel_chat_bubble.dart';

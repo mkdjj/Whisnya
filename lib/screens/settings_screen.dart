@@ -93,12 +93,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final file = await widget.storage.saveTemporaryImage(picked.bytes!);
       sourcePath = file.path;
     }
+    if (!mounted) return;
     if (sourcePath == null) {
-      _showSnack('没有拿到可读取的图片路径。');
+      context.showSnack('没有拿到可读取的图片路径。');
       return;
     }
 
-    if (!mounted) return;
     final size = MediaQuery.sizeOf(context);
     final aspectRatio = size.height <= 0 ? 9 / 16 : size.width / size.height;
     final outputWidth = aspectRatio >= 1 ? 1920 : 1080;
@@ -234,9 +234,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _isBusy = true);
     try {
       await action();
-      if (mounted) _showSnack('完成');
+      if (mounted) context.showSnack('完成');
     } catch (error) {
-      if (mounted) _showSnack(error.toString());
+      if (mounted) context.showSnack(error.toString());
     } finally {
       if (mounted) setState(() => _isBusy = false);
     }
@@ -537,7 +537,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _settings.privacyPasswordSalt,
                     _settings.privacyPasswordHash,
                   )) {
-                _showSnack('当前密码不正确');
+                context.showSnack('当前密码不正确');
                 return;
               }
               final next = _settingsWithPassword(
@@ -561,14 +561,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     questionController.dispose();
     answerController.dispose();
 
+    if (!mounted) return;
     if (saved == null) return;
     _applySettings(saved);
-    _showSnack('隐私密码已保存');
+    context.showSnack('隐私密码已保存');
   }
 
   Future<void> _recoverPassword() async {
     if (!_settings.hasRecoveryAnswer) {
-      _showSnack('没有设置恢复问题，无法找回密码。');
+      context.showSnack('没有设置恢复问题，无法找回密码。');
       return;
     }
 
@@ -623,17 +624,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _settings.recoveryAnswerSalt,
                 _settings.recoveryAnswerHash,
               )) {
-                _showSnack('恢复答案不正确');
+                context.showSnack('恢复答案不正确');
                 return;
               }
               final password = passwordController.text.trim();
               final confirm = confirmController.text.trim();
               if (password.length < 4) {
-                _showSnack('密码至少 4 位');
+                context.showSnack('密码至少 4 位');
                 return;
               }
               if (password != confirm) {
-                _showSnack('两次输入的密码不一致');
+                context.showSnack('两次输入的密码不一致');
                 return;
               }
               final salt = PasswordLock.newSalt();
@@ -659,9 +660,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     passwordController.dispose();
     confirmController.dispose();
 
+    if (!mounted) return;
     if (saved == null) return;
     _applySettings(saved);
-    _showSnack('隐私密码已重置');
+    context.showSnack('隐私密码已重置');
   }
 
   Future<void> _deletePassword() async {
@@ -688,7 +690,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _settings.privacyPasswordSalt,
                 _settings.privacyPasswordHash,
               )) {
-                _showSnack('当前密码不正确');
+                context.showSnack('当前密码不正确');
                 return;
               }
               Navigator.of(context).pop(true);
@@ -701,6 +703,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     passwordController.dispose();
 
+    if (!mounted) return;
     if (confirmed != true) return;
     _applySettings(
       _settings.copyWith(
@@ -711,7 +714,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         recoveryAnswerHash: '',
       ),
     );
-    _showSnack('隐私密码已删除');
+    context.showSnack('隐私密码已删除');
   }
 
   AppSettings? _settingsWithPassword({
@@ -721,15 +724,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required String answer,
   }) {
     if (password.length < 4) {
-      _showSnack('密码至少 4 位');
+      context.showSnack('密码至少 4 位');
       return null;
     }
     if (password != confirm) {
-      _showSnack('两次输入的密码不一致');
+      context.showSnack('两次输入的密码不一致');
       return null;
     }
     if (question.isEmpty || answer.trim().isEmpty) {
-      _showSnack('请填写恢复问题和答案');
+      context.showSnack('请填写恢复问题和答案');
       return null;
     }
 
@@ -784,7 +787,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _addSummaryItem({required bool isTheater}) async {
     final items = _summaryItems(isTheater);
     if (items.length >= AppSettings.maxSummaryItems) {
-      _showSnack('最多 20 个总结项目');
+      context.showSnack('最多 20 个总结项目');
       return;
     }
     final text = await _summaryItemDialog(title: '添加项目');
@@ -810,7 +813,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _deleteSummaryItem({required int index, required bool isTheater}) {
     final items = _summaryItems(isTheater);
     if (items.length <= 1) {
-      _showSnack('至少保留一个总结项目');
+      context.showSnack('至少保留一个总结项目');
       return;
     }
     final next = [...items]..removeAt(index);
@@ -899,10 +902,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
     controller.dispose();
     return result;
-  }
-
-  void _showSnack(String message) {
-    context.showSnack(message);
   }
 
   @override

@@ -1043,11 +1043,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   Future<void> _copy(TheaterMessage message) async {
     await Clipboard.setData(ClipboardData(text: message.content));
     if (!mounted) return;
-    _showSnack('已复制消息');
-  }
-
-  void _showSnack(String text) {
-    context.showSnack(text);
+    context.showSnack('已复制消息');
   }
 
   SystemUiOverlayStyle _overlayStyle(BuildContext context) {
@@ -1065,11 +1061,12 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     final hasBackground = _session.backgroundImage.trim().isNotEmpty;
-    return _TheaterBackground(
+    return MediaBackground(
       imagePath: _session.backgroundImage,
       region: _session.backgroundImageRegion,
       opacity: _session.backgroundImageOpacity,
       blur: _session.backgroundBlur,
+      overlayOpacity: 0.18,
       child: Scaffold(
         backgroundColor: hasBackground ? Colors.transparent : null,
         appBar: AppBar(

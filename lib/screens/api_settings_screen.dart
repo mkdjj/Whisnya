@@ -47,7 +47,7 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
     } catch (error) {
       if (!mounted) return;
       setState(() => _isLoading = false);
-      _showSnack(error.toString());
+      context.showSnack(error.toString());
     }
   }
 
@@ -55,7 +55,7 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
     await widget.storage.saveApiConfig(config);
     if (!mounted) return;
     setState(() => _config = config);
-    if (message != null) _showSnack(message);
+    if (message != null) context.showSnack(message);
   }
 
   Future<void> _editEndpoint([AiEndpointConfig? endpoint]) async {
@@ -84,7 +84,7 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
   Future<void> _testEndpoint(AiEndpointConfig endpoint) async {
     final error = _validateEndpoint(endpoint);
     if (error != null) {
-      _showSnack(error);
+      context.showSnack(error);
       return;
     }
 
@@ -100,10 +100,10 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
         ],
       );
       if (!mounted) return;
-      _showSnack('${endpoint.name} 连接成功：$reply');
+      context.showSnack('${endpoint.name} 连接成功：$reply');
     } catch (error) {
       if (!mounted) return;
-      _showSnack(error.toString());
+      context.showSnack(error.toString());
     } finally {
       if (mounted) setState(() => _testingEndpointId = null);
     }
@@ -235,10 +235,6 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
 
   String _newEndpointId() {
     return 'endpoint_${DateTime.now().microsecondsSinceEpoch}';
-  }
-
-  void _showSnack(String message) {
-    context.showSnack(message);
   }
 
   Future<void> _showUsageStats() async {

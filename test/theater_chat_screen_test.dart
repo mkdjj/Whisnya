@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:whisnya/l10n/app_localizations.dart';
 import 'package:whisnya/models/ai_usage.dart';
 import 'package:whisnya/models/api_config.dart';
 import 'package:whisnya/models/app_settings.dart';
@@ -11,6 +10,7 @@ import 'package:whisnya/screens/theater/theater_screens.dart';
 import 'package:whisnya/services/ai/ai_conversation_runner.dart';
 import 'package:whisnya/services/ai/ai_gateway.dart';
 import 'package:whisnya/services/local_storage_service.dart';
+import 'package:whisnya/utils/app_i18n.dart';
 
 void main() {
   testWidgets('extra reply choices explicitly describe random additions', (
@@ -19,8 +19,8 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         locale: const Locale('zh'),
-        supportedLocales: AppLocalizations.supportedLocales,
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
         home: Scaffold(
           body: TheaterReplySettings(
             mainReplyCount: 1,
