@@ -22,7 +22,6 @@ class AiService implements AiGateway {
     required List<Map<String, String>> messages,
     double temperature = 0.8,
     AiCancelToken? cancelToken,
-    int? maxTokens,
     void Function(AiUsage usage)? onUsage,
   }) async {
     final result = await _runner.send(
@@ -32,7 +31,6 @@ class AiService implements AiGateway {
         model: model,
         messages: messages,
         temperature: temperature,
-        maxTokens: maxTokens,
       ),
       cancelToken: cancelToken,
     );
@@ -49,7 +47,6 @@ class AiService implements AiGateway {
     double temperature = 0.8,
     AiCancelToken? cancelToken,
     bool includeReasoning = false,
-    int? maxTokens,
     void Function(AiUsage usage)? onUsage,
   }) async* {
     var usageReported = false;
@@ -62,7 +59,6 @@ class AiService implements AiGateway {
         temperature: temperature,
         stream: true,
         includeReasoning: includeReasoning,
-        maxTokens: maxTokens,
       ),
       cancelToken: cancelToken,
     )) {

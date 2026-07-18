@@ -78,7 +78,6 @@ final class ChatSummaryService {
       messages: request,
       temperature: 0.2,
       cancelToken: cancelToken,
-      maxTokens: 800,
       onUsage: onUsage == null ? null : (usage) => onUsage(usage, request),
     );
     return ChatSummary(

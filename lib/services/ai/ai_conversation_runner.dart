@@ -46,7 +46,6 @@ class AiRequest {
     this.stream = false,
     this.includeReasoning = false,
     this.temperature = 0.8,
-    this.maxTokens,
   });
 
   final String apiKey;
@@ -56,7 +55,6 @@ class AiRequest {
   final bool stream;
   final bool includeReasoning;
   final double temperature;
-  final int? maxTokens;
 }
 
 class AiStreamEvent {
@@ -109,7 +107,6 @@ class OpenAiCompatibleAdapter implements AiProviderAdapter {
     'messages': request.messages,
     'temperature': request.temperature,
     if (request.stream) 'stream': true,
-    'max_tokens': ?request.maxTokens,
   };
 
   @override
@@ -272,9 +269,6 @@ class AiConversationRunner {
     }
     if (request.model.trim().isEmpty) {
       throw AiException('Model 为空，请先配置。');
-    }
-    if (request.maxTokens != null && request.maxTokens! <= 0) {
-      throw AiException('maxTokens 必须大于 0。');
     }
   }
 

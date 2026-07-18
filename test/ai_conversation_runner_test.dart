@@ -13,7 +13,6 @@ void main() {
       ],
       stream: true,
       temperature: 0.2,
-      maxTokens: 800,
     );
 
     expect(
@@ -22,7 +21,7 @@ void main() {
     );
     expect(adapter.buildHeaders(request)['Authorization'], 'Bearer key');
     expect(adapter.buildBody(request), containsPair('stream', true));
-    expect(adapter.buildBody(request), containsPair('max_tokens', 800));
+    expect(adapter.buildBody(request), isNot(contains('max_tokens')));
     expect(adapter.buildBody(request), containsPair('temperature', 0.2));
     expect(
       adapter

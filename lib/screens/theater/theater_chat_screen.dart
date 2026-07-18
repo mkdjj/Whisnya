@@ -304,7 +304,6 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     generationIntent: generationIntent,
     phase: phase,
     summaryUpdated: summaryUpdated,
-    maxTokens: 1200,
   );
 
   Future<void> _generateSequential(
@@ -360,7 +359,6 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
         TheaterGenerationIntent.userReply,
     TheaterReplyPhase phase = TheaterReplyPhase.main,
     bool summaryUpdated = false,
-    int maxTokens = 800,
   }) => _runGenerationService(
     [participant],
     round,
@@ -373,7 +371,6 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     generationIntent: generationIntent,
     phase: phase,
     summaryUpdated: summaryUpdated,
-    maxTokens: maxTokens,
   );
 
   Future<void> _runGenerationService(
@@ -386,7 +383,6 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     required TheaterGenerationIntent generationIntent,
     required TheaterReplyPhase phase,
     required bool summaryUpdated,
-    int maxTokens = 800,
   }) async {
     if (participants.isEmpty) {
       await _appendSystemError('没有可自动回复的角色', round);
@@ -417,7 +413,6 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
             phase: phase,
             cancelToken: cancelToken,
             includeReasoning: widget.settings.showReasoningContent,
-            maxTokens: maxTokens,
             onUsage: (usage, endpoint, request) => unawaited(
               widget.storage.recordAiUsage(
                 requestType: 'theater',

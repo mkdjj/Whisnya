@@ -100,13 +100,13 @@ void main() {
     expect(text, 'thinkanswer');
   });
 
-  test('parses final stream usage and sends optional max tokens', () async {
+  test('parses final stream usage without limiting output tokens', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(() => server.close(force: true));
     unawaited(
       server.first.then((request) async {
         final body = await utf8.decoder.bind(request).join();
-        expect(body, contains('"max_tokens":800'));
+        expect(body, isNot(contains('"max_tokens"')));
         request.response
           ..statusCode = 200
           ..headers.contentType = ContentType('text', 'event-stream')
@@ -131,7 +131,6 @@ void main() {
           messages: const [
             {'role': 'user', 'content': 'hi'},
           ],
-          maxTokens: 800,
           onUsage: (value) => usage = value,
         )
         .join();

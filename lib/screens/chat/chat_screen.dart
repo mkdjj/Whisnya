@@ -216,7 +216,6 @@ class _ChatScreenState extends State<ChatScreen> {
         messages: requestMessages,
         cancelToken: cancelToken,
         includeReasoning: widget.settings.showReasoningContent,
-        maxTokens: 800,
         onUsage: (usage) => unawaited(
           widget.storage.recordAiUsage(
             requestType: 'characterChat',
@@ -371,7 +370,6 @@ class _ChatScreenState extends State<ChatScreen> {
           {'role': 'user', 'content': prompt},
         ],
         temperature: 0.2,
-        maxTokens: 800,
         onUsage: (usage) => unawaited(
           widget.storage.recordAiUsage(
             requestType: 'characterSummary',

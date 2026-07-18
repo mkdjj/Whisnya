@@ -86,7 +86,6 @@ class TheaterSummaryService {
       messages: request,
       temperature: 0.2,
       cancelToken: cancelToken,
-      maxTokens: 800,
       onUsage: (value) {
         usage = value;
         onUsage?.call(value, request);

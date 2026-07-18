@@ -172,7 +172,6 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
         model: endpoint.model,
         messages: messages,
         cancelToken: cancelToken,
-        maxTokens: 800,
         onUsage: (usage) => unawaited(
           widget.storage.recordAiUsage(
             requestType: 'novelSummary',
@@ -1307,7 +1306,6 @@ ${role.speakingStyle}
         model: endpoint.model,
         cancelToken: cancelToken,
         includeReasoning: widget.settings.showReasoningContent,
-        maxTokens: 800,
         onUsage: (usage) => unawaited(
           widget.storage.recordAiUsage(
             requestType: 'novelChat',
@@ -1413,7 +1411,6 @@ ${role.speakingStyle}
       messages: summaryMessages,
       temperature: 0.2,
       cancelToken: cancelToken,
-      maxTokens: 800,
       onUsage: (usage) => unawaited(
         widget.storage.recordAiUsage(
           requestType: 'novelChatSummary',

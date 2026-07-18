@@ -55,7 +55,6 @@ class _FakeGateway implements AiGateway {
     double temperature = 0.8,
     AiCancelToken? cancelToken,
     bool includeReasoning = false,
-    int? maxTokens,
     void Function(AiUsage usage)? onUsage,
   }) => Stream.value(reply);
 
@@ -67,7 +66,6 @@ class _FakeGateway implements AiGateway {
     required List<Map<String, String>> messages,
     double temperature = 0.8,
     AiCancelToken? cancelToken,
-    int? maxTokens,
     void Function(AiUsage usage)? onUsage,
   }) => throw UnimplementedError();
 }

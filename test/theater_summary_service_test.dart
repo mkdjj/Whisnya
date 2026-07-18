@@ -138,7 +138,6 @@ class _FakeGateway implements AiGateway {
     required List<Map<String, String>> messages,
     double temperature = 0.8,
     AiCancelToken? cancelToken,
-    int? maxTokens,
     void Function(AiUsage usage)? onUsage,
   }) async {
     lastMessages = messages;
@@ -158,7 +157,6 @@ class _FakeGateway implements AiGateway {
     double temperature = 0.8,
     AiCancelToken? cancelToken,
     bool includeReasoning = false,
-    int? maxTokens,
     void Function(AiUsage usage)? onUsage,
   }) => const Stream.empty();
 }

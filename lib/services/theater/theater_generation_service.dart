@@ -28,7 +28,6 @@ class TheaterGenerationService {
     TheaterReplyPhase phase = TheaterReplyPhase.main,
     AiCancelToken? cancelToken,
     bool includeReasoning = false,
-    int maxTokens = 800,
     void Function(
       AiUsage usage,
       AiEndpointConfig endpoint,
@@ -53,7 +52,6 @@ class TheaterGenerationService {
         phase: phase,
         cancelToken: cancelToken,
         includeReasoning: includeReasoning,
-        maxTokens: maxTokens,
         onUsage: onUsage,
       );
       return;
@@ -78,7 +76,6 @@ class TheaterGenerationService {
             phase: phase,
             cancelToken: cancelToken,
             includeReasoning: includeReasoning,
-            maxTokens: maxTokens,
             onUsage: onUsage,
           ).listen(
             controller.add,
@@ -115,7 +112,6 @@ class TheaterGenerationService {
         phase: phase,
         cancelToken: cancelToken,
         includeReasoning: includeReasoning,
-        maxTokens: maxTokens,
         onUsage: onUsage,
       )) {
         if (event case TheaterMessageFinished(:final message)) {
@@ -137,7 +133,6 @@ class TheaterGenerationService {
     required TheaterReplyPhase phase,
     required AiCancelToken? cancelToken,
     required bool includeReasoning,
-    required int maxTokens,
     required void Function(
       AiUsage usage,
       AiEndpointConfig endpoint,
@@ -178,7 +173,6 @@ class TheaterGenerationService {
           messages: request,
           cancelToken: cancelToken,
           includeReasoning: includeReasoning,
-          maxTokens: maxTokens,
           onUsage: (usage) => onUsage?.call(usage, endpoint, request),
         )) {
           raw.write(chunk);
@@ -229,7 +223,6 @@ class TheaterGenerationService {
     required TheaterReplyPhase phase,
     required AiCancelToken? cancelToken,
     required bool includeReasoning,
-    required int maxTokens,
     required void Function(
       AiUsage usage,
       AiEndpointConfig endpoint,
@@ -258,7 +251,6 @@ class TheaterGenerationService {
       messages: request,
       cancelToken: cancelToken,
       includeReasoning: includeReasoning,
-      maxTokens: maxTokens,
       onUsage: usageCallback,
     )) {
       raw.write(chunk);

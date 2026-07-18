@@ -99,7 +99,6 @@ class NovelAnalysisService {
           messages: messages,
           temperature: 0.2,
           cancelToken: cancelToken,
-          maxTokens: 800,
         )
         .join();
     if (text.trim().isEmpty) throw AiException('API 没有返回可用回复。');

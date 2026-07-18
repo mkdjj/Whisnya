@@ -22,7 +22,6 @@ class NovelChatService {
     required String model,
     AiCancelToken? cancelToken,
     bool includeReasoning = false,
-    int maxTokens = 800,
     void Function(AiUsage usage)? onUsage,
   }) {
     return _gateway.streamMessage(
@@ -39,7 +38,6 @@ class NovelChatService {
       ),
       cancelToken: cancelToken,
       includeReasoning: includeReasoning,
-      maxTokens: maxTokens,
       onUsage: onUsage,
     );
   }

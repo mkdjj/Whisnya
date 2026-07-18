@@ -9,7 +9,6 @@ abstract interface class AiGateway {
     required List<Map<String, String>> messages,
     double temperature = 0.8,
     AiCancelToken? cancelToken,
-    int? maxTokens,
     void Function(AiUsage usage)? onUsage,
   });
 
@@ -21,7 +20,6 @@ abstract interface class AiGateway {
     double temperature = 0.8,
     AiCancelToken? cancelToken,
     bool includeReasoning = false,
-    int? maxTokens,
     void Function(AiUsage usage)? onUsage,
   });
 }
