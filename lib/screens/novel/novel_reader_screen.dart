@@ -31,7 +31,7 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
   ChatSummary get _chatSummary => _reader.chatSummary;
   String get _readerSearchQuery => _reader.searchQuery;
   double get _readProgress => _reader.readProgress;
-  var _apiConfig = ApiConfig.defaults();
+  var _apiConfig = ApiConfig();
   var _selectedEndpointId = '';
   var _content = '';
   NovelSummaryCache? _summaryCache;
@@ -554,7 +554,9 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
     return splitNovelText(text, 12000);
   }
 
-  _NovelAiResult _parseNovelResult(String raw) {
+  ({String summary, List<NovelRoleCandidate> roles}) _parseNovelResult(
+    String raw,
+  ) {
     try {
       final start = raw.indexOf('{');
       final end = raw.lastIndexOf('}');
@@ -574,12 +576,9 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
                 .take(5)
                 .toList()
           : <NovelRoleCandidate>[];
-      return _NovelAiResult(
-        summary: decoded['summary'] as String? ?? raw,
-        roles: roles,
-      );
+      return (summary: decoded['summary'] as String? ?? raw, roles: roles);
     } on FormatException {
-      return _NovelAiResult(summary: raw, roles: const []);
+      return (summary: raw, roles: const []);
     }
   }
 
@@ -1295,16 +1294,11 @@ ${role.speakingStyle}
         },
       );
       _streamBuffer = streamBuffer;
-      await for (final chunk in NovelChatService(widget.aiService).streamReply(
-        book: _book,
-        aiRole: role,
-        userRole: _book.selectedUserRole,
-        historySummary: _chatSummary.summary,
-        summarizedMessageCount: _chatSummary.summarizedMessageCount,
-        messages: _messages,
+      await for (final chunk in widget.aiService.streamMessage(
         apiKey: endpoint.apiKey,
         baseUrl: endpoint.baseUrl,
         model: endpoint.model,
+        messages: requestMessages,
         cancelToken: cancelToken,
         includeReasoning: widget.settings.showReasoningContent,
         onUsage: (usage) => unawaited(

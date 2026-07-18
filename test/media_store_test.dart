@@ -28,7 +28,7 @@ void main() {
     await old.setLastModified(oldTime);
     await avatar.setLastModified(oldTime);
 
-    await MediaStore(root).cleanupTemporaryFiles(const Duration(hours: 24));
+    await cleanupTemporaryMedia(root, const Duration(hours: 24));
 
     expect(await old.exists(), isFalse);
     expect(await fresh.exists(), isTrue);

@@ -11,6 +11,7 @@ import '../services/ai_service.dart';
 import '../services/local_storage_service.dart';
 import '../utils/app_i18n.dart';
 import '../utils/character_import_flow.dart';
+import '../utils/confirm_dialog.dart';
 import '../utils/page_layout.dart';
 import '../utils/password_lock.dart';
 import '../utils/snack.dart';
@@ -104,7 +105,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final outputWidth = aspectRatio >= 1 ? 1920 : 1080;
     final outputHeight = (outputWidth / aspectRatio).round();
 
-    final selection = await Navigator.of(context).push<ImageCropSelection>(
+    final selection = await Navigator.of(context).push<ImageCropRegion>(
       MaterialPageRoute(
         builder: (_) => ImageCropScreen(
           imagePath: sourcePath!,
@@ -128,7 +129,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _applySettings(
       _settings.copyWith(
         globalBackgroundImage: path,
-        globalBackgroundRegion: selection.region,
+        globalBackgroundRegion: selection,
       ),
     );
   }
@@ -180,9 +181,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _importAllData() async {
-    final ok = await _confirm(
+    final ok = await showConfirmDialog(
+      context: context,
       title: '导入全部数据',
-      content: '这会覆盖当前 App 本地数据。建议先导出一份备份。',
+      content: context.t('这会覆盖当前 App 本地数据。建议先导出一份备份。'),
+      confirmLabel: '继续',
     );
     if (!ok) return;
 
@@ -240,30 +243,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } finally {
       if (mounted) setState(() => _isBusy = false);
     }
-  }
-
-  Future<bool> _confirm({
-    required String title,
-    required String content,
-  }) async {
-    return await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: Text(context.t(title)),
-            content: Text(context.t(content)),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: Text(context.t('取消')),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                child: Text(context.t('继续')),
-              ),
-            ],
-          ),
-        ) ??
-        false;
   }
 
   Future<void> _pickThemeMode() async {

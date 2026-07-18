@@ -24,7 +24,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   late final TheaterChatController _chat;
   TheaterSession get _session => _chat.session;
   List<TheaterMessage> get _messages => _chat.messages;
-  var _apiConfig = ApiConfig.defaults();
+  var _apiConfig = ApiConfig();
   var _novelSummary = '';
   var _isLoading = true;
   var _isGenerating = false;
@@ -629,7 +629,9 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     }
   }
 
-  Future<void> _retrySingleApiRound(TheaterRetryState retry) async {
+  Future<void> _retrySingleApiRound(
+    ({List<TheaterMessage> messages, int round}) retry,
+  ) async {
     final generationId = ++_generationId;
     final cancelToken = AiCancelToken();
     _cancelToken = cancelToken;
@@ -679,10 +681,11 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
         ? ''
         : aiParticipants.first.endpointId;
     final endpoint = _apiConfig.effectiveEndpoint(endpointId);
-    if (_validateEndpoint(endpoint) != null) return false;
+    if (endpointValidationError(endpoint) != null) return false;
     setState(() => _isSummarizing = true);
     try {
-      final result = await TheaterSummaryService(widget.aiService).summarize(
+      final result = await summarizeTheater(
+        widget.aiService,
         session: _session,
         messages: _messages,
         endpoint: endpoint!,
@@ -721,11 +724,6 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
       _messages,
       summarizedMessageCount: _session.summarizedMessageCount,
     );
-  }
-
-  String? _validateEndpoint(AiEndpointConfig? endpoint) {
-    if (endpoint == null) return '请先到 API 设置添加配置。';
-    return endpoint.validationError;
   }
 
   Future<void> _saveMessages() {
@@ -1046,15 +1044,6 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     context.showSnack('已复制消息');
   }
 
-  SystemUiOverlayStyle _overlayStyle(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
-      statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -1072,7 +1061,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
         appBar: AppBar(
           backgroundColor: Colors.transparent,
           surfaceTintColor: Colors.transparent,
-          systemOverlayStyle: _overlayStyle(context),
+          systemOverlayStyle: appSystemOverlayStyle(context),
           title: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

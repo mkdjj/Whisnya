@@ -120,7 +120,7 @@ class RoleImportParser {
         .trim();
   }
 
-  static _ParsedHeading? _parseHeadingLine(String line) {
+  static ({String field, String value})? _parseHeadingLine(String line) {
     final normalized = line
         .replaceFirst(RegExp(r'^[#>\-\*\s]+'), '')
         .replaceAll(RegExp(r'^[【\[\(（]'), '')
@@ -132,7 +132,7 @@ class RoleImportParser {
     if (match != null) {
       final field = _fieldForLabel(match.group(1)!);
       if (field != null) {
-        return _ParsedHeading(field, match.group(2)?.trim() ?? '');
+        return (field: field, value: match.group(2)?.trim() ?? '');
       }
     }
 
@@ -142,13 +142,13 @@ class RoleImportParser {
     if (heading != null) {
       final field = _fieldForLabel(heading.group(1)!);
       if (field != null) {
-        return _ParsedHeading(field, '');
+        return (field: field, value: '');
       }
     }
 
     final directField = _fieldForLabel(normalized);
     if (directField != null) {
-      return _ParsedHeading(directField, '');
+      return (field: directField, value: '');
     }
 
     return null;
@@ -249,11 +249,4 @@ class RoleImportParser {
       'creatornotes',
     ],
   };
-}
-
-class _ParsedHeading {
-  const _ParsedHeading(this.field, this.value);
-
-  final String field;
-  final String value;
 }

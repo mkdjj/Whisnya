@@ -143,14 +143,7 @@ List<TheaterReplyDraft> resolveSingleApiFallback(
       : const [];
 }
 
-class TheaterRetryState {
-  const TheaterRetryState({required this.messages, required this.round});
-
-  final List<TheaterMessage> messages;
-  final int round;
-}
-
-TheaterRetryState? prepareSingleApiRetry(
+({List<TheaterMessage> messages, int round})? prepareSingleApiRetry(
   List<TheaterMessage> messages,
   TheaterMessage error,
 ) {
@@ -159,7 +152,7 @@ TheaterRetryState? prepareSingleApiRetry(
       !error.errorMessage.contains('模型没有按群聊格式输出')) {
     return null;
   }
-  return TheaterRetryState(
+  return (
     messages: messages.where((message) => message.id != error.id).toList(),
     round: error.round,
   );

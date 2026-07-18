@@ -141,13 +141,10 @@ class AppCharacter {
       backgroundImageRegion: ImageCropRegion.fromJson(
         json['backgroundImageRegion'],
       ),
-      backgroundImageOpacity: _readDouble(
-        json['backgroundImageOpacity'],
-        fallback: 1,
-      ),
-      backgroundBlur: _readDouble(json['backgroundBlur'], fallback: 0),
-      bubbleOpacity: _readDouble(json['bubbleOpacity'], fallback: 0.92),
-      inputOpacity: _readDouble(json['inputOpacity'], fallback: 0.92),
+      backgroundImageOpacity: jsonDouble(json['backgroundImageOpacity'], 1),
+      backgroundBlur: jsonDouble(json['backgroundBlur'], 0),
+      bubbleOpacity: jsonDouble(json['bubbleOpacity'], 0.92),
+      inputOpacity: jsonDouble(json['inputOpacity'], 0.92),
       description: json['description'] as String? ?? '',
       personality: json['personality'] as String? ?? '',
       background: json['background'] as String? ?? '',
@@ -210,13 +207,6 @@ class AppCharacter {
       'updatedAt': updatedAt.toIso8601String(),
       'lastUsedAt': lastUsedAt.toIso8601String(),
     };
-  }
-
-  static double _readDouble(dynamic value, {required double fallback}) {
-    if (value is num) {
-      return value.toDouble();
-    }
-    return fallback;
   }
 
   static int _clampSummaryLimit(int value) {

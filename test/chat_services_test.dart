@@ -25,7 +25,6 @@ void main() {
     'summary service skips below the limit and summarizes old messages',
     () async {
       final gateway = _FakeGateway(reply: '摘要');
-      final service = ChatSummaryService(gateway);
       final messages = List.generate(
         32,
         (index) => ChatMessage(
@@ -35,7 +34,8 @@ void main() {
         ),
       );
       expect(
-        await service.update(
+        await updateChatSummary(
+          gateway,
           characterId: 'c',
           current: ChatSummary.empty('c'),
           messages: messages.take(30).toList(),
@@ -46,7 +46,8 @@ void main() {
         ),
         isNull,
       );
-      final result = await service.update(
+      final result = await updateChatSummary(
+        gateway,
         characterId: 'c',
         current: ChatSummary.empty('c'),
         messages: messages,

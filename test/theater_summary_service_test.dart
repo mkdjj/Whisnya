@@ -45,7 +45,6 @@ void main() {
 
   test('summarizes eligible history while preserving recent context', () async {
     final gateway = _FakeGateway();
-    final service = TheaterSummaryService(gateway);
     final messages = [
       for (var i = 0; i < 20; i++)
         TheaterMessage(
@@ -81,7 +80,8 @@ void main() {
       updatedAt: DateTime(2026),
     );
 
-    final result = await service.summarize(
+    final result = await summarizeTheater(
+      gateway,
       session: session,
       messages: messages,
       endpoint: _endpoint,

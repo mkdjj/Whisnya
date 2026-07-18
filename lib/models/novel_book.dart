@@ -1,3 +1,5 @@
+import 'image_crop_region.dart';
+
 class NovelRoleCandidate {
   const NovelRoleCandidate({
     required this.name,
@@ -177,17 +179,14 @@ class NovelBook {
       isChatMode: json['isChatMode'] as bool? ?? false,
       readingMode: json['readingMode'] as int? ?? 0,
       chapterIndex: json['chapterIndex'] as int? ?? 0,
-      fontSize: _readDouble(json['fontSize'], fallback: 18),
-      lineHeight: _readDouble(json['lineHeight'], fallback: 1.65),
+      fontSize: jsonDouble(json['fontSize'], 18),
+      lineHeight: jsonDouble(json['lineHeight'], 1.65),
       manualChapterTitles: _readStringList(json['manualChapterTitles']),
       readerTheme: json['readerTheme'] as int? ?? 0,
       bookmarkedChapterIndexes: _readIntList(json['bookmarkedChapterIndexes']),
       chatBackgroundImage: json['chatBackgroundImage'] as String? ?? '',
-      chatBackgroundOpacity: _readDouble(
-        json['chatBackgroundOpacity'],
-        fallback: 1,
-      ),
-      chatBackgroundBlur: _readDouble(json['chatBackgroundBlur'], fallback: 0),
+      chatBackgroundOpacity: jsonDouble(json['chatBackgroundOpacity'], 1),
+      chatBackgroundBlur: jsonDouble(json['chatBackgroundBlur'], 0),
       lastOpenedAt: DateTime.tryParse(json['lastOpenedAt'] as String? ?? ''),
       createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? now,
       updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? '') ?? now,
@@ -220,13 +219,6 @@ class NovelBook {
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
     };
-  }
-
-  static double _readDouble(dynamic value, {required double fallback}) {
-    if (value is num) {
-      return value.toDouble();
-    }
-    return fallback;
   }
 
   static List<String> _readStringList(dynamic value) {

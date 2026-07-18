@@ -127,20 +127,14 @@ class AppSettings {
       globalBackgroundRegion: ImageCropRegion.fromJson(
         json?['globalBackgroundRegion'],
       ),
-      globalBackgroundOpacity: _readDouble(
-        json?['globalBackgroundOpacity'],
-        fallback: 1,
-      ),
-      globalBackgroundBlur: _readDouble(
-        json?['globalBackgroundBlur'],
-        fallback: 0,
-      ),
+      globalBackgroundOpacity: jsonDouble(json?['globalBackgroundOpacity'], 1),
+      globalBackgroundBlur: jsonDouble(json?['globalBackgroundBlur'], 0),
       interfaceTextColor: json?['interfaceTextColor'] as int?,
       chatTextColor: json?['chatTextColor'] as int?,
-      fontScale: _readDouble(json?['fontScale'], fallback: 1).clamp(0.85, 1.3),
-      navigationBarOpacity: _readDouble(
+      fontScale: jsonDouble(json?['fontScale'], 1).clamp(0.85, 1.3),
+      navigationBarOpacity: jsonDouble(
         json?['navigationBarOpacity'],
-        fallback: 1,
+        1,
       ).clamp(0, 1),
       streamResponses: json?['streamResponses'] as bool? ?? true,
       showReasoningContent: json?['showReasoningContent'] as bool? ?? false,
@@ -197,13 +191,6 @@ class AppSettings {
       'dark' => ThemeMode.dark,
       _ => ThemeMode.system,
     };
-  }
-
-  static double _readDouble(dynamic value, {required double fallback}) {
-    if (value is num) {
-      return value.toDouble();
-    }
-    return fallback;
   }
 
   static const maxSummaryItems = 20;

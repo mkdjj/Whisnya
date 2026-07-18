@@ -20,6 +20,7 @@ import '../utils/password_lock.dart';
 import '../utils/role_import_parser.dart';
 import 'storage/json_file_store.dart';
 import 'storage/media_store.dart';
+import 'storage/storage_paths.dart';
 
 String restoreAppDataPath(String path, String appDataPath) {
   if (path.trim().isEmpty) {
@@ -157,6 +158,8 @@ class LocalStorageService {
   Future<Directory> get appDataDirectory =>
       _appDataDirectoryFuture ??= _prepareAppDataDirectory();
 
+  Future<StoragePaths> get _paths async => StoragePaths(await appDataDirectory);
+
   Future<Directory> _prepareAppDataDirectory() async {
     final directory =
         _appDataDirectory ??
@@ -171,7 +174,7 @@ class LocalStorageService {
 
   Future<void> ensureReady() async {
     final directory = await appDataDirectory;
-    unawaited(MediaStore(directory).cleanupTemporaryFiles());
+    unawaited(cleanupTemporaryMedia(directory));
   }
 
   Future<void> _ensureAppDataDirectories(Directory directory) async {
@@ -194,7 +197,7 @@ class LocalStorageService {
   }
 
   Future<AppSettings> loadSettings() async {
-    final file = await _settingsFile();
+    final file = (await _paths).settings;
     final decoded = await _readJson(
       file,
       const AppSettings().toJson(),
@@ -207,7 +210,7 @@ class LocalStorageService {
   }
 
   Future<void> saveSettings(AppSettings settings) async {
-    await _writeJson(await _settingsFile(), settings.toJson());
+    await _writeJson((await _paths).settings, settings.toJson());
   }
 
   Future<AppSettings?> upgradePrivacyPasswordHashIfNeeded(
@@ -229,8 +232,8 @@ class LocalStorageService {
   }
 
   Future<ApiConfig> loadApiConfig() async {
-    final file = await _apiConfigFile();
-    final decoded = await _readJson(file, ApiConfig.defaults().toJson());
+    final file = (await _paths).apiConfig;
+    final decoded = await _readJson(file, ApiConfig().toJson());
     if (decoded is! Map<String, dynamic>) {
       throw StorageException('API 配置文件异常：${file.path}');
     }
@@ -246,13 +249,13 @@ class LocalStorageService {
   Future<void> saveApiConfig(ApiConfig config) async {
     await _writeSecureApiKeys(config);
     await _writeJson(
-      await _apiConfigFile(),
+      (await _paths).apiConfig,
       _configWithoutApiKeys(config).toJson(),
     );
   }
 
   Future<List<AiUsageRecord>> loadAiUsageRecords() async {
-    final decoded = await _readJson(await _aiUsageFile(), <dynamic>[]);
+    final decoded = await _readJson((await _paths).aiUsage, <dynamic>[]);
     if (decoded is! List) return const [];
     return decoded
         .whereType<Map<String, dynamic>>()
@@ -261,7 +264,7 @@ class LocalStorageService {
   }
 
   Future<void> saveAiUsageRecord(AiUsageRecord record) async {
-    final file = await _aiUsageFile();
+    final file = (await _paths).aiUsage;
     await _enqueueWrite(file, () async {
       final decoded = await _readJsonNow(file, <dynamic>[]);
       final records = decoded is List
@@ -376,7 +379,7 @@ class LocalStorageService {
   }
 
   Future<List<AppCharacter>> loadCharacters() async {
-    final file = await _charactersFile();
+    final file = (await _paths).characters;
     final decoded = await _readJson(file, <dynamic>[], recoverOnInvalid: true);
     if (decoded is! List) {
       throw StorageException('角色文件异常：${file.path}');
@@ -434,18 +437,19 @@ class LocalStorageService {
       await _deleteAppMediaFile(character.avatar);
       await _deleteAppMediaFile(character.backgroundImage);
     }
-    final chat = await _chatFile(characterId);
+    final paths = await _paths;
+    final chat = paths.chat(characterId);
     if (await chat.exists()) {
       await chat.delete();
     }
-    final summary = await _summaryFile(characterId);
+    final summary = paths.summary(characterId);
     if (await summary.exists()) {
       await summary.delete();
     }
   }
 
   Future<ChatSession> loadChat(String characterId) async {
-    final file = await _chatFile(characterId);
+    final file = (await _paths).chat(characterId);
     final decoded = await _readJson(
       file,
       ChatSession.empty(characterId).toJson(),
@@ -458,7 +462,7 @@ class LocalStorageService {
 
   Future<void> saveChat(String characterId, List<ChatMessage> messages) async {
     await _writeJson(
-      await _chatFile(characterId),
+      (await _paths).chat(characterId),
       ChatSession(characterId: characterId, messages: messages).toJson(),
     );
   }
@@ -466,7 +470,7 @@ class LocalStorageService {
   Future<void> clearChat(String characterId) => saveChat(characterId, const []);
 
   Future<List<NovelBook>> loadNovels() async {
-    final file = await _novelsFile();
+    final file = (await _paths).novels;
     final decoded = await _readJson(file, <dynamic>[], recoverOnInvalid: true);
     if (decoded is! List) {
       throw StorageException('小说文件异常：${file.path}');
@@ -485,7 +489,7 @@ class LocalStorageService {
   }) async {
     final now = DateTime.now();
     final id = 'novel_${now.microsecondsSinceEpoch}';
-    final file = await _novelTextFile(id);
+    final file = (await _paths).novelText(id);
     await file.writeAsString(content, flush: true);
     final book = NovelBook(
       id: id,
@@ -527,17 +531,18 @@ class LocalStorageService {
     if (await textFile.exists()) {
       await textFile.delete();
     }
-    final chat = await _novelChatFile(book.id);
+    final paths = await _paths;
+    final chat = paths.novelChat(book.id);
     if (await chat.exists()) {
       await chat.delete();
     }
-    final chatSummary = await _summaryFile('novel_chat_${book.id}');
+    final chatSummary = paths.summary('novel_chat_${book.id}');
     if (await chatSummary.exists()) await chatSummary.delete();
     await _deleteAppMediaFile(book.chatBackgroundImage);
   }
 
   Future<ChatSession> loadNovelChat(String novelId) async {
-    final file = await _novelChatFile(novelId);
+    final file = (await _paths).novelChat(novelId);
     final decoded = await _readJson(file, ChatSession.empty(novelId).toJson());
     if (decoded is! Map<String, dynamic>) {
       throw StorageException('小说聊天记录异常：${file.path}');
@@ -547,19 +552,19 @@ class LocalStorageService {
 
   Future<void> saveNovelChat(String novelId, List<ChatMessage> messages) async {
     await _writeJson(
-      await _novelChatFile(novelId),
+      (await _paths).novelChat(novelId),
       ChatSession(characterId: novelId, messages: messages).toJson(),
     );
   }
 
   Future<void> clearNovelChat(String novelId) async {
     await saveNovelChat(novelId, const []);
-    final summary = await _summaryFile('novel_chat_$novelId');
+    final summary = (await _paths).summary('novel_chat_$novelId');
     if (await summary.exists()) await summary.delete();
   }
 
   Future<ChatSummary> loadSummary(String characterId) async {
-    final file = await _summaryFile(characterId);
+    final file = (await _paths).summary(characterId);
     final decoded = await _readJson(
       file,
       ChatSummary.empty(characterId).toJson(),
@@ -574,11 +579,14 @@ class LocalStorageService {
   }
 
   Future<void> saveSummary(ChatSummary summary) async {
-    await _writeJson(await _summaryFile(summary.characterId), summary.toJson());
+    await _writeJson(
+      (await _paths).summary(summary.characterId),
+      summary.toJson(),
+    );
   }
 
   Future<List<TheaterSession>> loadTheaterSessions() async {
-    final file = await _theaterSessionsFile();
+    final file = (await _paths).theaterSessions;
     final decoded = await _readJson(file, <dynamic>[], recoverOnInvalid: true);
     if (decoded is! List) {
       throw StorageException('群聊文件异常：${file.path}');
@@ -608,14 +616,14 @@ class LocalStorageService {
       sessions.removeWhere((session) => session.id == sessionId);
       return sessions;
     });
-    final messages = await _theaterMessagesFile(sessionId);
+    final messages = (await _paths).theaterMessages(sessionId);
     if (await messages.exists()) {
       await messages.delete();
     }
   }
 
   Future<List<TheaterMessage>> loadTheaterMessages(String sessionId) async {
-    final file = await _theaterMessagesFile(sessionId);
+    final file = (await _paths).theaterMessages(sessionId);
     final decoded = await _readJson(file, <dynamic>[]);
     if (decoded is! List) {
       throw StorageException('群聊消息文件异常：${file.path}');
@@ -633,7 +641,7 @@ class LocalStorageService {
     List<TheaterMessage> messages,
   ) async {
     await _writeJson(
-      await _theaterMessagesFile(sessionId),
+      (await _paths).theaterMessages(sessionId),
       messages.map((message) => message.toJson()).toList(),
     );
   }
@@ -829,7 +837,7 @@ class LocalStorageService {
       _appDataDirectory = directory;
       await _ensureAppDataDirectories(directory);
       await _repairRestoredAppDataPaths(directory);
-      await _migrateApiKeysFromJsonFile(await _apiConfigFile());
+      await _migrateApiKeysFromJsonFile((await _paths).apiConfig);
       if (movedBackup != null && await movedBackup.exists()) {
         await movedBackup.delete(recursive: true);
       }
@@ -850,10 +858,10 @@ class LocalStorageService {
 
   Future<void> _migrateApiKeysFromJsonFile(File file) async {
     if (!await file.exists()) {
-      await _writeSecureApiKeys(ApiConfig.defaults());
+      await _writeSecureApiKeys(ApiConfig());
       return;
     }
-    final decoded = await _readJson(file, ApiConfig.defaults().toJson());
+    final decoded = await _readJson(file, ApiConfig().toJson());
     if (decoded is! Map<String, dynamic>) {
       throw StorageException('API 配置文件异常：${file.path}');
     }
@@ -956,78 +964,8 @@ class LocalStorageService {
     return file;
   }
 
-  Future<File> _apiConfigFile() async {
-    final directory = await appDataDirectory;
-    return File('${directory.path}${Platform.pathSeparator}api_config.json');
-  }
-
-  Future<File> _aiUsageFile() async {
-    final directory = await appDataDirectory;
-    return File('${directory.path}${Platform.pathSeparator}ai_usage.json');
-  }
-
-  Future<File> _settingsFile() async {
-    final directory = await appDataDirectory;
-    return File('${directory.path}${Platform.pathSeparator}settings.json');
-  }
-
-  Future<File> _charactersFile() async {
-    final directory = await appDataDirectory;
-    return File('${directory.path}${Platform.pathSeparator}characters.json');
-  }
-
-  Future<File> _novelsFile() async {
-    final directory = await appDataDirectory;
-    return File('${directory.path}${Platform.pathSeparator}novels.json');
-  }
-
-  Future<File> _chatFile(String characterId) async {
-    final directory = await appDataDirectory;
-    return File(
-      '${directory.path}${Platform.pathSeparator}chats${Platform.pathSeparator}$characterId.json',
-    );
-  }
-
-  Future<File> _novelTextFile(String novelId) async {
-    final directory = await appDataDirectory;
-    return File(
-      '${directory.path}${Platform.pathSeparator}novels${Platform.pathSeparator}$novelId.txt',
-    );
-  }
-
-  Future<File> _novelChatFile(String novelId) async {
-    final directory = await appDataDirectory;
-    return File(
-      '${directory.path}${Platform.pathSeparator}novel_chats${Platform.pathSeparator}$novelId.json',
-    );
-  }
-
-  Future<File> _summaryFile(String characterId) async {
-    final directory = await appDataDirectory;
-    return File(
-      '${directory.path}${Platform.pathSeparator}summaries${Platform.pathSeparator}$characterId.json',
-    );
-  }
-
-  Future<File> _theaterSessionsFile() async {
-    final directory = await appDataDirectory;
-    return File(
-      '${directory.path}${Platform.pathSeparator}theater_sessions.json',
-    );
-  }
-
-  Future<File> _theaterMessagesFile(String sessionId) async {
-    final directory = await appDataDirectory;
-    return File(
-      '${directory.path}${Platform.pathSeparator}theater_messages${Platform.pathSeparator}$sessionId.json',
-    );
-  }
-
   Future<Directory> _mediaDirectory(String folder) async {
-    final directory = await appDataDirectory;
-    final mediaDirectory = Directory(
-      '${directory.path}${Platform.pathSeparator}media${Platform.pathSeparator}$folder',
-    );
+    final mediaDirectory = (await _paths).media(folder);
     if (!await mediaDirectory.exists()) {
       await mediaDirectory.create(recursive: true);
     }
@@ -1159,7 +1097,7 @@ class LocalStorageService {
   Future<void> _updateCharacters(
     List<AppCharacter> Function(List<AppCharacter>) update,
   ) async {
-    final file = await _charactersFile();
+    final file = (await _paths).characters;
     await _enqueueWrite(file, () async {
       final decoded = await _readJsonNow(
         file,
@@ -1185,7 +1123,7 @@ class LocalStorageService {
   Future<void> _updateNovels(
     List<NovelBook> Function(List<NovelBook>) update,
   ) async {
-    final file = await _novelsFile();
+    final file = (await _paths).novels;
     await _enqueueWrite(file, () async {
       final decoded = await _readJsonNow(
         file,
@@ -1208,7 +1146,7 @@ class LocalStorageService {
   Future<void> _updateTheaterSessions(
     List<TheaterSession> Function(List<TheaterSession>) update,
   ) async {
-    final file = await _theaterSessionsFile();
+    final file = (await _paths).theaterSessions;
     await _enqueueWrite(file, () async {
       final decoded = await _readJsonNow(
         file,
@@ -1262,7 +1200,7 @@ class LocalStorageService {
     }
 
     await _writeJson(
-      await _charactersFile(),
+      (await _paths).characters,
       characters.map((character) => character.toJson()).toList(),
     );
   }
@@ -1325,9 +1263,10 @@ class LocalStorageService {
     List<String> media,
   ) async {
     var latest = DateTime.fromMillisecondsSinceEpoch(0);
+    final paths = await _paths;
     for (final file in [
-      await _chatFile(characterId),
-      await _summaryFile(characterId),
+      paths.chat(characterId),
+      paths.summary(characterId),
       ...media.where((path) => path.isNotEmpty).map(File.new),
     ]) {
       if (await file.exists()) {

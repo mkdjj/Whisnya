@@ -3,7 +3,7 @@ import 'dart:async';
 import '../../models/ai_usage.dart';
 import '../../models/api_config.dart';
 import '../../models/theater.dart';
-import '../../prompts.dart';
+import '../../prompts/prompt_builder.dart';
 import '../../utils/theater_participant_reply_sanitizer.dart';
 import '../../utils/theater_streaming_parser.dart';
 import '../ai/ai_conversation_runner.dart';

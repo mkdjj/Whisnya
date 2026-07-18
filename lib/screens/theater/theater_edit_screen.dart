@@ -21,7 +21,7 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
   final _customRoundsController = TextEditingController(text: '10');
   var _characters = <AppCharacter>[];
   var _novels = <NovelBook>[];
-  var _apiConfig = ApiConfig.defaults();
+  var _apiConfig = ApiConfig();
   var _selectedParticipants = <TheaterParticipant>[];
   var _boundNovelId = '';
   var _avatar = '';
@@ -336,7 +336,7 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
     if (path == null) return;
     if (!mounted) return;
     if (!avatar) {
-      final selection = await Navigator.of(context).push<ImageCropSelection>(
+      final selection = await Navigator.of(context).push<ImageCropRegion>(
         MaterialPageRoute(
           builder: (_) => ImageCropScreen(
             imagePath: path,
@@ -357,7 +357,7 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
       if (!mounted) return;
       setState(() {
         _backgroundImage = saved;
-        _backgroundImageRegion = selection.region;
+        _backgroundImageRegion = selection;
       });
       return;
     }

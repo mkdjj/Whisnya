@@ -3,7 +3,6 @@ import 'dart:io';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../models/app_character.dart';
 import '../models/app_settings.dart';
@@ -17,10 +16,10 @@ import '../utils/privacy_password_prompt.dart';
 import '../utils/snack.dart';
 import '../widgets/app_background.dart';
 import 'character_edit_screen.dart';
-import 'chat_screen.dart';
-import 'novel_screen.dart';
+import 'chat/chat_screen.dart';
+import 'novel/novel_screens.dart';
 import 'settings_screen.dart';
-import 'theater_screen.dart';
+import 'theater/theater_screens.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -173,7 +172,7 @@ class _HomeScreenState extends State<HomeScreen> {
       context.showSnack('请先到设置里设置隐私密码');
       return;
     }
-    if (character.isLocked && !await _verifyPassword('解除上锁')) {
+    if (!await _verifyCharacterOperation(character, '解除上锁')) {
       return;
     }
 
@@ -191,13 +190,7 @@ class _HomeScreenState extends State<HomeScreen> {
     AppCharacter character,
     String title,
   ) async {
-    if (!character.isLocked) {
-      return true;
-    }
-    return _verifyPassword(title);
-  }
-
-  Future<bool> _verifyPassword(String title) async {
+    if (!character.isLocked) return true;
     return verifyPrivacyPassword(
       context: context,
       settings: widget.settings,
@@ -262,7 +255,7 @@ class _HomeScreenState extends State<HomeScreen> {
             elevation: 0,
             scrolledUnderElevation: 0,
             surfaceTintColor: Colors.transparent,
-            systemOverlayStyle: _overlayStyle(context),
+            systemOverlayStyle: appSystemOverlayStyle(context),
             title: switch (_tabIndex) {
               0 => Text(context.t('Whisnya')),
               1 => Text(context.t('小说')),
@@ -650,15 +643,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-    );
-  }
-
-  SystemUiOverlayStyle _overlayStyle(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
-      statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
     );
   }
 }

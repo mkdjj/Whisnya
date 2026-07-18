@@ -37,11 +37,11 @@ class ImageCropRegion {
   factory ImageCropRegion.fromJson(Object? json) {
     if (json is! Map) return full;
     return ImageCropRegion(
-      x: _double(json['x'], 0),
-      y: _double(json['y'], 0),
-      width: _double(json['width'], 1),
-      height: _double(json['height'], 1),
-      sourceAspectRatio: _double(json['sourceAspectRatio'], 1),
+      x: jsonDouble(json['x'], 0),
+      y: jsonDouble(json['y'], 0),
+      width: jsonDouble(json['width'], 1),
+      height: jsonDouble(json['height'], 1),
+      sourceAspectRatio: jsonDouble(json['sourceAspectRatio'], 1),
     );
   }
 
@@ -52,8 +52,7 @@ class ImageCropRegion {
     'height': height,
     'sourceAspectRatio': sourceAspectRatio,
   };
-
-  static double _double(Object? value, double fallback) {
-    return value is num ? value.toDouble() : fallback;
-  }
 }
+
+double jsonDouble(Object? value, double fallback) =>
+    value is num ? value.toDouble() : fallback;

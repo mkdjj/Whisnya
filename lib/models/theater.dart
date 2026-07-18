@@ -423,14 +423,11 @@ class TheaterSession {
       backgroundImageRegion: ImageCropRegion.fromJson(
         json['backgroundImageRegion'],
       ),
-      backgroundImageOpacity: _readDouble(
-        json['backgroundImageOpacity'],
-        fallback: 1,
-      ),
-      backgroundBlur: _readDouble(json['backgroundBlur'], fallback: 0),
-      bubbleOpacity: _readDouble(json['bubbleOpacity'], fallback: 0.94),
-      inputOpacity: _readDouble(json['inputOpacity'], fallback: 0.92),
-      topBarOpacity: _readDouble(json['topBarOpacity'], fallback: 0),
+      backgroundImageOpacity: jsonDouble(json['backgroundImageOpacity'], 1),
+      backgroundBlur: jsonDouble(json['backgroundBlur'], 0),
+      bubbleOpacity: jsonDouble(json['bubbleOpacity'], 0.94),
+      inputOpacity: jsonDouble(json['inputOpacity'], 0.92),
+      topBarOpacity: jsonDouble(json['topBarOpacity'], 0),
       isHidden: json['isHidden'] as bool? ?? false,
       isLocked: json['isLocked'] as bool? ?? false,
       boundNovelId: json['boundNovelId'] as String? ?? '',
@@ -493,11 +490,6 @@ class TheaterSession {
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
     };
-  }
-
-  static double _readDouble(dynamic value, {required double fallback}) {
-    if (value is num) return value.toDouble();
-    return fallback;
   }
 }
 

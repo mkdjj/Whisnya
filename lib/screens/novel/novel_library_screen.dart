@@ -84,7 +84,7 @@ class NovelScreenState extends State<NovelScreen> {
 
   Future<String> _decodePickedNovel(List<int> bytes) async {
     try {
-      return const NovelImportService().decode(bytes).text;
+      return decodeNovelBytes(bytes);
     } on NovelDecodeException {
       final encoding = await showDialog<String>(
         context: context,
@@ -102,7 +102,7 @@ class NovelScreenState extends State<NovelScreen> {
       if (encoding == null) {
         throw const NovelDecodeException('已取消导入。');
       }
-      return const NovelImportService().decode(bytes, encoding: encoding).text;
+      return decodeNovelBytes(bytes, encoding: encoding);
     }
   }
 
@@ -159,13 +159,7 @@ class NovelScreenState extends State<NovelScreen> {
   }
 
   Future<bool> _verifyBookOperation(NovelBook book, String title) async {
-    if (!book.isLocked) {
-      return true;
-    }
-    return _verifyPassword(title);
-  }
-
-  Future<bool> _verifyPassword(String title) async {
+    if (!book.isLocked) return true;
     return verifyPrivacyPassword(
       context: context,
       settings: widget.settings,

@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:charset/charset.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whisnya/services/novel_parser.dart';
-import 'package:whisnya/services/novel/novel_import_service.dart';
 
 void main() {
   test('imports UTF-8 and GBK text and detects chapters', () {
@@ -22,12 +21,5 @@ void main() {
 
     expect(chapters.first.title, '第 1 段');
     expect(chapters, hasLength(greaterThan(1)));
-  });
-
-  test('import service reports the detected encoding', () {
-    final result = const NovelImportService().decode(gbk.encode('中文正文'));
-
-    expect(result.text, '中文正文');
-    expect(result.encoding, 'gbk');
   });
 }

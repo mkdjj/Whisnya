@@ -10,7 +10,7 @@ import '../../models/app_character.dart';
 import '../../models/app_settings.dart';
 import '../../models/chat_message.dart';
 import '../../models/chat_summary.dart';
-import '../../prompts.dart';
+import '../../prompts/prompt_builder.dart';
 import '../../services/ai/ai_gateway.dart';
 import '../../services/ai_service.dart';
 import '../../services/chat/chat_summary_service.dart';
@@ -49,7 +49,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final _scrollController = ScrollController();
   Timer? _toolBarTimer;
 
-  var _apiConfig = ApiConfig.defaults();
+  var _apiConfig = ApiConfig();
   late AppCharacter _character;
   late final ChatConversationController _conversation;
   List<ChatMessage> get _messages => _conversation.messages;
@@ -136,7 +136,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     final endpoint = _apiConfig.effectiveEndpoint(_selectedEndpointId);
-    final configError = _validateEndpointConfig(endpoint);
+    final configError = endpointValidationError(endpoint);
     if (configError != null) {
       context.showSnack(configError);
       return;
@@ -262,7 +262,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _retryLastUserMessage() async {
     if (_isSending || _messages.isEmpty || !_messages.last.isUser) return;
     final endpoint = _apiConfig.effectiveEndpoint(_selectedEndpointId);
-    final configError = _validateEndpointConfig(endpoint);
+    final configError = endpointValidationError(endpoint);
     if (configError != null) {
       context.showSnack(configError);
       return;
@@ -309,7 +309,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (edited == null || edited.isEmpty) return;
 
     final endpoint = _apiConfig.effectiveEndpoint(_selectedEndpointId);
-    final configError = _validateEndpointConfig(endpoint);
+    final configError = endpointValidationError(endpoint);
     if (configError != null) {
       context.showSnack(configError);
       return;
@@ -345,7 +345,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     final endpoint = _apiConfig.effectiveEndpoint(_selectedEndpointId);
-    final configError = _validateEndpointConfig(endpoint);
+    final configError = endpointValidationError(endpoint);
     if (configError != null) {
       context.showSnack(configError);
       return;
@@ -568,7 +568,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
     setState(() => _isSummarizing = true);
     try {
-      final nextSummary = await ChatSummaryService(widget.aiService).update(
+      final nextSummary = await updateChatSummary(
+        widget.aiService,
         characterId: _character.id,
         current: _summary,
         messages: _messages,
@@ -596,13 +597,6 @@ class _ChatScreenState extends State<ChatScreen> {
     } finally {
       if (mounted) setState(() => _isSummarizing = false);
     }
-  }
-
-  String? _validateEndpointConfig(AiEndpointConfig? endpoint) {
-    if (endpoint == null) {
-      return '请先到 API 设置添加配置。';
-    }
-    return endpoint.validationError;
   }
 
   Future<void> _showSummaryDialog() async {
@@ -635,9 +629,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   onPressed: hasSummary
                       ? () async {
                           final navigator = Navigator.of(dialogContext);
-                          final confirmed = await _confirmSummaryAction(
+                          final confirmed = await showConfirmDialog(
+                            context: context,
                             title: '删除历史总结',
-                            content: '确定删除当前角色的历史总结吗？',
+                            content: context.t('确定删除当前角色的历史总结吗？'),
                             confirmLabel: '删除',
                           );
                           if (!confirmed || !mounted) return;
@@ -663,9 +658,10 @@ class _ChatScreenState extends State<ChatScreen> {
                       navigator.pop();
                       return;
                     }
-                    final confirmed = await _confirmSummaryAction(
+                    final confirmed = await showConfirmDialog(
+                      context: context,
                       title: '保存历史总结',
-                      content: '确定保存对历史总结的改动吗？',
+                      content: context.t('确定保存对历史总结的改动吗？'),
                       confirmLabel: '保存',
                     );
                     if (!confirmed || !mounted) return;
@@ -700,31 +696,6 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
     );
     controller.dispose();
-  }
-
-  Future<bool> _confirmSummaryAction({
-    required String title,
-    required String content,
-    required String confirmLabel,
-  }) async {
-    return await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: Text(context.t(title)),
-            content: Text(context.t(content)),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: Text(context.t('取消')),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                child: Text(context.t(confirmLabel)),
-              ),
-            ],
-          ),
-        ) ??
-        false;
   }
 
   Future<void> _showChatSettings() async {
@@ -1052,7 +1023,7 @@ class _ChatScreenState extends State<ChatScreen> {
         elevation: 0,
         scrolledUnderElevation: 0,
         surfaceTintColor: Colors.transparent,
-        systemOverlayStyle: _overlayStyle(context),
+        systemOverlayStyle: appSystemOverlayStyle(context),
         title: Text(_character.name),
         actions: [
           IconButton(
@@ -1103,6 +1074,7 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     }
 
+    final showTopBar = _showToolBar || _isSummarizing;
     return MediaBackground(
       imagePath: _character.backgroundImage,
       region: _character.backgroundImageRegion,
@@ -1139,23 +1111,32 @@ class _ChatScreenState extends State<ChatScreen> {
             top: _topInset(context),
             left: 0,
             right: 0,
-            child: _AnimatedTopBar(
-              isVisible: _showToolBar || _isSummarizing,
-              child: _TopBar(
-                endpoints: _apiConfig.enabledEndpoints,
-                selectedEndpointId: _selectedEndpointId,
-                isSummarizing: _isSummarizing,
-                hasBackground: _character.backgroundImage.trim().isNotEmpty,
-                onEndpointChanged: (endpointId) {
-                  if (endpointId != null) {
-                    setState(() => _selectedEndpointId = endpointId);
-                    _showToolsTemporarily();
-                  }
-                },
-                onSummarize: () {
-                  _showToolsTemporarily();
-                  unawaited(_summarize());
-                },
+            child: IgnorePointer(
+              ignoring: !showTopBar,
+              child: AnimatedSlide(
+                offset: showTopBar ? Offset.zero : const Offset(0, -1.15),
+                duration: const Duration(milliseconds: 240),
+                curve: Curves.easeOutCubic,
+                child: AnimatedOpacity(
+                  opacity: showTopBar ? 1 : 0,
+                  duration: const Duration(milliseconds: 180),
+                  child: _TopBar(
+                    endpoints: _apiConfig.enabledEndpoints,
+                    selectedEndpointId: _selectedEndpointId,
+                    isSummarizing: _isSummarizing,
+                    hasBackground: _character.backgroundImage.trim().isNotEmpty,
+                    onEndpointChanged: (endpointId) {
+                      if (endpointId != null) {
+                        setState(() => _selectedEndpointId = endpointId);
+                        _showToolsTemporarily();
+                      }
+                    },
+                    onSummarize: () {
+                      _showToolsTemporarily();
+                      unawaited(_summarize());
+                    },
+                  ),
+                ),
               ),
             ),
           ),
@@ -1208,15 +1189,6 @@ class _ChatScreenState extends State<ChatScreen> {
 
   double _topInset(BuildContext context) {
     return MediaQuery.paddingOf(context).top + kToolbarHeight;
-  }
-
-  SystemUiOverlayStyle _overlayStyle(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
-      statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
-    );
   }
 }
 
@@ -1295,30 +1267,6 @@ class _TopBar extends StatelessWidget {
               ),
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _AnimatedTopBar extends StatelessWidget {
-  const _AnimatedTopBar({required this.isVisible, required this.child});
-
-  final bool isVisible;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return IgnorePointer(
-      ignoring: !isVisible,
-      child: AnimatedSlide(
-        offset: isVisible ? Offset.zero : const Offset(0, -1.15),
-        duration: const Duration(milliseconds: 240),
-        curve: Curves.easeOutCubic,
-        child: AnimatedOpacity(
-          opacity: isVisible ? 1 : 0,
-          duration: const Duration(milliseconds: 180),
-          child: child,
         ),
       ),
     );

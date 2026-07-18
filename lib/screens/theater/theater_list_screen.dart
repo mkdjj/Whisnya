@@ -165,10 +165,6 @@ class TheaterListScreenState extends State<TheaterListScreen> {
     String title,
   ) async {
     if (!session.isLocked) return true;
-    return _verifyPassword(title);
-  }
-
-  Future<bool> _verifyPassword(String title) async {
     return verifyPrivacyPassword(
       context: context,
       settings: widget.settings,

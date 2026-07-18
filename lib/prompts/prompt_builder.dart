@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import '../models/app_character.dart';
 import '../models/app_settings.dart';
 import '../models/chat_message.dart';
@@ -397,43 +395,6 @@ $items
     return [
       for (var i = 0; i < items.length; i++) '${i + 1}. ${items[i]}',
     ].join('\n');
-  }
-
-  static List<TheaterReplyDraft> parseTheaterReplies(String raw) {
-    final text = _stripJsonFence(raw);
-    final decoded = jsonDecode(text);
-    final list = switch (decoded) {
-      List<dynamic> value => value,
-      {'replies': List<dynamic> value} => value,
-      {'messages': List<dynamic> value} => value,
-      _ => throw const FormatException('not a theater reply list'),
-    };
-    return list
-        .whereType<Map<String, dynamic>>()
-        .map(
-          (item) => TheaterReplyDraft(
-            speaker: (item['speaker'] ?? item['name'] ?? '').toString().trim(),
-            content: (item['content'] ?? item['message'] ?? '')
-                .toString()
-                .trim(),
-          ),
-        )
-        .where((reply) => reply.speaker.isNotEmpty && reply.content.isNotEmpty)
-        .toList();
-  }
-
-  static String _stripJsonFence(String raw) {
-    var text = raw.trim();
-    if (text.startsWith('```')) {
-      text = text.replaceFirst(RegExp(r'^```(?:json)?\s*'), '');
-      text = text.replaceFirst(RegExp(r'\s*```$'), '');
-    }
-    final start = text.indexOf('[');
-    final end = text.lastIndexOf(']');
-    if (start >= 0 && end > start) {
-      return text.substring(start, end + 1);
-    }
-    return text;
   }
 
   static String _theaterNovelFixedText(TheaterSession session) {

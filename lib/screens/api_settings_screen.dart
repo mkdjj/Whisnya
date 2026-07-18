@@ -26,7 +26,7 @@ class ApiSettingsScreen extends StatefulWidget {
 }
 
 class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
-  var _config = ApiConfig.defaults();
+  var _config = ApiConfig();
   var _isLoading = true;
   String? _testingEndpointId;
 

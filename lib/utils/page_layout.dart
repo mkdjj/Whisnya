@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 const pageHorizontalPadding = 12.0;
 const firstContentGap = 12.0;
@@ -26,6 +27,15 @@ double responsiveMaxContentWidth(double width) {
 
 double homeListTop(BuildContext context) {
   return MediaQuery.paddingOf(context).top + kToolbarHeight + firstContentGap;
+}
+
+SystemUiOverlayStyle appSystemOverlayStyle(BuildContext context) {
+  final isDark = Theme.of(context).brightness == Brightness.dark;
+  return SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+    statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
+  );
 }
 
 class AdaptivePage extends StatelessWidget {

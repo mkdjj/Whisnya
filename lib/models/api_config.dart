@@ -1,41 +1,7 @@
 import 'ai_provider.dart';
 
-class ApiProviderConfig {
-  const ApiProviderConfig({
-    this.apiKey = '',
-    this.baseUrl = '',
-    this.model = '',
-  });
-
-  final String apiKey;
-  final String baseUrl;
-  final String model;
-
-  bool get isComplete =>
-      apiKey.trim().isNotEmpty &&
-      baseUrl.trim().isNotEmpty &&
-      model.trim().isNotEmpty;
-
-  ApiProviderConfig copyWith({String? apiKey, String? baseUrl, String? model}) {
-    return ApiProviderConfig(
-      apiKey: apiKey ?? this.apiKey,
-      baseUrl: baseUrl ?? this.baseUrl,
-      model: model ?? this.model,
-    );
-  }
-
-  factory ApiProviderConfig.fromJson(Map<String, dynamic>? json) {
-    return ApiProviderConfig(
-      apiKey: json?['apiKey'] as String? ?? '',
-      baseUrl: json?['baseUrl'] as String? ?? '',
-      model: json?['model'] as String? ?? '',
-    );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {'apiKey': apiKey, 'baseUrl': baseUrl, 'model': model};
-  }
-}
+String? endpointValidationError(AiEndpointConfig? endpoint) =>
+    endpoint?.validationError ?? '请先到 API 设置添加配置。';
 
 class AiEndpointConfig {
   const AiEndpointConfig({
@@ -104,23 +70,6 @@ class AiEndpointConfig {
       enabled: json['enabled'] as bool? ?? true,
       createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? now,
       updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? '') ?? now,
-    );
-  }
-
-  factory AiEndpointConfig.fromLegacy(
-    AiProvider provider,
-    ApiProviderConfig config,
-  ) {
-    final now = DateTime.now();
-    return AiEndpointConfig(
-      id: provider.id,
-      name: provider.label,
-      apiKey: config.apiKey,
-      baseUrl: config.baseUrl,
-      model: config.model,
-      enabled: config.isComplete,
-      createdAt: now,
-      updatedAt: now,
     );
   }
 
@@ -206,10 +155,6 @@ class ApiConfig {
     );
   }
 
-  factory ApiConfig.defaults() {
-    return ApiConfig();
-  }
-
   factory ApiConfig.fromJson(Map<String, dynamic>? json) {
     final rawEndpoints = json?['endpoints'];
     if (rawEndpoints is List) {
@@ -226,9 +171,30 @@ class ApiConfig {
     for (final provider in AiProvider.values) {
       final raw = json?[provider.id];
       if (raw is! Map<String, dynamic>) continue;
-      final config = ApiProviderConfig.fromJson(raw);
-      if (!config.hasAnyValue) continue;
-      endpoints.add(AiEndpointConfig.fromLegacy(provider, config));
+      final apiKey = raw['apiKey'] as String? ?? '';
+      final baseUrl = raw['baseUrl'] as String? ?? '';
+      final model = raw['model'] as String? ?? '';
+      if (apiKey.trim().isEmpty &&
+          baseUrl.trim().isEmpty &&
+          model.trim().isEmpty) {
+        continue;
+      }
+      final now = DateTime.now();
+      endpoints.add(
+        AiEndpointConfig(
+          id: provider.id,
+          name: provider.label,
+          apiKey: apiKey,
+          baseUrl: baseUrl,
+          model: model,
+          enabled:
+              apiKey.trim().isNotEmpty &&
+              baseUrl.trim().isNotEmpty &&
+              model.trim().isNotEmpty,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
     }
 
     return ApiConfig(endpoints: endpoints, defaultEndpointId: 'deepseek');
@@ -263,11 +229,4 @@ class ApiConfig {
     }
     return '';
   }
-}
-
-extension on ApiProviderConfig {
-  bool get hasAnyValue =>
-      apiKey.trim().isNotEmpty ||
-      baseUrl.trim().isNotEmpty ||
-      model.trim().isNotEmpty;
 }

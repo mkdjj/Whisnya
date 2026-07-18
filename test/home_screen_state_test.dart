@@ -7,11 +7,11 @@ import 'package:whisnya/models/app_settings.dart';
 import 'package:whisnya/models/chat_session.dart';
 import 'package:whisnya/models/chat_summary.dart';
 import 'package:whisnya/models/novel_book.dart';
-import 'package:whisnya/screens/chat_screen.dart';
+import 'package:whisnya/screens/chat/chat_screen.dart';
 import 'package:whisnya/screens/home_screen.dart';
-import 'package:whisnya/screens/novel_screen.dart';
+import 'package:whisnya/screens/novel/novel_screens.dart';
 import 'package:whisnya/screens/settings_screen.dart';
-import 'package:whisnya/screens/theater_screen.dart';
+import 'package:whisnya/screens/theater/theater_screens.dart';
 import 'package:whisnya/services/ai/ai_gateway.dart';
 import 'package:whisnya/services/ai_service.dart';
 import 'package:whisnya/services/local_storage_service.dart';
@@ -96,7 +96,7 @@ final class _TrackingStorage extends LocalStorageService {
   Future<List<NovelBook>> loadNovels() async => const [];
 
   @override
-  Future<ApiConfig> loadApiConfig() async => ApiConfig.defaults();
+  Future<ApiConfig> loadApiConfig() async => ApiConfig();
 
   @override
   Future<ChatSummary> loadSummary(String characterId) async =>

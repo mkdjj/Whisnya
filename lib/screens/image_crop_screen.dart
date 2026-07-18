@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -8,12 +7,6 @@ import 'package:image/image.dart' as img;
 
 import '../models/image_crop_region.dart';
 import '../utils/app_i18n.dart';
-
-class ImageCropSelection {
-  const ImageCropSelection({required this.region});
-
-  final ImageCropRegion region;
-}
 
 class ImageCropScreen extends StatefulWidget {
   const ImageCropScreen({
@@ -88,15 +81,13 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
 
     if (!widget.renderOutput) {
       Navigator.of(context).pop(
-        ImageCropSelection(
-          region: ImageCropRegion.fromPixels(
-            sourceWidth: source.width,
-            sourceHeight: source.height,
-            x: x,
-            y: y,
-            width: right - x,
-            height: bottom - y,
-          ),
+        ImageCropRegion.fromPixels(
+          sourceWidth: source.width,
+          sourceHeight: source.height,
+          x: x,
+          y: y,
+          width: right - x,
+          height: bottom - y,
         ),
       );
       return;
@@ -124,7 +115,10 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
     return value.round().clamp(min, max).toInt();
   }
 
-  _CropGeometry _geometryFor(Size viewport, img.Image image) {
+  ({double left, double top, double width, double height}) _geometryFor(
+    Size viewport,
+    img.Image image,
+  ) {
     final baseScale = math.max(
       viewport.width / image.width,
       viewport.height / image.height,
@@ -133,7 +127,7 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
     final height = image.height * baseScale * _scale;
     final left = (viewport.width - width) / 2 + _offset.dx;
     final top = (viewport.height - height) / 2 + _offset.dy;
-    return _CropGeometry(left: left, top: top, width: width, height: height);
+    return (left: left, top: top, width: width, height: height);
   }
 
   Offset _clampOffset(Offset offset, Size viewport, img.Image image) {
@@ -190,26 +184,103 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
                 child: Text(snapshot.error.toString()),
               ),
             ),
-            _ => _CropBody(
-              imagePath: widget.imagePath,
-              aspectRatio: widget.aspectRatio,
-              image: image!,
-              scale: _scale,
-              offset: _offset,
-              onViewportChanged: (size) => _viewportSize = size,
-              geometryFor: _geometryFor,
-              onScaleStart: (details) {
-                _startScale = _scale;
-                _startOffset = _offset;
-                _startFocalPoint = details.focalPoint;
-              },
-              onScaleUpdate: (details, viewport) {
-                setState(() {
-                  _scale = (_startScale * details.scale).clamp(1.0, 6.0);
-                  final nextOffset =
-                      _startOffset + details.focalPoint - _startFocalPoint;
-                  _offset = _clampOffset(nextOffset, viewport, image);
-                });
+            _ => LayoutBuilder(
+              builder: (context, constraints) {
+                final source = image!;
+                const horizontalPadding = 24.0;
+                var cropWidth = constraints.maxWidth - horizontalPadding * 2;
+                var cropHeight = cropWidth / widget.aspectRatio;
+                final maxHeight = constraints.maxHeight - 120;
+                if (cropHeight > maxHeight) {
+                  cropHeight = maxHeight;
+                  cropWidth = cropHeight * widget.aspectRatio;
+                }
+                final viewport = Size(cropWidth, cropHeight);
+                _viewportSize = viewport;
+                final geometry = _geometryFor(viewport, source);
+
+                return Column(
+                  children: [
+                    Expanded(
+                      child: Center(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: Theme.of(context).colorScheme.primary,
+                              width: 2,
+                            ),
+                            color: Colors.black,
+                          ),
+                          child: ClipRect(
+                            child: SizedBox(
+                              width: cropWidth,
+                              height: cropHeight,
+                              child: GestureDetector(
+                                onScaleStart: (details) {
+                                  _startScale = _scale;
+                                  _startOffset = _offset;
+                                  _startFocalPoint = details.focalPoint;
+                                },
+                                onScaleUpdate: (details) {
+                                  setState(() {
+                                    _scale = (_startScale * details.scale)
+                                        .clamp(1.0, 6.0);
+                                    final nextOffset =
+                                        _startOffset +
+                                        details.focalPoint -
+                                        _startFocalPoint;
+                                    _offset = _clampOffset(
+                                      nextOffset,
+                                      viewport,
+                                      source,
+                                    );
+                                  });
+                                },
+                                child: Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    Positioned(
+                                      left: geometry.left,
+                                      top: geometry.top,
+                                      width: geometry.width,
+                                      height: geometry.height,
+                                      child: Image.file(
+                                        File(widget.imagePath),
+                                        fit: BoxFit.fill,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => Navigator.of(context).pop(),
+                              icon: const Icon(Icons.close),
+                              label: Text(context.t('取消')),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: () => _finishCrop(source),
+                              icon: const Icon(Icons.check),
+                              label: Text(context.t('使用图片')),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
               },
             ),
           },
@@ -217,131 +288,4 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
       },
     );
   }
-}
-
-class _CropBody extends StatelessWidget {
-  const _CropBody({
-    required this.imagePath,
-    required this.aspectRatio,
-    required this.image,
-    required this.scale,
-    required this.offset,
-    required this.onViewportChanged,
-    required this.geometryFor,
-    required this.onScaleStart,
-    required this.onScaleUpdate,
-  });
-
-  final String imagePath;
-  final double aspectRatio;
-  final img.Image image;
-  final double scale;
-  final Offset offset;
-  final ValueChanged<Size> onViewportChanged;
-  final _CropGeometry Function(Size viewport, img.Image image) geometryFor;
-  final GestureScaleStartCallback onScaleStart;
-  final void Function(ScaleUpdateDetails details, Size viewport) onScaleUpdate;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final horizontalPadding = 24.0;
-        var cropWidth = constraints.maxWidth - horizontalPadding * 2;
-        var cropHeight = cropWidth / aspectRatio;
-        final maxHeight = constraints.maxHeight - 120;
-        if (cropHeight > maxHeight) {
-          cropHeight = maxHeight;
-          cropWidth = cropHeight * aspectRatio;
-        }
-        final viewport = Size(cropWidth, cropHeight);
-        onViewportChanged(viewport);
-        final geometry = geometryFor(viewport, image);
-
-        return Column(
-          children: [
-            Expanded(
-              child: Center(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: Theme.of(context).colorScheme.primary,
-                      width: 2,
-                    ),
-                    color: Colors.black,
-                  ),
-                  child: ClipRect(
-                    child: SizedBox(
-                      width: cropWidth,
-                      height: cropHeight,
-                      child: GestureDetector(
-                        onScaleStart: onScaleStart,
-                        onScaleUpdate: (details) =>
-                            onScaleUpdate(details, viewport),
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            Positioned(
-                              left: geometry.left,
-                              top: geometry.top,
-                              width: geometry.width,
-                              height: geometry.height,
-                              child: Image.file(
-                                File(imagePath),
-                                fit: BoxFit.fill,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.close),
-                      label: Text(context.t('取消')),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: () {
-                        final state = context
-                            .findAncestorStateOfType<_ImageCropScreenState>();
-                        unawaited(state?._finishCrop(image));
-                      },
-                      icon: const Icon(Icons.check),
-                      label: Text(context.t('使用图片')),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _CropGeometry {
-  const _CropGeometry({
-    required this.left,
-    required this.top,
-    required this.width,
-    required this.height,
-  });
-
-  final double left;
-  final double top;
-  final double width;
-  final double height;
 }

@@ -39,7 +39,7 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
   late final TextEditingController _openingMessageController;
   late final TextEditingController _extraPromptController;
 
-  var _apiConfig = ApiConfig.defaults();
+  var _apiConfig = ApiConfig();
   var _defaultEndpointId = '';
   var _isSaving = false;
   var _isPickingImage = false;
@@ -301,7 +301,7 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
         );
         setState(() {
           _backgroundImageController.text = savedPath;
-          _backgroundImageRegion = selection.region;
+          _backgroundImageRegion = selection;
         });
         return;
       }
@@ -337,7 +337,7 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
     if (kind == _CharacterImageKind.background) {
       final selection = await _openBackgroundCropper(kind, path);
       if (selection == null) return;
-      setState(() => _backgroundImageRegion = selection.region);
+      setState(() => _backgroundImageRegion = selection);
       return;
     }
 
@@ -368,11 +368,11 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
     );
   }
 
-  Future<ImageCropSelection?> _openBackgroundCropper(
+  Future<ImageCropRegion?> _openBackgroundCropper(
     _CharacterImageKind kind,
     String imagePath,
   ) {
-    return Navigator.of(context).push<ImageCropSelection>(
+    return Navigator.of(context).push<ImageCropRegion>(
       MaterialPageRoute(
         builder: (_) => ImageCropScreen(
           imagePath: imagePath,

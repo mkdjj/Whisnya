@@ -57,20 +57,6 @@ class AiRequest {
   final double temperature;
 }
 
-class AiStreamEvent {
-  const AiStreamEvent({this.text, this.usage});
-
-  final String? text;
-  final AiUsage? usage;
-}
-
-class AiRunResult {
-  const AiRunResult({required this.text, required this.usage});
-
-  final String text;
-  final AiUsage usage;
-}
-
 class OpenAiCompatibleAdapter {
   const OpenAiCompatibleAdapter();
 
@@ -98,7 +84,10 @@ class OpenAiCompatibleAdapter {
     if (request.stream) 'stream': true,
   };
 
-  AiStreamEvent? parseStream(String line, {required bool includeReasoning}) {
+  ({String? text, AiUsage? usage})? parseStream(
+    String line, {
+    required bool includeReasoning,
+  }) {
     if (line.isEmpty) return null;
     final payload = line.startsWith('data:') ? line.substring(5).trim() : line;
     if (payload.isEmpty || payload == '[DONE]') return null;
@@ -134,15 +123,13 @@ class OpenAiCompatibleAdapter {
           }
         }
       }
-      return text == null && usage == null
-          ? null
-          : AiStreamEvent(text: text, usage: usage);
+      return text == null && usage == null ? null : (text: text, usage: usage);
     } on FormatException {
       return null;
     }
   }
 
-  AiRunResult parseResponse(dynamic json) {
+  ({String text, AiUsage usage}) parseResponse(dynamic json) {
     if (json is! Map<String, dynamic>) {
       throw AiException('API 返回格式异常。');
     }
@@ -158,10 +145,7 @@ class OpenAiCompatibleAdapter {
           content = first['text'];
         }
         if (content is String && content.trim().isNotEmpty) {
-          return AiRunResult(
-            text: content.trim(),
-            usage: AiUsage.fromJson(json['usage']),
-          );
+          return (text: content.trim(), usage: AiUsage.fromJson(json['usage']));
         }
       }
     }
@@ -176,7 +160,7 @@ class AiConversationRunner {
   final http.Client _client;
   static const _adapter = OpenAiCompatibleAdapter();
 
-  Future<AiRunResult> send(
+  Future<({String text, AiUsage usage})> send(
     AiRequest request, {
     AiCancelToken? cancelToken,
   }) async {
@@ -209,7 +193,7 @@ class AiConversationRunner {
     }
   }
 
-  Stream<AiStreamEvent> run(
+  Stream<({String? text, AiUsage? usage})> run(
     AiRequest request, {
     AiCancelToken? cancelToken,
   }) async* {

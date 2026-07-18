@@ -5,8 +5,8 @@ import 'package:whisnya/models/app_settings.dart';
 import 'package:whisnya/models/chat_message.dart';
 import 'package:whisnya/models/novel_book.dart';
 import 'package:whisnya/models/theater.dart';
-import 'package:whisnya/prompts.dart';
-import 'package:whisnya/screens/novel_screen.dart';
+import 'package:whisnya/prompts/prompt_builder.dart';
+import 'package:whisnya/screens/novel/novel_screens.dart';
 import 'package:whisnya/services/local_storage_service.dart';
 import 'package:whisnya/services/novel_parser.dart';
 import 'package:whisnya/utils/app_i18n.dart';
@@ -340,10 +340,6 @@ void main() {
     final restored = TheaterSession.fromJson(session.toJson());
     final legacySessionJson = session.toJson()..remove('lastOpenedAt');
     final legacySession = TheaterSession.fromJson(legacySessionJson);
-    final replies = PromptBuilder.parseTheaterReplies(
-      '[{"speaker":"苏璃","content":"我知道了。"}]',
-    );
-
     expect(restored.participants.single.name, '苏璃');
     expect(restored.isHidden, isTrue);
     expect(restored.isLocked, isTrue);
@@ -355,8 +351,6 @@ void main() {
     expect(restored.participants.single.isMuted, isTrue);
     expect(restored.activeAiParticipants, isEmpty);
     expect(restored.recentMessageLimit, 30);
-    expect(replies.single.speaker, '苏璃');
-    expect(replies.single.content, '我知道了。');
     final request = PromptBuilder.buildTheaterSingleApiRequest(
       session: session,
       novelSummary: '',

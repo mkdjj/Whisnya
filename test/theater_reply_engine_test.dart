@@ -2,7 +2,7 @@ import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whisnya/models/theater.dart';
-import 'package:whisnya/prompts.dart';
+import 'package:whisnya/prompts/prompt_builder.dart';
 import 'package:whisnya/services/theater/theater_reply_engine.dart';
 
 void main() {

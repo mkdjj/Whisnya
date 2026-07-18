@@ -5,8 +5,7 @@ import 'ai/ai_gateway.dart';
 import 'ai/ai_conversation_runner.dart';
 
 export '../models/ai_usage.dart' show AiUsage;
-export 'ai/ai_conversation_runner.dart'
-    show AiCancelToken, AiException, AiRequest, AiStreamEvent;
+export 'ai/ai_conversation_runner.dart' show AiCancelToken, AiException;
 
 class AiService implements AiGateway {
   AiService({http.Client? client})
@@ -71,16 +70,5 @@ class AiService implements AiGateway {
       if (text != null) yield text;
     }
     if (!usageReported) onUsage?.call(const AiUsage());
-  }
-
-  Uri buildChatCompletionsUri(String baseUrl) {
-    return const OpenAiCompatibleAdapter().buildUri(
-      AiRequest(
-        apiKey: 'unused',
-        baseUrl: baseUrl,
-        model: 'unused',
-        messages: const [],
-      ),
-    );
   }
 }
