@@ -873,6 +873,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
                           TheaterMultiApiReplyMode.turnBased) ...[
                     const SizedBox(height: 8),
                     TheaterReplySettings(
+                      participantCount: draft.activeAiParticipants.length,
                       mainReplyCount: draft.mainReplyCount,
                       extraReplyMode: draft.extraReplyMode,
                       onMainReplyCountChanged: (value) =>
@@ -914,15 +915,22 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
                   const SizedBox(height: 14),
                   SettingSlider(
                     label: '背景图透明度',
-                    value: draft.backgroundImageOpacity,
+                    value: opacityToTransparency(draft.backgroundImageOpacity),
                     min: 0,
                     max: 1,
                     divisions: 100,
-                    display: '${(draft.backgroundImageOpacity * 100).round()}%',
-                    onChanged: (value) =>
-                        preview(draft.copyWith(backgroundImageOpacity: value)),
-                    onChangeEnd: (value) =>
-                        apply(draft.copyWith(backgroundImageOpacity: value)),
+                    display:
+                        '${(opacityToTransparency(draft.backgroundImageOpacity) * 100).round()}%',
+                    onChanged: (value) => preview(
+                      draft.copyWith(
+                        backgroundImageOpacity: transparencyToOpacity(value),
+                      ),
+                    ),
+                    onChangeEnd: (value) => apply(
+                      draft.copyWith(
+                        backgroundImageOpacity: transparencyToOpacity(value),
+                      ),
+                    ),
                     height: 26,
                     displayWidth: 52,
                   ),
@@ -943,15 +951,22 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
                   SettingSlider(
                     key: const ValueKey('theater-chat-input-opacity-setting'),
                     label: '输入框透明度',
-                    value: draft.inputOpacity,
+                    value: opacityToTransparency(draft.inputOpacity),
                     min: 0,
                     max: 1,
                     divisions: 100,
-                    display: '${(draft.inputOpacity * 100).round()}%',
-                    onChanged: (value) =>
-                        preview(draft.copyWith(inputOpacity: value)),
-                    onChangeEnd: (value) =>
-                        apply(draft.copyWith(inputOpacity: value)),
+                    display:
+                        '${(opacityToTransparency(draft.inputOpacity) * 100).round()}%',
+                    onChanged: (value) => preview(
+                      draft.copyWith(
+                        inputOpacity: transparencyToOpacity(value),
+                      ),
+                    ),
+                    onChangeEnd: (value) => apply(
+                      draft.copyWith(
+                        inputOpacity: transparencyToOpacity(value),
+                      ),
+                    ),
                     height: 26,
                     displayWidth: 52,
                   ),

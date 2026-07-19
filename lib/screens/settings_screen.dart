@@ -16,6 +16,7 @@ import '../utils/confirm_dialog.dart';
 import '../utils/page_layout.dart';
 import '../utils/password_lock.dart';
 import '../utils/snack.dart';
+import '../utils/transparency.dart';
 import '../widgets/app_background.dart';
 import '../widgets/color_picker_dialog.dart';
 import 'api_settings_screen.dart';
@@ -1074,17 +1075,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _tile(
         icon: Icons.opacity,
         title: context.t('界面背景透明度'),
-        subtitle: '${(_settings.globalBackgroundOpacity * 100).round()}%',
+        subtitle:
+            '${(opacityToTransparency(_settings.globalBackgroundOpacity) * 100).round()}%',
         child: _compactSlider(
-          value: _settings.globalBackgroundOpacity.clamp(0, 1).toDouble(),
+          value: opacityToTransparency(_settings.globalBackgroundOpacity),
           min: 0,
           max: 1,
           divisions: 100,
           onChanged: (value) {
-            preview(_settings.copyWith(globalBackgroundOpacity: value));
+            preview(
+              _settings.copyWith(
+                globalBackgroundOpacity: transparencyToOpacity(value),
+              ),
+            );
           },
           onChangeEnd: (value) {
-            apply(_settings.copyWith(globalBackgroundOpacity: value));
+            apply(
+              _settings.copyWith(
+                globalBackgroundOpacity: transparencyToOpacity(value),
+              ),
+            );
           },
         ),
       ),
@@ -1108,34 +1118,52 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _tile(
         icon: Icons.space_bar,
         title: context.t('底部导航栏透明度'),
-        subtitle: '${(_settings.navigationBarOpacity * 100).round()}%',
+        subtitle:
+            '${(opacityToTransparency(_settings.navigationBarOpacity) * 100).round()}%',
         child: _compactSlider(
-          value: _settings.navigationBarOpacity.clamp(0, 1).toDouble(),
+          value: opacityToTransparency(_settings.navigationBarOpacity),
           min: 0,
           max: 1,
           divisions: 100,
           onChanged: (value) {
-            apply(_settings.copyWith(navigationBarOpacity: value));
+            apply(
+              _settings.copyWith(
+                navigationBarOpacity: transparencyToOpacity(value),
+              ),
+            );
           },
           onChangeEnd: (value) {
-            apply(_settings.copyWith(navigationBarOpacity: value));
+            apply(
+              _settings.copyWith(
+                navigationBarOpacity: transparencyToOpacity(value),
+              ),
+            );
           },
         ),
       ),
       _tile(
         icon: Icons.view_agenda_outlined,
         title: context.t('列表卡片透明度'),
-        subtitle: '${(_settings.characterListCardOpacity * 100).round()}%',
+        subtitle:
+            '${(opacityToTransparency(_settings.characterListCardOpacity) * 100).round()}%',
         child: _compactSlider(
-          value: _settings.characterListCardOpacity.clamp(0, 1).toDouble(),
+          value: opacityToTransparency(_settings.characterListCardOpacity),
           min: 0,
           max: 1,
           divisions: 100,
           onChanged: (value) {
-            preview(_settings.copyWith(characterListCardOpacity: value));
+            preview(
+              _settings.copyWith(
+                characterListCardOpacity: transparencyToOpacity(value),
+              ),
+            );
           },
           onChangeEnd: (value) {
-            apply(_settings.copyWith(characterListCardOpacity: value));
+            apply(
+              _settings.copyWith(
+                characterListCardOpacity: transparencyToOpacity(value),
+              ),
+            );
           },
         ),
       ),

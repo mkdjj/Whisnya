@@ -4,6 +4,7 @@ import '../../utils/app_i18n.dart';
 
 class TheaterReplySettings extends StatelessWidget {
   const TheaterReplySettings({
+    required this.participantCount,
     required this.mainReplyCount,
     required this.extraReplyMode,
     required this.onMainReplyCountChanged,
@@ -11,6 +12,7 @@ class TheaterReplySettings extends StatelessWidget {
     super.key,
   });
 
+  final int participantCount;
   final int mainReplyCount;
   final int extraReplyMode;
   final ValueChanged<int> onMainReplyCountChanged;
@@ -18,6 +20,11 @@ class TheaterReplySettings extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final maximum = participantCount > 1 ? participantCount - 1 : 0;
+    final selectedMain = mainReplyCount > 0 && mainReplyCount <= maximum
+        ? mainReplyCount
+        : 0;
+    final selectedExtra = extraReplyMode.clamp(0, maximum).toInt();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -25,16 +32,17 @@ class TheaterReplySettings extends StatelessWidget {
         const SizedBox(height: 6),
         Wrap(
           spacing: 8,
+          runSpacing: 8,
           children: [
-            _choice(context, '1 人', 1, mainReplyCount, onMainReplyCountChanged),
-            _choice(context, '2 人', 2, mainReplyCount, onMainReplyCountChanged),
-            _choice(
-              context,
-              '全部角色',
-              0,
-              mainReplyCount,
-              onMainReplyCountChanged,
-            ),
+            for (var value = 1; value <= maximum; value++)
+              _choice(
+                context,
+                context.isEnglish ? '$value roles' : '$value 人',
+                value,
+                selectedMain,
+                onMainReplyCountChanged,
+              ),
+            _choice(context, '全部角色', 0, selectedMain, onMainReplyCountChanged),
           ],
         ),
         const SizedBox(height: 12),
@@ -42,22 +50,17 @@ class TheaterReplySettings extends StatelessWidget {
         const SizedBox(height: 6),
         Wrap(
           spacing: 8,
+          runSpacing: 8,
           children: [
-            _choice(context, '不追加', 0, extraReplyMode, onExtraReplyModeChanged),
-            _choice(
-              context,
-              '随机追加 0～1 个角色',
-              1,
-              extraReplyMode,
-              onExtraReplyModeChanged,
-            ),
-            _choice(
-              context,
-              '随机追加 0～2 个角色',
-              2,
-              extraReplyMode,
-              onExtraReplyModeChanged,
-            ),
+            _choice(context, '不追加', 0, selectedExtra, onExtraReplyModeChanged),
+            for (var value = 1; value <= maximum; value++)
+              _choice(
+                context,
+                context.isEnglish ? '0-$value roles' : '0-$value个',
+                value,
+                selectedExtra,
+                onExtraReplyModeChanged,
+              ),
           ],
         ),
       ],

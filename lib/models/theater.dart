@@ -4,6 +4,8 @@ import 'image_crop_region.dart';
 import 'novel_book.dart';
 import 'user_profile.dart';
 
+int _nonNegative(int value) => value < 0 ? 0 : value;
+
 enum TheaterRoleSource {
   appCharacter('appCharacter'),
   novelRole('novelRole');
@@ -417,8 +419,8 @@ class TheaterSession {
       singleEndpointId: singleEndpointId ?? this.singleEndpointId,
       userParticipantId: userParticipantId ?? this.userParticipantId,
       keepRoundCount: (keepRoundCount ?? this.keepRoundCount).clamp(5, 100),
-      mainReplyCount: (mainReplyCount ?? this.mainReplyCount).clamp(0, 2),
-      extraReplyMode: (extraReplyMode ?? this.extraReplyMode).clamp(0, 2),
+      mainReplyCount: _nonNegative(mainReplyCount ?? this.mainReplyCount),
+      extraReplyMode: _nonNegative(extraReplyMode ?? this.extraReplyMode),
       theaterSummary: theaterSummary ?? this.theaterSummary,
       summarizedMessageCount:
           summarizedMessageCount ?? this.summarizedMessageCount,
@@ -460,8 +462,8 @@ class TheaterSession {
       singleEndpointId: json['singleEndpointId'] as String? ?? '',
       userParticipantId: json['userParticipantId'] as String? ?? '',
       keepRoundCount: (json['keepRoundCount'] as int? ?? 30).clamp(5, 100),
-      mainReplyCount: (json['mainReplyCount'] as int? ?? 0).clamp(0, 2),
-      extraReplyMode: (json['extraReplyMode'] as int? ?? 0).clamp(0, 2),
+      mainReplyCount: _nonNegative(json['mainReplyCount'] as int? ?? 0),
+      extraReplyMode: _nonNegative(json['extraReplyMode'] as int? ?? 0),
       theaterSummary: json['theaterSummary'] as String? ?? '',
       summarizedMessageCount: json['summarizedMessageCount'] as int? ?? 0,
       nextSpeakerIndex: json['nextSpeakerIndex'] as int? ?? 0,

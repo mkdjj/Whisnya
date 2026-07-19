@@ -23,6 +23,7 @@ import '../../utils/confirm_dialog.dart';
 import '../../utils/page_layout.dart';
 import '../../utils/snack.dart';
 import '../../utils/stream_text_buffer.dart';
+import '../../utils/transparency.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/chat_bubble.dart';
 import '../../widgets/chat_bubble_theme_editor.dart';
@@ -821,17 +822,24 @@ class _ChatScreenState extends State<ChatScreen> {
                 const Divider(),
                 SettingSlider(
                   label: '背景图透明度',
-                  value: draft.backgroundImageOpacity,
+                  value: opacityToTransparency(draft.backgroundImageOpacity),
                   min: 0,
                   max: 1,
                   divisions: 100,
-                  display: '${(draft.backgroundImageOpacity * 100).round()}%',
+                  display:
+                      '${(opacityToTransparency(draft.backgroundImageOpacity) * 100).round()}%',
                   onChanged: (value) {
-                    preview(draft.copyWith(backgroundImageOpacity: value));
+                    preview(
+                      draft.copyWith(
+                        backgroundImageOpacity: transparencyToOpacity(value),
+                      ),
+                    );
                   },
                   onChangeEnd: (value) {
                     _applyCharacterSettings(
-                      draft.copyWith(backgroundImageOpacity: value),
+                      draft.copyWith(
+                        backgroundImageOpacity: transparencyToOpacity(value),
+                      ),
                     );
                   },
                 ),
@@ -854,17 +862,24 @@ class _ChatScreenState extends State<ChatScreen> {
                 SettingSlider(
                   key: const ValueKey('chat-input-opacity-setting'),
                   label: '输入框透明度',
-                  value: draft.inputOpacity,
+                  value: opacityToTransparency(draft.inputOpacity),
                   min: 0,
                   max: 1,
                   divisions: 100,
-                  display: '${(draft.inputOpacity * 100).round()}%',
+                  display:
+                      '${(opacityToTransparency(draft.inputOpacity) * 100).round()}%',
                   onChanged: (value) {
-                    preview(draft.copyWith(inputOpacity: value));
+                    preview(
+                      draft.copyWith(
+                        inputOpacity: transparencyToOpacity(value),
+                      ),
+                    );
                   },
                   onChangeEnd: (value) {
                     _applyCharacterSettings(
-                      draft.copyWith(inputOpacity: value),
+                      draft.copyWith(
+                        inputOpacity: transparencyToOpacity(value),
+                      ),
                     );
                   },
                 ),

@@ -52,27 +52,39 @@ void main() {
     );
   });
 
-  testWidgets('extra reply choices explicitly describe random additions', (
+  testWidgets('reply choices follow the available participant count', (
     tester,
   ) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        locale: const Locale('zh'),
-        supportedLocales: appSupportedLocales,
-        localizationsDelegates: appLocalizationsDelegates,
-        home: Scaffold(
-          body: TheaterReplySettings(
-            mainReplyCount: 1,
-            extraReplyMode: 0,
-            onMainReplyCountChanged: (_) {},
-            onExtraReplyModeChanged: (_) {},
+    Future<void> pump(int participantCount) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('zh'),
+          supportedLocales: appSupportedLocales,
+          localizationsDelegates: appLocalizationsDelegates,
+          home: Scaffold(
+            body: TheaterReplySettings(
+              participantCount: participantCount,
+              mainReplyCount: 1,
+              extraReplyMode: 0,
+              onMainReplyCountChanged: (_) {},
+              onExtraReplyModeChanged: (_) {},
+            ),
           ),
         ),
-      ),
-    );
+      );
+    }
 
-    expect(find.text('随机追加 0～1 个角色'), findsOneWidget);
-    expect(find.text('随机追加 0～2 个角色'), findsOneWidget);
+    await pump(5);
+    for (final label in const ['1 人', '2 人', '3 人', '4 人', '全部角色']) {
+      expect(find.text(label), findsOneWidget);
+    }
+    for (final label in const ['不追加', '0-1个', '0-2个', '0-3个', '0-4个']) {
+      expect(find.text(label), findsOneWidget);
+    }
+
+    await pump(4);
+    expect(find.text('4 人'), findsNothing);
+    expect(find.text('0-4个'), findsNothing);
   });
 
   testWidgets('bottom continuation is labeled as continuing one round', (

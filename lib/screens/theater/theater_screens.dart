@@ -27,6 +27,7 @@ import '../../utils/page_layout.dart';
 import '../../utils/privacy_password_prompt.dart';
 import '../../utils/snack.dart';
 import '../../utils/stream_text_buffer.dart';
+import '../../utils/transparency.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/chat_bubble.dart';
 import '../../widgets/chat_bubble_theme_editor.dart';

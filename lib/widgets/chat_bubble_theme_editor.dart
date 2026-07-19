@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/chat_bubble_theme.dart';
 import '../utils/app_i18n.dart';
+import '../utils/transparency.dart';
 import 'chat_bubble.dart';
 import 'color_picker_dialog.dart';
 
@@ -109,17 +110,23 @@ class _ChatBubbleThemeEditorState extends State<ChatBubbleThemeEditor> {
         Row(
           children: [
             Expanded(child: Text(context.t('气泡透明度'))),
-            Text('${(_appearance.opacity * 100).round()}%'),
+            Text(
+              '${(opacityToTransparency(_appearance.opacity) * 100).round()}%',
+            ),
           ],
         ),
         Slider(
-          value: _appearance.opacity.clamp(0, 1).toDouble(),
+          value: opacityToTransparency(_appearance.opacity),
           min: 0,
           max: 1,
           divisions: 100,
-          onChanged: (value) =>
-              _update(_appearance.copyWith(opacity: value), save: false),
-          onChangeEnd: (value) => _update(_appearance.copyWith(opacity: value)),
+          onChanged: (value) => _update(
+            _appearance.copyWith(opacity: transparencyToOpacity(value)),
+            save: false,
+          ),
+          onChangeEnd: (value) => _update(
+            _appearance.copyWith(opacity: transparencyToOpacity(value)),
+          ),
         ),
         Wrap(
           spacing: 8,

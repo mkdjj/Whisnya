@@ -48,6 +48,15 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
 
   bool get _isEditing => widget.session != null;
 
+  int get _replyParticipantCount => _selectedParticipants
+      .where(
+        (participant) =>
+            participant.enabled &&
+            !participant.isMuted &&
+            participant.id != _userParticipantId,
+      )
+      .length;
+
   NovelBook? get _boundNovel {
     for (final book in _novels) {
       if (book.id == _boundNovelId) return book;
@@ -660,6 +669,7 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
                 _replyMode != TheaterMultiApiReplyMode.turnBased) ...[
               const SizedBox(height: 16),
               TheaterReplySettings(
+                participantCount: _replyParticipantCount,
                 mainReplyCount: _mainReplyCount,
                 extraReplyMode: _extraReplyMode,
                 onMainReplyCountChanged: (value) =>
@@ -774,13 +784,16 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
         ),
         SettingSlider(
           label: '背景图透明度',
-          value: _backgroundImageOpacity,
+          value: opacityToTransparency(_backgroundImageOpacity),
           min: 0,
           max: 1,
           divisions: 100,
-          display: '${(_backgroundImageOpacity * 100).round()}%',
+          display:
+              '${(opacityToTransparency(_backgroundImageOpacity) * 100).round()}%',
           onChanged: (value) {
-            setState(() => _backgroundImageOpacity = value);
+            setState(
+              () => _backgroundImageOpacity = transparencyToOpacity(value),
+            );
           },
         ),
         SettingSlider(
@@ -797,13 +810,13 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
         SettingSlider(
           key: const ValueKey('theater-edit-input-opacity-setting'),
           label: '输入框透明度',
-          value: _inputOpacity,
+          value: opacityToTransparency(_inputOpacity),
           min: 0,
           max: 1,
           divisions: 100,
-          display: '${(_inputOpacity * 100).round()}%',
+          display: '${(opacityToTransparency(_inputOpacity) * 100).round()}%',
           onChanged: (value) {
-            setState(() => _inputOpacity = value);
+            setState(() => _inputOpacity = transparencyToOpacity(value));
           },
         ),
         ExpansionTile(

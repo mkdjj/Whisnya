@@ -140,14 +140,14 @@ void main() {
 
   group('session compatibility', () {
     test('round trips reply settings and defaults legacy JSON', () {
-      final configured = session(mainReplyCount: 2, extraReplyMode: 1);
+      final configured = session(mainReplyCount: 4, extraReplyMode: 4);
       final restored = TheaterSession.fromJson(configured.toJson());
       final legacy = configured.toJson()
         ..remove('mainReplyCount')
         ..remove('extraReplyMode');
 
-      expect(restored.mainReplyCount, 2);
-      expect(restored.extraReplyMode, 1);
+      expect(restored.mainReplyCount, 4);
+      expect(restored.extraReplyMode, 4);
       expect(TheaterSession.fromJson(legacy).mainReplyCount, 0);
       expect(TheaterSession.fromJson(legacy).extraReplyMode, 0);
     });
