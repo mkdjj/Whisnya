@@ -1,12 +1,12 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../models/user_profile.dart';
 import '../services/local_storage_service.dart';
 import '../utils/app_i18n.dart';
+import '../utils/image_picker.dart';
 import '../utils/page_layout.dart';
 import '../utils/snack.dart';
 import 'image_crop_screen.dart';
@@ -58,24 +58,12 @@ class _UserProfileEditScreenState extends State<UserProfileEditScreen> {
     if (_isPicking) return;
     setState(() => _isPicking = true);
     try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.image,
-        allowMultiple: false,
-        withData: true,
-      );
-      if (result == null || result.files.isEmpty) return;
-      final picked = result.files.single;
-      var sourcePath = picked.path;
-      if (sourcePath == null && picked.bytes != null) {
-        sourcePath = (await widget.storage.saveTemporaryImage(
-          picked.bytes!,
-        )).path;
-      }
-      if (!mounted || sourcePath == null) return;
+      final picked = await pickImage(widget.storage);
+      if (picked == null || !mounted) return;
       final cropped = await Navigator.of(context).push<Uint8List>(
         MaterialPageRoute(
           builder: (_) => ImageCropScreen(
-            imagePath: sourcePath!,
+            imagePath: picked.path,
             title: context.t('裁剪头像'),
             aspectRatio: 1,
             outputWidth: 512,

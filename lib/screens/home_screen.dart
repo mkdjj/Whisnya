@@ -8,7 +8,6 @@ import '../models/app_character.dart';
 import '../models/app_settings.dart';
 import '../services/ai_service.dart';
 import '../services/local_storage_service.dart';
-import '../services/migration/legacy_novel_chat_migration_service.dart';
 import '../utils/app_i18n.dart';
 import '../utils/character_import_flow.dart';
 import '../utils/confirm_dialog.dart';
@@ -65,14 +64,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
     try {
       await widget.storage.ensureReady();
-      final migration = await LegacyNovelChatMigrationService(
-        widget.storage,
-      ).migrateAll();
       final characters = await widget.storage.loadCharacters();
-      final recoveryMessages = [
-        ...migration.recoveryMessages,
-        ...widget.storage.takeRecoveryMessages(),
-      ];
+      final recoveryMessages = widget.storage.takeRecoveryMessages();
       if (!mounted) return;
       setState(() {
         _characters = characters;
@@ -475,25 +468,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (_error != null) {
       return AdaptivePage(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.error_outline, size: 44),
-                const SizedBox(height: 12),
-                Text(_error!, textAlign: TextAlign.center),
-                const SizedBox(height: 16),
-                FilledButton.icon(
-                  onPressed: _load,
-                  icon: const Icon(Icons.refresh),
-                  label: Text(context.t('重新加载')),
-                ),
-              ],
-            ),
-          ),
-        ),
+        child: PageStatusView.error(message: _error!, onRetry: _load),
       );
     }
 

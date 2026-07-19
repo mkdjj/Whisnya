@@ -25,6 +25,5 @@ void main() {
     );
 
     expect(UserProfile.fromJson(profile.toJson()).toJson(), profile.toJson());
-    expect(profile.copyWith(name: '小红').avatar, profile.avatar);
   });
 }

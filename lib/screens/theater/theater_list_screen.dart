@@ -84,29 +84,13 @@ class TheaterListScreenState extends State<TheaterListScreen> {
   Future<void> _rename(TheaterSession session) async {
     if (!await _verifySessionOperation(session, '重命名')) return;
     if (!mounted) return;
-    final controller = TextEditingController(text: session.title);
-    final title = await showDialog<String>(
+    final title = await showTextInputDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(context.t('重命名群聊')),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: InputDecoration(labelText: context.t('群聊名称')),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(context.t('取消')),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-            child: Text(context.t('保存')),
-          ),
-        ],
-      ),
+      title: '重命名群聊',
+      initialText: session.title,
+      label: '群聊名称',
+      confirmLabel: '保存',
     );
-    controller.dispose();
     if (title == null || title.isEmpty) return;
     await widget.storage.saveTheaterSession(
       session.copyWith(title: title, updatedAt: DateTime.now()),
@@ -201,40 +185,13 @@ class TheaterListScreenState extends State<TheaterListScreen> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.error_outline, size: 44),
-              const SizedBox(height: 12),
-              Text(_error!, textAlign: TextAlign.center),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: _load,
-                icon: const Icon(Icons.refresh),
-                label: Text(context.t('重新加载')),
-              ),
-            ],
-          ),
-        ),
-      );
+      return PageStatusView.error(message: _error!, onRetry: _load);
     }
 
     final content = _sessions.isEmpty
-        ? Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.forum_outlined, size: 48),
-                  const SizedBox(height: 12),
-                  Text(context.t('还没有群聊')),
-                ],
-              ),
-            ),
+        ? PageStatusView.empty(
+            icon: Icons.forum_outlined,
+            message: context.t('还没有群聊'),
           )
         : ListView.separated(
             padding: EdgeInsets.fromLTRB(

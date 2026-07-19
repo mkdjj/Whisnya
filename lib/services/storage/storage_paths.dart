@@ -8,13 +8,13 @@ class StoragePaths {
   File get settings => _file('settings.json');
   File get apiConfig => _file('api_config.json');
   File get aiUsage => _file('ai_usage.json');
+  File get chatBubblePresets => _file('chat_bubble_presets.json');
   File get characters => _file('characters.json');
   File get novels => _file('novels.json');
   File get theaterSessions => _file('theater_sessions.json');
   File chat(String id) => _file('chats', '$id.json');
   File summary(String id) => _file('summaries', '$id.json');
   File novelText(String id) => _file('novels', '$id.txt');
-  File novelChat(String id) => _file('novel_chats', '$id.json');
   File novelSummaryCache(String id) => _file('novel_summary_cache', '$id.json');
   File theaterMessages(String id) => _file('theater_messages', '$id.json');
   Directory media(String folder) => _directory('media', folder);

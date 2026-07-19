@@ -8,13 +8,16 @@ import 'package:flutter/services.dart';
 
 import '../models/api_config.dart';
 import '../models/app_character.dart';
+import '../models/chat_bubble_preset.dart';
 import '../models/chat_bubble_theme.dart';
 import '../models/image_crop_region.dart';
 import '../services/local_storage_service.dart';
 import '../utils/app_i18n.dart';
+import '../utils/image_picker.dart';
 import '../utils/role_import_parser.dart';
 import '../utils/snack.dart';
 import '../widgets/app_background.dart';
+import '../widgets/chat_bubble_preset_picker.dart';
 import 'image_crop_screen.dart';
 
 class CharacterEditScreen extends StatefulWidget {
@@ -41,7 +44,10 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
   late final TextEditingController _extraPromptController;
 
   var _apiConfig = ApiConfig();
+  var _bubblePresets = const ChatBubblePresetSettings();
   var _defaultEndpointId = '';
+  var _roleBubblePresetId = '';
+  var _userBubblePresetId = '';
   var _isSaving = false;
   var _isPickingImage = false;
   var _backgroundImageRegion = ImageCropRegion.full;
@@ -80,7 +86,10 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
       text: character?.extraPrompt ?? '',
     );
     _defaultEndpointId = character?.defaultEndpointId ?? '';
+    _roleBubblePresetId = character?.roleBubblePresetId ?? '';
+    _userBubblePresetId = character?.userBubblePresetId ?? '';
     unawaited(_loadApiConfig());
+    unawaited(_loadBubblePresets());
   }
 
   @override
@@ -110,6 +119,8 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
       backgroundImageOpacity: existing?.backgroundImageOpacity ?? 1,
       backgroundBlur: existing?.backgroundBlur ?? 0,
       bubbleTheme: existing?.bubbleTheme ?? ChatBubbleTheme.characterDefault,
+      roleBubblePresetId: _roleBubblePresetId,
+      userBubblePresetId: _userBubblePresetId,
       inputOpacity: existing?.inputOpacity ?? 0.92,
       description: _descriptionController.text.trim(),
       personality: _personalityController.text.trim(),
@@ -157,6 +168,15 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
       });
     } catch (_) {
       // Keep character editing usable even if API config is broken.
+    }
+  }
+
+  Future<void> _loadBubblePresets() async {
+    try {
+      final presets = await widget.storage.loadChatBubblePresets();
+      if (mounted) setState(() => _bubblePresets = presets);
+    } catch (_) {
+      // Bubble selection can still follow the built-in default.
     }
   }
 
@@ -271,26 +291,9 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
 
     setState(() => _isPickingImage = true);
     try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.image,
-        allowMultiple: false,
-        withData: true,
-      );
-      if (result == null || result.files.isEmpty) {
-        return;
-      }
-
-      final picked = result.files.single;
-      var sourcePath = picked.path;
-      if (sourcePath == null && picked.bytes != null) {
-        final file = await widget.storage.saveTemporaryImage(picked.bytes!);
-        sourcePath = file.path;
-      }
-      if (!mounted) return;
-      if (sourcePath == null) {
-        context.showSnack('没有拿到可读取的图片路径。');
-        return;
-      }
+      final picked = await pickImage(widget.storage);
+      if (picked == null || !mounted) return;
+      final sourcePath = picked.path;
 
       if (kind == _CharacterImageKind.background) {
         final selection = await _openBackgroundCropper(kind, sourcePath);
@@ -464,6 +467,25 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
             _multiLineField(_openingMessageController, context.t('开场白')),
             const SizedBox(height: 12),
             _multiLineField(_extraPromptController, context.t('补充设定')),
+            const SizedBox(height: 12),
+            Text(
+              context.t('聊天外观'),
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            ChatBubblePresetSelectionTile(
+              title: '角色气泡',
+              presetId: _roleBubblePresetId,
+              presets: _bubblePresets,
+              isUser: false,
+              onChanged: (value) => setState(() => _roleBubblePresetId = value),
+            ),
+            ChatBubblePresetSelectionTile(
+              title: '我的气泡',
+              presetId: _userBubblePresetId,
+              presets: _bubblePresets,
+              isUser: true,
+              onChanged: (value) => setState(() => _userBubblePresetId = value),
+            ),
             const SizedBox(height: 12),
             if (_apiConfig.endpoints.isEmpty)
               InputDecorator(

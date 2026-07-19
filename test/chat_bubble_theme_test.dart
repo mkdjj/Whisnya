@@ -34,17 +34,6 @@ void main() {
     expect(ChatBubbleAppearance(opacity: 2).opacity, 1);
   });
 
-  test('legacy character and theater opacity maps to both sides', () {
-    final character = AppCharacter.fromJson({'id': 'c', 'bubbleOpacity': 0.3});
-    final theater = TheaterSession.fromJson({'id': 't', 'bubbleOpacity': 0.6});
-    expect(character.bubbleTheme.role.opacity, 0.3);
-    expect(character.bubbleTheme.user.opacity, 0.3);
-    expect(theater.bubbleTheme.role.opacity, 0.6);
-    expect(theater.bubbleTheme.user.opacity, 0.6);
-    expect(character.toJson(), isNot(contains('bubbleOpacity')));
-    expect(theater.toJson(), isNot(contains('bubbleOpacity')));
-  });
-
   test('character and theater preserve new bubble theme json', () {
     const theme = ChatBubbleTheme(
       role: ChatBubbleAppearance(
@@ -65,5 +54,52 @@ void main() {
     });
     expect(character.bubbleTheme.toJson(), theme.toJson());
     expect(theater.bubbleTheme.toJson(), theme.toJson());
+  });
+
+  test('chat top bar opacity defaults to transparent and round trips', () {
+    final defaultCharacter = AppCharacter.fromJson({'id': 'c'});
+    final character = defaultCharacter.copyWith(topBarOpacity: 0.4);
+    final theater = TheaterSession.fromJson({'id': 't', 'topBarOpacity': 0.6});
+
+    expect(defaultCharacter.topBarOpacity, 0);
+    expect(AppCharacter.fromJson(character.toJson()).topBarOpacity, 0.4);
+    expect(theater.topBarOpacity, 0.6);
+  });
+
+  test('character endpoint id round trips without mapping', () {
+    const id = 'private-openai-compatible-node';
+    final json = AppCharacter.fromJson({
+      'id': 'c',
+      'defaultEndpointId': id,
+    }).toJson();
+
+    expect(json['defaultEndpointId'], id);
+    expect(AppCharacter.fromJson(json).defaultEndpointId, id);
+  });
+
+  test('character and theater bubble preset ids round trip', () {
+    final character = AppCharacter.fromJson({
+      'id': 'c',
+      'roleBubblePresetId': 'role-preset',
+      'userBubblePresetId': 'user-preset',
+    });
+    final theater = TheaterSession.fromJson({
+      'id': 't',
+      'roleBubblePresetId': 'theater-role',
+      'userBubblePresetId': 'theater-user',
+    });
+
+    expect(character.roleBubblePresetId, 'role-preset');
+    expect(character.userBubblePresetId, 'user-preset');
+    expect(
+      AppCharacter.fromJson(character.toJson()).roleBubblePresetId,
+      'role-preset',
+    );
+    expect(theater.roleBubblePresetId, 'theater-role');
+    expect(theater.userBubblePresetId, 'theater-user');
+    expect(
+      TheaterSession.fromJson(theater.toJson()).userBubblePresetId,
+      'theater-user',
+    );
   });
 }

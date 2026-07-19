@@ -1206,33 +1206,16 @@ ${role.speakingStyle}
   }
 
   Future<void> _showReaderSearchDialog() async {
-    final controller = TextEditingController(text: _readerSearchQuery);
-    final query = await showDialog<String>(
+    final query = await showTextInputDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(context.t('搜索正文')),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: InputDecoration(
-            prefixIcon: const Icon(Icons.search),
-            hintText: context.t('输入关键词'),
-          ),
-          onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(''),
-            child: Text(context.t('清除')),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-            child: Text(context.t('搜索')),
-          ),
-        ],
-      ),
+      title: '搜索正文',
+      initialText: _readerSearchQuery,
+      hint: '输入关键词',
+      confirmLabel: '搜索',
+      cancelLabel: '清除',
+      prefixIcon: Icons.search,
+      clearOnCancel: true,
     );
-    controller.dispose();
     if (!mounted) return;
     if (query == null) return;
     late NovelReaderSearchResult result;

@@ -45,11 +45,8 @@ class NovelBook {
     required this.updatedAt,
     this.summary = '',
     this.roles = const [],
-    this.selectedRoleIndex = -1,
-    this.userRoleIndex = -1,
     this.isHidden = false,
     this.isLocked = false,
-    this.isChatMode = false,
     this.readingMode = 0,
     this.chapterIndex = 0,
     this.fontSize = 18,
@@ -57,9 +54,6 @@ class NovelBook {
     this.manualChapterTitles = const [],
     this.readerTheme = 0,
     this.bookmarkedChapterIndexes = const [],
-    this.chatBackgroundImage = '',
-    this.chatBackgroundOpacity = 1,
-    this.chatBackgroundBlur = 0,
     this.lastOpenedAt,
   });
 
@@ -68,11 +62,8 @@ class NovelBook {
   final String textPath;
   final String summary;
   final List<NovelRoleCandidate> roles;
-  final int selectedRoleIndex;
-  final int userRoleIndex;
   final bool isHidden;
   final bool isLocked;
-  final bool isChatMode;
   final int readingMode;
   final int chapterIndex;
   final double fontSize;
@@ -80,28 +71,11 @@ class NovelBook {
   final List<String> manualChapterTitles;
   final int readerTheme;
   final List<int> bookmarkedChapterIndexes;
-  final String chatBackgroundImage;
-  final double chatBackgroundOpacity;
-  final double chatBackgroundBlur;
   final DateTime? lastOpenedAt;
   final DateTime createdAt;
   final DateTime updatedAt;
 
   DateTime get lastOpenedSortTime => lastOpenedAt ?? updatedAt;
-
-  NovelRoleCandidate? get selectedRole {
-    if (selectedRoleIndex < 0 || selectedRoleIndex >= roles.length) {
-      return null;
-    }
-    return roles[selectedRoleIndex];
-  }
-
-  NovelRoleCandidate? get selectedUserRole {
-    if (userRoleIndex < 0 || userRoleIndex >= roles.length) {
-      return null;
-    }
-    return roles[userRoleIndex];
-  }
 
   NovelBook copyWith({
     String? id,
@@ -109,11 +83,8 @@ class NovelBook {
     String? textPath,
     String? summary,
     List<NovelRoleCandidate>? roles,
-    int? selectedRoleIndex,
-    int? userRoleIndex,
     bool? isHidden,
     bool? isLocked,
-    bool? isChatMode,
     int? readingMode,
     int? chapterIndex,
     double? fontSize,
@@ -121,9 +92,6 @@ class NovelBook {
     List<String>? manualChapterTitles,
     int? readerTheme,
     List<int>? bookmarkedChapterIndexes,
-    String? chatBackgroundImage,
-    double? chatBackgroundOpacity,
-    double? chatBackgroundBlur,
     DateTime? lastOpenedAt,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -134,11 +102,8 @@ class NovelBook {
       textPath: textPath ?? this.textPath,
       summary: summary ?? this.summary,
       roles: roles ?? this.roles,
-      selectedRoleIndex: selectedRoleIndex ?? this.selectedRoleIndex,
-      userRoleIndex: userRoleIndex ?? this.userRoleIndex,
       isHidden: isHidden ?? this.isHidden,
       isLocked: isLocked ?? this.isLocked,
-      isChatMode: isChatMode ?? this.isChatMode,
       readingMode: readingMode ?? this.readingMode,
       chapterIndex: chapterIndex ?? this.chapterIndex,
       fontSize: fontSize ?? this.fontSize,
@@ -147,10 +112,6 @@ class NovelBook {
       readerTheme: readerTheme ?? this.readerTheme,
       bookmarkedChapterIndexes:
           bookmarkedChapterIndexes ?? this.bookmarkedChapterIndexes,
-      chatBackgroundImage: chatBackgroundImage ?? this.chatBackgroundImage,
-      chatBackgroundOpacity:
-          chatBackgroundOpacity ?? this.chatBackgroundOpacity,
-      chatBackgroundBlur: chatBackgroundBlur ?? this.chatBackgroundBlur,
       lastOpenedAt: lastOpenedAt ?? this.lastOpenedAt,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -172,11 +133,8 @@ class NovelBook {
                 .where((role) => role.name.trim().isNotEmpty)
                 .toList()
           : const [],
-      selectedRoleIndex: json['selectedRoleIndex'] as int? ?? -1,
-      userRoleIndex: json['userRoleIndex'] as int? ?? -1,
       isHidden: json['isHidden'] as bool? ?? false,
       isLocked: json['isLocked'] as bool? ?? false,
-      isChatMode: json['isChatMode'] as bool? ?? false,
       readingMode: json['readingMode'] as int? ?? 0,
       chapterIndex: json['chapterIndex'] as int? ?? 0,
       fontSize: jsonDouble(json['fontSize'], 18),
@@ -184,9 +142,6 @@ class NovelBook {
       manualChapterTitles: _readStringList(json['manualChapterTitles']),
       readerTheme: json['readerTheme'] as int? ?? 0,
       bookmarkedChapterIndexes: _readIntList(json['bookmarkedChapterIndexes']),
-      chatBackgroundImage: json['chatBackgroundImage'] as String? ?? '',
-      chatBackgroundOpacity: jsonDouble(json['chatBackgroundOpacity'], 1),
-      chatBackgroundBlur: jsonDouble(json['chatBackgroundBlur'], 0),
       lastOpenedAt: DateTime.tryParse(json['lastOpenedAt'] as String? ?? ''),
       createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? now,
       updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? '') ?? now,
@@ -200,11 +155,8 @@ class NovelBook {
       'textPath': textPath,
       'summary': summary,
       'roles': roles.map((role) => role.toJson()).toList(),
-      'selectedRoleIndex': selectedRoleIndex,
-      'userRoleIndex': userRoleIndex,
       'isHidden': isHidden,
       'isLocked': isLocked,
-      'isChatMode': isChatMode,
       'readingMode': readingMode,
       'chapterIndex': chapterIndex,
       'fontSize': fontSize,
@@ -212,9 +164,6 @@ class NovelBook {
       'manualChapterTitles': manualChapterTitles,
       'readerTheme': readerTheme,
       'bookmarkedChapterIndexes': bookmarkedChapterIndexes,
-      'chatBackgroundImage': chatBackgroundImage,
-      'chatBackgroundOpacity': chatBackgroundOpacity,
-      'chatBackgroundBlur': chatBackgroundBlur,
       if (lastOpenedAt != null) 'lastOpenedAt': lastOpenedAt!.toIso8601String(),
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),

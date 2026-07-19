@@ -3,7 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:whisnya/models/api_config.dart';
 import 'package:whisnya/models/app_character.dart';
 import 'package:whisnya/models/app_settings.dart';
-import 'package:whisnya/models/chat_session.dart';
+import 'package:whisnya/models/chat_bubble_preset.dart';
+import 'package:whisnya/models/chat_bubble_theme.dart';
 import 'package:whisnya/models/chat_summary.dart';
 import 'package:whisnya/models/chat_message.dart';
 import 'package:whisnya/models/user_profile.dart';
@@ -13,7 +14,98 @@ import 'package:whisnya/services/ai_service.dart';
 import 'package:whisnya/services/local_storage_service.dart';
 
 void main() {
-  testWidgets('character bubble settings follow input opacity', (tester) async {
+  testWidgets('character chat resolves its global bubble preset', (
+    tester,
+  ) async {
+    final storage = _ApiStorage(
+      _config(model: 'model', apiKey: 'key'),
+      bubblePresets: ChatBubblePresetSettings(
+        presets: [
+          ChatBubblePreset(
+            id: 'role',
+            name: '角色气泡',
+            appearance: const ChatBubbleAppearance(
+              style: ChatBubbleStyle.square,
+              backgroundColor: 0xFF123456,
+            ),
+          ),
+        ],
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChatScreen(
+          storage: storage,
+          aiService: _RecordingGateway(),
+          character: AppCharacter.fromJson({
+            'id': 'character',
+            'name': 'Character',
+            'openingMessage': 'hello',
+            'roleBubblePresetId': 'role',
+          }),
+          settings: const AppSettings(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final bubble = tester.widget<DecoratedBox>(
+      find.byKey(const ValueKey('chat-bubble-square')),
+    );
+    expect(
+      (bubble.decoration as BoxDecoration).color,
+      const Color(0xFF123456).withValues(alpha: 0.92),
+    );
+  });
+
+  testWidgets('character top bar follows opacity and exposes transparency', (
+    tester,
+  ) async {
+    final storage = _ApiStorage(_config(model: 'model', apiKey: 'key'));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChatScreen(
+          storage: storage,
+          aiService: _RecordingGateway(),
+          character: AppCharacter.fromJson({
+            'id': 'character',
+            'name': 'Character',
+            'topBarOpacity': 0.25,
+          }),
+          settings: const AppSettings(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final appBar = tester.widget<AppBar>(
+      find.byKey(const ValueKey('character-chat-app-bar')),
+    );
+    expect(appBar.backgroundColor!.a, closeTo(0.25, 0.001));
+
+    await tester.tap(find.byIcon(Icons.settings_outlined));
+    await tester.pumpAndSettle();
+    final setting = find.byKey(
+      const ValueKey('chat-top-bar-transparency-setting'),
+    );
+    await tester.scrollUntilVisible(
+      setting,
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(
+      tester
+          .widget<Slider>(
+            find.descendant(of: setting, matching: find.byType(Slider)),
+          )
+          .value,
+      0.75,
+    );
+  });
+
+  testWidgets('character bubble preset settings follow input opacity', (
+    tester,
+  ) async {
     final storage = _ApiStorage(_config(model: 'model', apiKey: 'key'));
     await tester.pumpWidget(
       MaterialApp(
@@ -33,13 +125,15 @@ void main() {
     await tester.tap(find.byIcon(Icons.settings_outlined));
     await tester.pumpAndSettle();
 
-    final expansion = find.byKey(const ValueKey('chat-bubble-theme-expansion'));
+    final rolePreset = find.byKey(
+      const ValueKey('chat-role-bubble-preset-setting'),
+    );
     await tester.scrollUntilVisible(
-      expansion,
+      rolePreset,
       300,
       scrollable: find.byType(Scrollable).last,
     );
-    expect(tester.widget<ExpansionTile>(expansion).initiallyExpanded, isFalse);
+    expect(rolePreset, findsOneWidget);
 
     final settings = tester.widget<ListView>(find.byType(ListView).last);
     final children =
@@ -48,7 +142,8 @@ void main() {
       children.map((child) => child.key),
       containsAllInOrder(const [
         ValueKey('chat-input-opacity-setting'),
-        ValueKey('chat-bubble-theme-expansion'),
+        ValueKey('chat-role-bubble-preset-setting'),
+        ValueKey('chat-user-bubble-preset-setting'),
         ValueKey('chat-clear-history-setting'),
       ]),
     );
@@ -150,10 +245,15 @@ ApiConfig _config({required String model, required String apiKey}) => ApiConfig(
 );
 
 final class _ApiStorage extends LocalStorageService {
-  _ApiStorage(this.config, {this.settings = const AppSettings()}) : super();
+  _ApiStorage(
+    this.config, {
+    this.settings = const AppSettings(),
+    this.bubblePresets = const ChatBubblePresetSettings(),
+  }) : super();
 
   ApiConfig config;
   AppSettings settings;
+  ChatBubblePresetSettings bubblePresets;
   var loadApiConfigCalls = 0;
   var saveChatCalls = 0;
 
@@ -170,12 +270,15 @@ final class _ApiStorage extends LocalStorageService {
   Future<AppSettings> loadSettings() async => settings;
 
   @override
+  Future<ChatBubblePresetSettings> loadChatBubblePresets() async =>
+      bubblePresets;
+
+  @override
   Future<ChatSummary> loadSummary(String characterId) async =>
       ChatSummary.empty(characterId);
 
   @override
-  Future<ChatSession> loadChat(String characterId) async =>
-      ChatSession.empty(characterId);
+  Future<List<ChatMessage>> loadChat(String characterId) async => const [];
 
   @override
   Future<void> saveChat(String characterId, List<ChatMessage> messages) async {

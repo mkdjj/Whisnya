@@ -8,6 +8,7 @@ import '../../controllers/chat_conversation_controller.dart';
 import '../../models/api_config.dart';
 import '../../models/app_character.dart';
 import '../../models/app_settings.dart';
+import '../../models/chat_bubble_preset.dart';
 import '../../models/chat_bubble_theme.dart';
 import '../../models/chat_message.dart';
 import '../../models/chat_summary.dart';
@@ -23,12 +24,13 @@ import '../../utils/confirm_dialog.dart';
 import '../../utils/page_layout.dart';
 import '../../utils/snack.dart';
 import '../../utils/stream_text_buffer.dart';
-import '../../utils/transparency.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/chat_bubble.dart';
-import '../../widgets/chat_bubble_theme_editor.dart';
+import '../../widgets/chat_bubble_preset_picker.dart';
+import '../../widgets/chat_input_composer.dart';
 import '../../widgets/endpoint_picker.dart';
 import '../../widgets/message_content.dart';
+import '../../widgets/message_bubble_parts.dart';
 import '../../widgets/setting_slider.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -55,6 +57,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Timer? _toolBarTimer;
 
   var _apiConfig = ApiConfig();
+  var _bubblePresets = const ChatBubblePresetSettings();
   late AppCharacter _character;
   late final ChatConversationController _conversation;
   List<ChatMessage> get _messages => _conversation.messages;
@@ -71,6 +74,20 @@ class _ChatScreenState extends State<ChatScreen> {
   AiCancelToken? _cancelToken;
   StreamTextBuffer? _streamBuffer;
   String? _loadError;
+
+  ChatBubbleAppearance get _roleBubbleAppearance => resolveBubbleAppearance(
+    presetId: _character.roleBubblePresetId,
+    presets: _bubblePresets,
+    isUser: false,
+    fallback: _character.bubbleTheme.role,
+  );
+
+  ChatBubbleAppearance get _userBubbleAppearance => resolveBubbleAppearance(
+    presetId: _character.userBubblePresetId,
+    presets: _bubblePresets,
+    isUser: true,
+    fallback: _character.bubbleTheme.user,
+  );
 
   @override
   void initState() {
@@ -99,11 +116,12 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       await widget.storage.markCharacterUsed(_character.id);
       final apiConfig = await widget.storage.loadApiConfig();
+      final bubblePresets = await widget.storage.loadChatBubblePresets();
       final summary = await widget.storage.loadSummary(_character.id);
       final chat = await widget.storage.loadChat(_character.id);
       final selectedEndpointId =
           apiConfig.effectiveEndpoint(_character.defaultEndpointId)?.id ?? '';
-      var messages = [...chat.messages];
+      var messages = [...chat];
 
       if (messages.isEmpty && _character.openingMessage.trim().isNotEmpty) {
         messages = [
@@ -121,6 +139,7 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!mounted) return;
       setState(() {
         _apiConfig = apiConfig;
+        _bubblePresets = bubblePresets;
         _selectedEndpointId = selectedEndpointId;
         _conversation.load(messages: messages, summary: summary);
         _isLoading = false;
@@ -299,31 +318,15 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
 
-    final controller = TextEditingController(text: _messages[index].content);
-    final edited = await showDialog<String>(
+    final edited = await showTextInputDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(context.t('编辑并重发')),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          minLines: 3,
-          maxLines: 8,
-          decoration: InputDecoration(labelText: context.t('输入消息')),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(context.t('取消')),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-            child: Text(context.t('重新生成')),
-          ),
-        ],
-      ),
+      title: '编辑并重发',
+      initialText: _messages[index].content,
+      label: '输入消息',
+      confirmLabel: '重新生成',
+      minLines: 3,
+      maxLines: 8,
     );
-    controller.dispose();
     if (!mounted) return;
     if (edited == null || edited.isEmpty) return;
 
@@ -711,6 +714,11 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _showChatSettings() async {
+    try {
+      final presets = await widget.storage.loadChatBubblePresets();
+      if (mounted) setState(() => _bubblePresets = presets);
+    } catch (_) {}
+    if (!mounted) return;
     var draft = _character;
     await showModalBottomSheet<void>(
       context: context,
@@ -820,26 +828,15 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                 ],
                 const Divider(),
-                SettingSlider(
+                SettingSlider.transparency(
                   label: '背景图透明度',
-                  value: opacityToTransparency(draft.backgroundImageOpacity),
-                  min: 0,
-                  max: 1,
-                  divisions: 100,
-                  display:
-                      '${(opacityToTransparency(draft.backgroundImageOpacity) * 100).round()}%',
-                  onChanged: (value) {
-                    preview(
-                      draft.copyWith(
-                        backgroundImageOpacity: transparencyToOpacity(value),
-                      ),
-                    );
+                  opacity: draft.backgroundImageOpacity,
+                  onChanged: (opacity) {
+                    preview(draft.copyWith(backgroundImageOpacity: opacity));
                   },
-                  onChangeEnd: (value) {
+                  onChangeEnd: (opacity) {
                     _applyCharacterSettings(
-                      draft.copyWith(
-                        backgroundImageOpacity: transparencyToOpacity(value),
-                      ),
+                      draft.copyWith(backgroundImageOpacity: opacity),
                     );
                   },
                 ),
@@ -859,46 +856,55 @@ class _ChatScreenState extends State<ChatScreen> {
                     );
                   },
                 ),
-                SettingSlider(
-                  key: const ValueKey('chat-input-opacity-setting'),
-                  label: '输入框透明度',
-                  value: opacityToTransparency(draft.inputOpacity),
-                  min: 0,
-                  max: 1,
-                  divisions: 100,
-                  display:
-                      '${(opacityToTransparency(draft.inputOpacity) * 100).round()}%',
-                  onChanged: (value) {
-                    preview(
-                      draft.copyWith(
-                        inputOpacity: transparencyToOpacity(value),
-                      ),
-                    );
+                SettingSlider.transparency(
+                  key: const ValueKey('chat-top-bar-transparency-setting'),
+                  label: '顶部状态栏透明度',
+                  opacity: draft.topBarOpacity,
+                  onChanged: (opacity) {
+                    preview(draft.copyWith(topBarOpacity: opacity));
                   },
-                  onChangeEnd: (value) {
+                  onChangeEnd: (opacity) {
                     _applyCharacterSettings(
-                      draft.copyWith(
-                        inputOpacity: transparencyToOpacity(value),
-                      ),
+                      draft.copyWith(topBarOpacity: opacity),
                     );
                   },
                 ),
-                ExpansionTile(
-                  key: const ValueKey('chat-bubble-theme-expansion'),
-                  initiallyExpanded: false,
-                  tilePadding: EdgeInsets.zero,
-                  title: Text(context.t('聊天气泡样式')),
-                  children: [
-                    ChatBubbleThemeEditor(
-                      theme: draft.bubbleTheme,
-                      defaultTheme: ChatBubbleTheme.characterDefault,
-                      onPreview: (theme) =>
-                          preview(draft.copyWith(bubbleTheme: theme)),
-                      onSave: (theme) => _applyCharacterSettings(
-                        draft.copyWith(bubbleTheme: theme),
-                      ),
-                    ),
-                  ],
+                SettingSlider.transparency(
+                  key: const ValueKey('chat-input-opacity-setting'),
+                  label: '输入框透明度',
+                  opacity: draft.inputOpacity,
+                  onChanged: (opacity) {
+                    preview(draft.copyWith(inputOpacity: opacity));
+                  },
+                  onChangeEnd: (opacity) {
+                    _applyCharacterSettings(
+                      draft.copyWith(inputOpacity: opacity),
+                    );
+                  },
+                ),
+                ChatBubblePresetSelectionTile(
+                  key: const ValueKey('chat-role-bubble-preset-setting'),
+                  title: '角色气泡',
+                  presetId: draft.roleBubblePresetId,
+                  presets: _bubblePresets,
+                  isUser: false,
+                  onChanged: (value) {
+                    final next = draft.copyWith(roleBubblePresetId: value);
+                    preview(next);
+                    _applyCharacterSettings(next);
+                  },
+                ),
+                ChatBubblePresetSelectionTile(
+                  key: const ValueKey('chat-user-bubble-preset-setting'),
+                  title: '我的气泡',
+                  presetId: draft.userBubblePresetId,
+                  presets: _bubblePresets,
+                  isUser: true,
+                  onChanged: (value) {
+                    final next = draft.copyWith(userBubblePresetId: value);
+                    preview(next);
+                    _applyCharacterSettings(next);
+                  },
                 ),
                 const Divider(),
                 ListTile(
@@ -1048,7 +1054,10 @@ class _ChatScreenState extends State<ChatScreen> {
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
+        key: const ValueKey('character-chat-app-bar'),
+        backgroundColor: Theme.of(context).colorScheme.surface.withValues(
+          alpha: _character.topBarOpacity.clamp(0, 1).toDouble(),
+        ),
         elevation: 0,
         scrolledUnderElevation: 0,
         surfaceTintColor: Colors.transparent,
@@ -1082,25 +1091,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     if (_loadError != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.error_outline, size: 44),
-              const SizedBox(height: 12),
-              Text(_loadError!, textAlign: TextAlign.center),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: _load,
-                icon: const Icon(Icons.refresh),
-                label: Text(context.t('重新加载')),
-              ),
-            ],
-          ),
-        ),
-      );
+      return PageStatusView.error(message: _loadError!, onRetry: _load);
     }
 
     final showTopBar = _showToolBar || _isSummarizing;
@@ -1120,9 +1111,9 @@ class _ChatScreenState extends State<ChatScreen> {
                   child: _buildMessages(),
                 ),
               ),
-              _InputComposer(
+              ChatInputComposer(
                 controller: _inputController,
-                isSending: _isSending,
+                isGenerating: _isSending,
                 hasBackground: _character.backgroundImage.trim().isNotEmpty,
                 inputOpacity: _character.inputOpacity,
                 onSend: _send,
@@ -1197,8 +1188,8 @@ class _ChatScreenState extends State<ChatScreen> {
         itemCount: _messages.length + (showTyping ? 1 : 0),
         itemBuilder: (context, index) {
           if (showTyping && index == 0) {
-            return _TypingBubble(
-              appearance: _character.bubbleTheme.role,
+            return TypingBubble(
+              appearance: _roleBubbleAppearance,
               chatTextColor: widget.settings.chatTextColor,
             );
           }
@@ -1208,8 +1199,8 @@ class _ChatScreenState extends State<ChatScreen> {
           return _MessageBubble(
             message: message,
             appearance: message.isUser
-                ? _character.bubbleTheme.user
-                : _character.bubbleTheme.role,
+                ? _userBubbleAppearance
+                : _roleBubbleAppearance,
             chatTextColor: widget.settings.chatTextColor,
             isHighlighted: messageIndex == highlightedIndex,
             searchQuery: _searchQuery,
@@ -1307,109 +1298,6 @@ class _TopBar extends StatelessWidget {
   }
 }
 
-class _InputComposer extends StatelessWidget {
-  const _InputComposer({
-    required this.controller,
-    required this.isSending,
-    required this.hasBackground,
-    required this.inputOpacity,
-    required this.onSend,
-    required this.onStop,
-    this.onRetry,
-    this.onEditResend,
-  });
-
-  final TextEditingController controller;
-  final bool isSending;
-  final bool hasBackground;
-  final double inputOpacity;
-  final VoidCallback onSend;
-  final VoidCallback onStop;
-  final VoidCallback? onRetry;
-  final VoidCallback? onEditResend;
-
-  @override
-  Widget build(BuildContext context) {
-    final alpha = inputOpacity.clamp(0, 1).toDouble();
-    final surfaceColor = Theme.of(
-      context,
-    ).colorScheme.surface.withValues(alpha: alpha);
-    final borderColor = Theme.of(
-      context,
-    ).colorScheme.outline.withValues(alpha: alpha);
-    final width = MediaQuery.sizeOf(context).width;
-    return SafeArea(
-      top: false,
-      child: Center(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: responsiveMaxContentWidth(width),
-          ),
-          child: Material(
-            color: surfaceColor,
-            elevation: hasBackground ? 8 * alpha : 0,
-            shadowColor: Colors.black.withValues(alpha: alpha),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: controller,
-                      minLines: 1,
-                      maxLines: 5,
-                      textInputAction: TextInputAction.newline,
-                      decoration: InputDecoration(
-                        hintText: context.t('输入消息'),
-                        isDense: true,
-                        enabledBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: borderColor),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderSide: BorderSide(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.primary.withValues(alpha: alpha),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  if (!isSending && onRetry != null) ...[
-                    IconButton(
-                      tooltip: context.t('重试上一条'),
-                      onPressed: onRetry,
-                      icon: const Icon(Icons.refresh),
-                    ),
-                    const SizedBox(width: 4),
-                  ],
-                  if (!isSending && onEditResend != null) ...[
-                    IconButton(
-                      tooltip: context.t('编辑并重发'),
-                      onPressed: onEditResend,
-                      icon: const Icon(Icons.edit_note),
-                    ),
-                    const SizedBox(width: 4),
-                  ],
-                  IconButton.filled(
-                    tooltip: context.t(isSending ? '停止生成' : '发送'),
-                    onPressed: isSending ? onStop : onSend,
-                    icon: isSending
-                        ? const Icon(Icons.stop)
-                        : const Icon(Icons.send),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _MessageBubble extends StatelessWidget {
   const _MessageBubble({
     required this.message,
@@ -1472,17 +1360,10 @@ class _MessageBubble extends StatelessWidget {
                       ),
                     ),
                   ],
-                  IconButton(
-                    tooltip: context.t('复制消息'),
-                    visualDensity: VisualDensity.compact,
-                    onPressed: onCopy,
-                    icon: const Icon(Icons.copy, size: 16),
-                  ),
-                  IconButton(
-                    tooltip: context.t('删除消息'),
-                    visualDensity: VisualDensity.compact,
-                    onPressed: onDelete,
-                    icon: const Icon(Icons.delete_outline, size: 16),
+                  ...messageBubbleActions(
+                    context,
+                    onCopy: onCopy,
+                    onDelete: onDelete,
                   ),
                 ],
               ),
@@ -1496,32 +1377,5 @@ class _MessageBubble extends StatelessWidget {
   String _formatTime(DateTime time) {
     String two(int value) => value.toString().padLeft(2, '0');
     return '${two(time.hour)}:${two(time.minute)}';
-  }
-}
-
-class _TypingBubble extends StatelessWidget {
-  const _TypingBubble({required this.appearance, this.chatTextColor});
-
-  final ChatBubbleAppearance appearance;
-  final int? chatTextColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return ChatBubble(
-      isUser: false,
-      appearance: appearance,
-      fallbackTextColor: chatTextColor,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox.square(
-            dimension: 16,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-          const SizedBox(width: 8),
-          Text(context.t('生成中')),
-        ],
-      ),
-    );
   }
 }

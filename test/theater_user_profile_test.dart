@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';
 import 'package:whisnya/models/api_config.dart';
 import 'package:whisnya/models/app_character.dart';
+import 'package:whisnya/models/chat_bubble_preset.dart';
 import 'package:whisnya/models/novel_book.dart';
 import 'package:whisnya/models/theater.dart';
 import 'package:whisnya/models/user_profile.dart';
@@ -126,6 +127,10 @@ AiService _aiService() => AiService(
 );
 
 final class _Storage extends LocalStorageService {
+  @override
+  Future<ChatBubblePresetSettings> loadChatBubblePresets() async =>
+      const ChatBubblePresetSettings();
+
   @override
   Future<List<AppCharacter>> loadCharacters() async => const [];
 

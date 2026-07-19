@@ -24,6 +24,7 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
   var _characters = <AppCharacter>[];
   var _novels = <NovelBook>[];
   var _apiConfig = ApiConfig();
+  var _bubblePresets = const ChatBubblePresetSettings();
   var _selectedParticipants = <TheaterParticipant>[];
   var _boundNovelId = '';
   var _avatar = '';
@@ -32,6 +33,8 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
   var _backgroundImageOpacity = 1.0;
   var _backgroundBlur = 0.0;
   var _bubbleTheme = ChatBubbleTheme.theaterDefault;
+  var _roleBubblePresetId = '';
+  var _userBubblePresetId = '';
   var _inputOpacity = 0.92;
   var _topBarOpacity = 0.0;
   var _apiMode = TheaterApiMode.singleApi;
@@ -76,6 +79,8 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
       _backgroundImageOpacity = session.backgroundImageOpacity;
       _backgroundBlur = session.backgroundBlur;
       _bubbleTheme = session.bubbleTheme;
+      _roleBubblePresetId = session.roleBubblePresetId;
+      _userBubblePresetId = session.userBubblePresetId;
       _inputOpacity = session.inputOpacity;
       _topBarOpacity = session.topBarOpacity;
       _boundNovelId = session.boundNovelId;
@@ -112,12 +117,14 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
       widget.storage.loadCharacters(),
       widget.storage.loadNovels(),
       widget.storage.loadApiConfig(),
+      widget.storage.loadChatBubblePresets(),
     ]);
     if (!mounted) return;
     setState(() {
       _characters = values[0] as List<AppCharacter>;
       _novels = values[1] as List<NovelBook>;
       _apiConfig = values[2] as ApiConfig;
+      _bubblePresets = values[3] as ChatBubblePresetSettings;
       _singleEndpointId = _effectiveEndpointId(_singleEndpointId);
       _selectedParticipants = [
         for (final participant in _selectedParticipants)
@@ -347,6 +354,8 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
       backgroundImageOpacity: _backgroundImageOpacity,
       backgroundBlur: _backgroundBlur,
       bubbleTheme: _bubbleTheme,
+      roleBubblePresetId: _roleBubblePresetId,
+      userBubblePresetId: _userBubblePresetId,
       inputOpacity: _inputOpacity,
       topBarOpacity: _topBarOpacity,
       boundNovelId: book?.id ?? '',
@@ -395,13 +404,9 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
     required int outputWidth,
     required int outputHeight,
   }) async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.image,
-      allowMultiple: false,
-    );
-    final path = result?.files.single.path;
-    if (path == null) return;
-    if (!mounted) return;
+    final picked = await pickImage(widget.storage, withData: false);
+    if (picked == null || !mounted) return;
+    final path = picked.path;
     if (!avatar) {
       final selection = await Navigator.of(context).push<ImageCropRegion>(
         MaterialPageRoute(
@@ -419,7 +424,7 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
       final saved = await widget.storage.saveMediaImage(
         folder: 'theater_backgrounds',
         characterId: 'theater_${DateTime.now().microsecondsSinceEpoch}',
-        bytes: await File(path).readAsBytes(),
+        bytes: picked.bytes ?? await File(path).readAsBytes(),
       );
       if (!mounted) return;
       setState(() {
@@ -782,18 +787,11 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
           trailing: const Icon(Icons.chevron_right),
           onTap: _pickBackground,
         ),
-        SettingSlider(
+        SettingSlider.transparency(
           label: '背景图透明度',
-          value: opacityToTransparency(_backgroundImageOpacity),
-          min: 0,
-          max: 1,
-          divisions: 100,
-          display:
-              '${(opacityToTransparency(_backgroundImageOpacity) * 100).round()}%',
-          onChanged: (value) {
-            setState(
-              () => _backgroundImageOpacity = transparencyToOpacity(value),
-            );
+          opacity: _backgroundImageOpacity,
+          onChanged: (opacity) {
+            setState(() => _backgroundImageOpacity = opacity);
           },
         ),
         SettingSlider(
@@ -807,32 +805,36 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
             setState(() => _backgroundBlur = value);
           },
         ),
-        SettingSlider(
-          key: const ValueKey('theater-edit-input-opacity-setting'),
-          label: '输入框透明度',
-          value: opacityToTransparency(_inputOpacity),
-          min: 0,
-          max: 1,
-          divisions: 100,
-          display: '${(opacityToTransparency(_inputOpacity) * 100).round()}%',
-          onChanged: (value) {
-            setState(() => _inputOpacity = transparencyToOpacity(value));
+        SettingSlider.transparency(
+          key: const ValueKey('theater-edit-top-bar-transparency-setting'),
+          label: '顶部状态栏透明度',
+          opacity: _topBarOpacity,
+          onChanged: (opacity) {
+            setState(() => _topBarOpacity = opacity);
           },
         ),
-        ExpansionTile(
-          key: const ValueKey('theater-edit-bubble-theme-expansion'),
-          initiallyExpanded: false,
-          tilePadding: EdgeInsets.zero,
-          title: Text(context.t('聊天气泡样式')),
-          children: [
-            ChatBubbleThemeEditor(
-              theme: _bubbleTheme,
-              defaultTheme: ChatBubbleTheme.theaterDefault,
-              isTheater: true,
-              onPreview: (theme) => setState(() => _bubbleTheme = theme),
-              onSave: (theme) => setState(() => _bubbleTheme = theme),
-            ),
-          ],
+        SettingSlider.transparency(
+          key: const ValueKey('theater-edit-input-opacity-setting'),
+          label: '输入框透明度',
+          opacity: _inputOpacity,
+          onChanged: (opacity) {
+            setState(() => _inputOpacity = opacity);
+          },
+        ),
+        Text(context.t('聊天外观'), style: Theme.of(context).textTheme.titleMedium),
+        ChatBubblePresetSelectionTile(
+          title: 'AI 共用气泡',
+          presetId: _roleBubblePresetId,
+          presets: _bubblePresets,
+          isUser: false,
+          onChanged: (value) => setState(() => _roleBubblePresetId = value),
+        ),
+        ChatBubblePresetSelectionTile(
+          title: '我的气泡',
+          presetId: _userBubblePresetId,
+          presets: _bubblePresets,
+          isUser: true,
+          onChanged: (value) => setState(() => _userBubblePresetId = value),
         ),
         if (_backgroundImage.isNotEmpty)
           Align(

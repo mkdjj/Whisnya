@@ -5,7 +5,6 @@ class AiUsage {
     this.totalTokens = 0,
     this.cacheHitTokens = 0,
     this.cacheMissTokens = 0,
-    this.hasUsage = false,
     this.supportsCacheStats = false,
   });
 
@@ -14,7 +13,6 @@ class AiUsage {
   final int totalTokens;
   final int cacheHitTokens;
   final int cacheMissTokens;
-  final bool hasUsage;
   final bool supportsCacheStats;
 
   double get cacheHitRate {
@@ -73,7 +71,6 @@ class AiUsage {
       totalTokens: total == 0 ? prompt + completion : total,
       cacheHitTokens: cacheHit,
       cacheMissTokens: miss,
-      hasUsage: json.isNotEmpty,
       supportsCacheStats: supportsCache,
     );
   }
@@ -86,7 +83,6 @@ class AiUsage {
       totalTokens: json['total_tokens'] as int? ?? 0,
       cacheHitTokens: json['prompt_cache_hit_tokens'] as int? ?? 0,
       cacheMissTokens: json['prompt_cache_miss_tokens'] as int? ?? 0,
-      hasUsage: json['hasUsage'] as bool? ?? false,
       supportsCacheStats: json['supportsCacheStats'] as bool? ?? false,
     );
   }
@@ -97,7 +93,6 @@ class AiUsage {
     'total_tokens': totalTokens,
     'prompt_cache_hit_tokens': cacheHitTokens,
     'prompt_cache_miss_tokens': cacheMissTokens,
-    'hasUsage': hasUsage,
     'supportsCacheStats': supportsCacheStats,
   };
 }

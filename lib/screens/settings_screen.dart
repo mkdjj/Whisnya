@@ -13,6 +13,7 @@ import '../services/local_storage_service.dart';
 import '../utils/app_i18n.dart';
 import '../utils/character_import_flow.dart';
 import '../utils/confirm_dialog.dart';
+import '../utils/image_picker.dart';
 import '../utils/page_layout.dart';
 import '../utils/password_lock.dart';
 import '../utils/snack.dart';
@@ -20,6 +21,7 @@ import '../utils/transparency.dart';
 import '../widgets/app_background.dart';
 import '../widgets/color_picker_dialog.dart';
 import 'api_settings_screen.dart';
+import 'chat_bubble_preset_screen.dart';
 import 'image_crop_screen.dart';
 import 'user_profile_edit_screen.dart';
 
@@ -97,27 +99,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _pickBackground() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.image,
-      allowMultiple: false,
-      withData: true,
-    );
-    if (result == null || result.files.isEmpty) {
-      return;
-    }
+  Future<void> _openChatBubblePresets() => Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => ChatBubblePresetScreen(storage: widget.storage),
+    ),
+  );
 
-    final picked = result.files.single;
-    var sourcePath = picked.path;
-    if (sourcePath == null && picked.bytes != null) {
-      final file = await widget.storage.saveTemporaryImage(picked.bytes!);
-      sourcePath = file.path;
-    }
-    if (!mounted) return;
-    if (sourcePath == null) {
-      context.showSnack('没有拿到可读取的图片路径。');
-      return;
-    }
+  Future<void> _pickBackground() async {
+    final picked = await pickImage(widget.storage);
+    if (picked == null || !mounted) return;
+    final sourcePath = picked.path;
 
     final size = MediaQuery.sizeOf(context);
     final aspectRatio = size.height <= 0 ? 9 / 16 : size.width / size.height;
@@ -127,7 +118,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final selection = await Navigator.of(context).push<ImageCropRegion>(
       MaterialPageRoute(
         builder: (_) => ImageCropScreen(
-          imagePath: sourcePath!,
+          imagePath: sourcePath,
           title: context.t('裁剪界面背景'),
           aspectRatio: aspectRatio,
           outputWidth: outputWidth,
@@ -341,6 +332,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
         divisions: divisions,
         onChanged: onChanged,
         onChangeEnd: onChangeEnd,
+      ),
+    );
+  }
+
+  Widget _transparencyTile({
+    required IconData icon,
+    required String title,
+    required double opacity,
+    required ValueChanged<double> onChanged,
+    required ValueChanged<double> onChangeEnd,
+  }) {
+    final transparency = opacityToTransparency(opacity);
+    return _tile(
+      icon: icon,
+      title: context.t(title),
+      subtitle: '${(transparency * 100).round()}%',
+      child: _compactSlider(
+        value: transparency,
+        min: 0,
+        max: 1,
+        divisions: 100,
+        onChanged: (value) => onChanged(transparencyToOpacity(value)),
+        onChangeEnd: (value) => onChangeEnd(transparencyToOpacity(value)),
       ),
     );
   }
@@ -797,35 +811,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<String?> _summaryItemDialog({
     required String title,
     String initialText = '',
-  }) async {
-    final controller = TextEditingController(text: initialText);
-    final result = await showDialog<String>(
+  }) {
+    return showTextInputDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(context.t(title)),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLines: 2,
-          decoration: InputDecoration(hintText: context.t('总结项目')),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(context.t('取消')),
-          ),
-          FilledButton(
-            onPressed: () {
-              final text = controller.text.trim();
-              Navigator.of(context).pop(text.isEmpty ? null : text);
-            },
-            child: Text(context.t('保存')),
-          ),
-        ],
-      ),
+      title: title,
+      initialText: initialText,
+      hint: '总结项目',
+      confirmLabel: '保存',
+      maxLines: 2,
+      emptyIsNull: true,
     );
-    controller.dispose();
-    return result;
   }
 
   @override
@@ -887,6 +882,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: context.t('主题设置'),
               subtitle: context.t('与界面和颜色相关的一些设置'),
               onTap: _openThemeSettings,
+            ),
+            _tile(
+              icon: Icons.chat_bubble_outline,
+              title: context.t('聊天气泡'),
+              subtitle: context.t('创建和管理全局气泡预设'),
+              onTap: _openChatBubblePresets,
             ),
             _tile(
               icon: Icons.summarize_outlined,
@@ -1072,31 +1073,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           refresh();
         },
       ),
-      _tile(
+      _transparencyTile(
         icon: Icons.opacity,
-        title: context.t('界面背景透明度'),
-        subtitle:
-            '${(opacityToTransparency(_settings.globalBackgroundOpacity) * 100).round()}%',
-        child: _compactSlider(
-          value: opacityToTransparency(_settings.globalBackgroundOpacity),
-          min: 0,
-          max: 1,
-          divisions: 100,
-          onChanged: (value) {
-            preview(
-              _settings.copyWith(
-                globalBackgroundOpacity: transparencyToOpacity(value),
-              ),
-            );
-          },
-          onChangeEnd: (value) {
-            apply(
-              _settings.copyWith(
-                globalBackgroundOpacity: transparencyToOpacity(value),
-              ),
-            );
-          },
-        ),
+        title: '界面背景透明度',
+        opacity: _settings.globalBackgroundOpacity,
+        onChanged: (opacity) =>
+            preview(_settings.copyWith(globalBackgroundOpacity: opacity)),
+        onChangeEnd: (opacity) =>
+            apply(_settings.copyWith(globalBackgroundOpacity: opacity)),
       ),
       _tile(
         icon: Icons.blur_on,
@@ -1115,57 +1099,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
           },
         ),
       ),
-      _tile(
+      _transparencyTile(
         icon: Icons.space_bar,
-        title: context.t('底部导航栏透明度'),
-        subtitle:
-            '${(opacityToTransparency(_settings.navigationBarOpacity) * 100).round()}%',
-        child: _compactSlider(
-          value: opacityToTransparency(_settings.navigationBarOpacity),
-          min: 0,
-          max: 1,
-          divisions: 100,
-          onChanged: (value) {
-            apply(
-              _settings.copyWith(
-                navigationBarOpacity: transparencyToOpacity(value),
-              ),
-            );
-          },
-          onChangeEnd: (value) {
-            apply(
-              _settings.copyWith(
-                navigationBarOpacity: transparencyToOpacity(value),
-              ),
-            );
-          },
-        ),
+        title: '底部导航栏透明度',
+        opacity: _settings.navigationBarOpacity,
+        onChanged: (opacity) =>
+            apply(_settings.copyWith(navigationBarOpacity: opacity)),
+        onChangeEnd: (opacity) =>
+            apply(_settings.copyWith(navigationBarOpacity: opacity)),
       ),
-      _tile(
+      _transparencyTile(
         icon: Icons.view_agenda_outlined,
-        title: context.t('列表卡片透明度'),
-        subtitle:
-            '${(opacityToTransparency(_settings.characterListCardOpacity) * 100).round()}%',
-        child: _compactSlider(
-          value: opacityToTransparency(_settings.characterListCardOpacity),
-          min: 0,
-          max: 1,
-          divisions: 100,
-          onChanged: (value) {
-            preview(
-              _settings.copyWith(
-                characterListCardOpacity: transparencyToOpacity(value),
-              ),
-            );
-          },
-          onChangeEnd: (value) {
-            apply(
-              _settings.copyWith(
-                characterListCardOpacity: transparencyToOpacity(value),
-              ),
-            );
-          },
-        ),
+        title: '列表卡片透明度',
+        opacity: _settings.characterListCardOpacity,
+        onChanged: (opacity) =>
+            preview(_settings.copyWith(characterListCardOpacity: opacity)),
+        onChangeEnd: (opacity) =>
+            apply(_settings.copyWith(characterListCardOpacity: opacity)),
       ),
       _tile(
         icon: Icons.clear,

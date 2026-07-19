@@ -30,23 +30,6 @@ void main() {
     },
   );
 
-  test(
-    'legacy session promotes selected role and removes user role from AI',
-    () {
-      final session = factory.createLegacySession(
-        _book(selectedRoleIndex: 1, userRoleIndex: 0),
-        sessionId: 'theater_legacy_novel_novel',
-        theaterSummary: 'summary',
-        summarizedMessageCount: 4,
-        now: DateTime(2026),
-      );
-      expect(session.aiParticipants.map((item) => item.name), ['乙']);
-      expect(session.userParticipant?.name, '甲');
-      expect(session.theaterSummary, 'summary');
-      expect(session.summarizedMessageCount, 4);
-    },
-  );
-
   test('novel role selected as user is not also an AI participant', () {
     final book = _book();
     final session = factory.createDraftFromNovel(
@@ -99,16 +82,12 @@ NovelBook _book({
       background: '',
     ),
   ],
-  int selectedRoleIndex = -1,
-  int userRoleIndex = -1,
 }) => NovelBook(
   id: 'novel',
   title: '书名',
   textPath: 'novel.txt',
   summary: 'novel summary',
   roles: roles,
-  selectedRoleIndex: selectedRoleIndex,
-  userRoleIndex: userRoleIndex,
   createdAt: DateTime(2026),
   updatedAt: DateTime(2026),
 );

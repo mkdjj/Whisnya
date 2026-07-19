@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'app_i18n.dart';
+
 const pageHorizontalPadding = 12.0;
 const firstContentGap = 12.0;
 const compactBreakpoint = 700.0;
@@ -64,6 +66,53 @@ class AdaptivePage extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class PageStatusView extends StatelessWidget {
+  const PageStatusView.error({
+    required this.message,
+    required this.onRetry,
+    this.icon = Icons.error_outline,
+    this.iconSize = 44,
+    super.key,
+  });
+
+  const PageStatusView.empty({
+    required this.icon,
+    required this.message,
+    this.iconSize = 48,
+    super.key,
+  }) : onRetry = null;
+
+  final IconData icon;
+  final double iconSize;
+  final String message;
+  final VoidCallback? onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: iconSize),
+            const SizedBox(height: 12),
+            Text(message, textAlign: TextAlign.center),
+            if (onRetry != null) ...[
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh),
+                label: Text(context.t('重新加载')),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

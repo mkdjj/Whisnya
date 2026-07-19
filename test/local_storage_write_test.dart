@@ -70,7 +70,9 @@ void main() {
       ).readAsString();
       expect(chat, isNot(contains('\n')));
       expect(settings, contains('\n'));
-      expect((await storage.loadChat('b')).messages.single.content, 'hello');
+      final loaded = await storage.loadChat('b');
+      expect(loaded, isA<List<ChatMessage>>());
+      expect(loaded.single.content, 'hello');
     },
   );
 }

@@ -26,42 +26,6 @@ void main() {
     expect(endpoint.copyWith(model: ' ').validationError, 'Model 为空，请先配置。');
   });
 
-  test('migrates legacy provider config without losing keys', () {
-    final config = ApiConfig.fromJson({
-      'grok': {
-        'apiKey': 'grok-key',
-        'baseUrl': 'https://grok.test/v1',
-        'model': 'grok-model',
-      },
-      'deepseek': {
-        'apiKey': 'deep-key',
-        'baseUrl': 'https://deep.test/v1',
-        'model': 'deep-model',
-      },
-      'gpt': {'apiKey': '', 'baseUrl': '', 'model': ''},
-    });
-
-    expect(config.endpoints.map((endpoint) => endpoint.id), [
-      'grok',
-      'deepseek',
-    ]);
-    expect(config.defaultEndpointId, 'deepseek');
-    expect(config.endpointById('deepseek')!.apiKey, 'deep-key');
-    expect(config.endpointById('grok')!.baseUrl, 'https://grok.test/v1');
-  });
-
-  test('does not create endpoints from empty legacy defaults', () {
-    final config = ApiConfig.fromJson({
-      'grok': {'apiKey': '', 'baseUrl': '', 'model': ''},
-      'deepseek': {'apiKey': '', 'baseUrl': '', 'model': ''},
-      'gpt': {'apiKey': '', 'baseUrl': '', 'model': ''},
-    });
-
-    expect(config.endpoints, isEmpty);
-    expect(config.defaultEndpointId, isEmpty);
-    expect(config.effectiveEndpoint('deepseek'), isNull);
-  });
-
   test('replaces deleted or disabled default with first enabled endpoint', () {
     final now = DateTime(2026);
     final a = AiEndpointConfig(
@@ -90,7 +54,6 @@ void main() {
       'endpoints': [
         {'id': 'a', 'apiKey': 'secret', 'baseUrl': 'https://a.test'},
       ],
-      'grok': {'apiKey': 'legacy-secret', 'baseUrl': 'https://grok.test'},
     };
 
     final redacted = redactApiKeysForExport(original);
@@ -98,7 +61,6 @@ void main() {
     final redactedEndpoint =
         (redacted['endpoints'] as List<dynamic>).single as Map<String, dynamic>;
     expect(redactedEndpoint['apiKey'], isEmpty);
-    expect((redacted['grok'] as Map<String, dynamic>)['apiKey'], isEmpty);
     final originalEndpoint =
         (original['endpoints'] as List<Map<String, String>>).single;
     expect(originalEndpoint['apiKey'], 'secret');

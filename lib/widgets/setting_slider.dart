@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../utils/app_i18n.dart';
+import '../utils/transparency.dart';
 
 class SettingSlider extends StatelessWidget {
   const SettingSlider({
@@ -16,6 +17,33 @@ class SettingSlider extends StatelessWidget {
     this.displayWidth = 48,
     super.key,
   });
+
+  factory SettingSlider.transparency({
+    required String label,
+    required double opacity,
+    required ValueChanged<double> onChanged,
+    ValueChanged<double>? onChangeEnd,
+    double height = 32,
+    double displayWidth = 48,
+    Key? key,
+  }) {
+    final transparency = opacityToTransparency(opacity);
+    return SettingSlider(
+      key: key,
+      label: label,
+      value: transparency,
+      min: 0,
+      max: 1,
+      divisions: 100,
+      display: '${(transparency * 100).round()}%',
+      onChanged: (value) => onChanged(transparencyToOpacity(value)),
+      onChangeEnd: onChangeEnd == null
+          ? null
+          : (value) => onChangeEnd(transparencyToOpacity(value)),
+      height: height,
+      displayWidth: displayWidth,
+    );
+  }
 
   final String label;
   final double value;

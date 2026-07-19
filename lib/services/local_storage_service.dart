@@ -12,7 +12,8 @@ import '../models/ai_usage.dart';
 import '../models/app_character.dart';
 import '../models/app_settings.dart';
 import '../models/chat_message.dart';
-import '../models/chat_session.dart';
+import '../models/chat_bubble_preset.dart';
+import '../models/chat_bubble_theme.dart';
 import '../models/chat_summary.dart';
 import '../models/novel_book.dart';
 import '../models/theater.dart';
@@ -51,12 +52,6 @@ Map<String, dynamic> redactApiKeysForExport(Map<String, dynamic> json) {
         else
           endpoint,
     ];
-  }
-  for (final key in const ['grok', 'deepseek', 'gpt']) {
-    final provider = copy[key];
-    if (provider is Map) {
-      copy[key] = {..._stringKeyMap(provider), 'apiKey': ''};
-    }
   }
   return copy;
 }
@@ -116,6 +111,10 @@ Future<void> validateBackupDirectory(Directory directory) async {
     (value) => value is Map<String, dynamic>,
   );
   await optionalJson('characters.json', (value) => value is List);
+  await optionalJson(
+    'chat_bubble_presets.json',
+    (value) => value is Map<String, dynamic>,
+  );
   await optionalJson('novels.json', (value) => value is List);
   await optionalJson('theater_sessions.json', (value) => value is List);
 }
@@ -174,6 +173,7 @@ class LocalStorageService {
 
   Future<void> ensureReady() async {
     final directory = await appDataDirectory;
+    await _migrateLegacyBubbleThemes();
     unawaited(cleanupTemporaryMedia(directory));
   }
 
@@ -186,7 +186,6 @@ class LocalStorageService {
       'summaries',
       'media',
       'novels',
-      'novel_chats',
       'novel_summary_cache',
       'theater_messages',
     ]) {
@@ -194,6 +193,73 @@ class LocalStorageService {
         '${directory.path}${Platform.pathSeparator}$name',
       ).create(recursive: true);
     }
+  }
+
+  Future<void> _migrateLegacyBubbleThemes() async {
+    final paths = await _paths;
+    final characters = await _legacyJsonEntries(paths.characters);
+    final theaters = await _legacyJsonEntries(paths.theaterSessions);
+    final settings = await loadChatBubblePresets();
+    final presets = [...settings.presets];
+    final presetIds = presets.map((preset) => preset.id).toSet();
+    final requiredIds = <String>{};
+    var charactersChanged = false;
+    var theatersChanged = false;
+
+    void migrate(
+      List<Map<String, dynamic>> entries,
+      String prefix,
+      double defaultOpacity,
+      void Function() markChanged,
+    ) {
+      for (final entry in entries) {
+        final id = entry['id'] as String? ?? '';
+        if (id.isEmpty || entry['bubbleTheme'] is! Map<String, dynamic>) {
+          continue;
+        }
+        final theme = ChatBubbleTheme.fromJson(
+          entry['bubbleTheme'],
+          defaultOpacity: defaultOpacity,
+        );
+        for (final side in const ['role', 'user']) {
+          final key = '${side}BubblePresetId';
+          if (entry.containsKey(key)) continue;
+          final presetId = '${prefix}_legacy_bubble_${id}_$side';
+          requiredIds.add(presetId);
+          if (presetIds.add(presetId)) {
+            presets.add(
+              ChatBubblePreset(
+                id: presetId,
+                name:
+                    '${entry['name'] ?? entry['title'] ?? id}（旧气泡${side == 'role' ? '角色' : '我的'}）',
+                appearance: side == 'role' ? theme.role : theme.user,
+              ),
+            );
+          }
+          entry[key] = presetId;
+          markChanged();
+        }
+      }
+    }
+
+    migrate(characters, 'character', 0.92, () => charactersChanged = true);
+    migrate(theaters, 'theater', 0.94, () => theatersChanged = true);
+    if (!charactersChanged && !theatersChanged) return;
+
+    await saveChatBubblePresets(settings.copyWith(presets: presets));
+    final verified = await loadChatBubblePresets();
+    if (!requiredIds.every((id) => verified.presetById(id) != null)) {
+      throw StorageException('旧聊天气泡迁移验证失败');
+    }
+    if (charactersChanged) await _writeJson(paths.characters, characters);
+    if (theatersChanged) await _writeJson(paths.theaterSessions, theaters);
+  }
+
+  Future<List<Map<String, dynamic>>> _legacyJsonEntries(File file) async {
+    final decoded = await _readJson(file, <dynamic>[], recoverOnInvalid: true);
+    return decoded is List
+        ? decoded.whereType<Map<String, dynamic>>().toList()
+        : <Map<String, dynamic>>[];
   }
 
   Future<AppSettings> loadSettings() async {
@@ -211,6 +277,38 @@ class LocalStorageService {
 
   Future<void> saveSettings(AppSettings settings) async {
     await _writeJson((await _paths).settings, settings.toJson());
+  }
+
+  Future<ChatBubblePresetSettings> loadChatBubblePresets() async {
+    final file = (await _paths).chatBubblePresets;
+    final decoded = await _readJson(
+      file,
+      const ChatBubblePresetSettings().toJson(),
+      recoverOnInvalid: true,
+    );
+    if (decoded is! Map<String, dynamic>) {
+      throw StorageException('聊天气泡预设文件异常：${file.path}');
+    }
+    return ChatBubblePresetSettings.fromJson(decoded);
+  }
+
+  Future<void> saveChatBubblePresets(ChatBubblePresetSettings settings) async =>
+      _writeJson((await _paths).chatBubblePresets, settings.toJson());
+
+  Future<ChatBubblePresetReferences> bubblePresetReferences(
+    String presetId,
+  ) async {
+    final paths = await _paths;
+    final characters = await _legacyJsonEntries(paths.characters);
+    final theaters = await _legacyJsonEntries(paths.theaterSessions);
+    int count(List<Map<String, dynamic>> items, String key) =>
+        items.where((item) => item[key] == presetId).length;
+    return ChatBubblePresetReferences(
+      characterRole: count(characters, 'roleBubblePresetId'),
+      characterUser: count(characters, 'userBubblePresetId'),
+      theaterRole: count(theaters, 'roleBubblePresetId'),
+      theaterUser: count(theaters, 'userBubblePresetId'),
+    );
   }
 
   Future<AppSettings?> upgradePrivacyPasswordHashIfNeeded(
@@ -380,15 +478,12 @@ class LocalStorageService {
 
   Future<List<AppCharacter>> loadCharacters() async {
     final file = (await _paths).characters;
-    final decoded = await _readJson(file, <dynamic>[], recoverOnInvalid: true);
-    if (decoded is! List) {
-      throw StorageException('角色文件异常：${file.path}');
-    }
-    final characters = decoded
-        .whereType<Map<String, dynamic>>()
-        .map(AppCharacter.fromJson)
-        .where((character) => character.id.isNotEmpty)
-        .toList();
+    final characters = await _loadJsonList(
+      file,
+      error: '角色文件异常：${file.path}',
+      fromJson: AppCharacter.fromJson,
+      isValid: (character) => character.id.isNotEmpty,
+    );
     if (characters.isEmpty) {
       await _recoverMissingCharacters(characters);
     }
@@ -448,38 +543,38 @@ class LocalStorageService {
     }
   }
 
-  Future<ChatSession> loadChat(String characterId) async {
+  Future<List<ChatMessage>> loadChat(String characterId) async {
     final file = (await _paths).chat(characterId);
-    final decoded = await _readJson(
-      file,
-      ChatSession.empty(characterId).toJson(),
-    );
+    final decoded = await _readJson(file, const {'messages': <dynamic>[]});
     if (decoded is! Map<String, dynamic>) {
       throw StorageException('聊天记录文件异常：${file.path}');
     }
-    return ChatSession.fromJson(decoded).copyWith(characterId: characterId);
+    final messages = decoded['messages'];
+    return messages is List
+        ? messages
+              .whereType<Map<String, dynamic>>()
+              .map(ChatMessage.fromJson)
+              .toList()
+        : const [];
   }
 
   Future<void> saveChat(String characterId, List<ChatMessage> messages) async {
-    await _writeJson(
-      (await _paths).chat(characterId),
-      ChatSession(characterId: characterId, messages: messages).toJson(),
-    );
+    await _writeJson((await _paths).chat(characterId), {
+      'characterId': characterId,
+      'messages': messages.map((message) => message.toJson()).toList(),
+    });
   }
 
   Future<void> clearChat(String characterId) => saveChat(characterId, const []);
 
   Future<List<NovelBook>> loadNovels() async {
     final file = (await _paths).novels;
-    final decoded = await _readJson(file, <dynamic>[], recoverOnInvalid: true);
-    if (decoded is! List) {
-      throw StorageException('小说文件异常：${file.path}');
-    }
-    return decoded
-        .whereType<Map<String, dynamic>>()
-        .map(NovelBook.fromJson)
-        .where((book) => book.id.isNotEmpty && book.textPath.isNotEmpty)
-        .toList()
+    return await _loadJsonList(
+        file,
+        error: '小说文件异常：${file.path}',
+        fromJson: NovelBook.fromJson,
+        isValid: (book) => book.id.isNotEmpty && book.textPath.isNotEmpty,
+      )
       ..sort((a, b) => b.lastOpenedSortTime.compareTo(a.lastOpenedSortTime));
   }
 
@@ -531,75 +626,6 @@ class LocalStorageService {
     if (await textFile.exists()) {
       await textFile.delete();
     }
-    final paths = await _paths;
-    final chat = paths.novelChat(book.id);
-    if (await chat.exists()) {
-      await chat.delete();
-    }
-    final chatSummary = paths.summary('novel_chat_${book.id}');
-    if (await chatSummary.exists()) await chatSummary.delete();
-    await _deleteAppMediaFile(book.chatBackgroundImage);
-  }
-
-  Future<ChatSession> loadNovelChat(String novelId) async {
-    final file = (await _paths).novelChat(novelId);
-    final decoded = await _readJson(file, ChatSession.empty(novelId).toJson());
-    if (decoded is! Map<String, dynamic>) {
-      throw StorageException('小说聊天记录异常：${file.path}');
-    }
-    return ChatSession.fromJson(decoded).copyWith(characterId: novelId);
-  }
-
-  Future<void> saveNovelChat(String novelId, List<ChatMessage> messages) async {
-    await _writeJson(
-      (await _paths).novelChat(novelId),
-      ChatSession(characterId: novelId, messages: messages).toJson(),
-    );
-  }
-
-  Future<void> clearNovelChat(String novelId) async {
-    await saveNovelChat(novelId, const []);
-    final summary = (await _paths).summary('novel_chat_$novelId');
-    if (await summary.exists()) await summary.delete();
-  }
-
-  Future<bool> legacyNovelChatDataExists(String novelId) async {
-    final paths = await _paths;
-    return await paths.novelChat(novelId).exists() ||
-        await paths.summary('novel_chat_$novelId').exists();
-  }
-
-  Future<void> deleteLegacyNovelChatData(String novelId) async {
-    final paths = await _paths;
-    final files = [
-      paths.novelChat(novelId),
-      paths.summary('novel_chat_$novelId'),
-    ];
-    final moved = <({File original, File backup})>[];
-    try {
-      for (final file in files) {
-        if (!await file.exists()) continue;
-        final backup = File(
-          '${file.path}.migrated_${DateTime.now().microsecondsSinceEpoch}',
-        );
-        await file.rename(backup.path);
-        moved.add((original: file, backup: backup));
-      }
-    } catch (_) {
-      for (final item in moved.reversed) {
-        if (await item.backup.exists() && !await item.original.exists()) {
-          await item.backup.rename(item.original.path);
-        }
-      }
-      rethrow;
-    }
-    for (final item in moved) {
-      try {
-        await item.backup.delete();
-      } on FileSystemException {
-        // Target data is verified and legacy paths are already inactive.
-      }
-    }
   }
 
   Future<ChatSummary> loadSummary(String characterId) async {
@@ -626,15 +652,12 @@ class LocalStorageService {
 
   Future<List<TheaterSession>> loadTheaterSessions() async {
     final file = (await _paths).theaterSessions;
-    final decoded = await _readJson(file, <dynamic>[], recoverOnInvalid: true);
-    if (decoded is! List) {
-      throw StorageException('群聊文件异常：${file.path}');
-    }
-    return decoded
-        .whereType<Map<String, dynamic>>()
-        .map(TheaterSession.fromJson)
-        .where((session) => session.id.isNotEmpty)
-        .toList()
+    return await _loadJsonList(
+        file,
+        error: '群聊文件异常：${file.path}',
+        fromJson: TheaterSession.fromJson,
+        isValid: (session) => session.id.isNotEmpty,
+      )
       ..sort((a, b) => b.lastOpenedSortTime.compareTo(a.lastOpenedSortTime));
   }
 
@@ -957,9 +980,6 @@ class LocalStorageService {
       }
       for (final item in decoded.whereType<Map<String, dynamic>>()) {
         item['textPath'] = fixPath(item['textPath'] as String? ?? '');
-        item['chatBackgroundImage'] = fixPath(
-          item['chatBackgroundImage'] as String? ?? '',
-        );
       }
     });
     await updateJson('theater_sessions.json', (decoded) {
@@ -978,6 +998,23 @@ class LocalStorageService {
           participant['avatar'] = fixPath(
             participant['avatar'] as String? ?? '',
           );
+        }
+      }
+    });
+    await updateJson('chat_bubble_presets.json', (decoded) {
+      if (decoded is! Map<String, dynamic>) return;
+      final presets = decoded['presets'];
+      if (presets is! List) return;
+      for (final preset in presets.whereType<Map<String, dynamic>>()) {
+        for (final key in const ['appearance', 'userAppearance']) {
+          final appearance = preset[key];
+          if (appearance is! Map<String, dynamic>) continue;
+          final imageSkin = appearance['imageSkin'];
+          if (imageSkin is Map<String, dynamic>) {
+            imageSkin['imagePath'] = fixPath(
+              imageSkin['imagePath'] as String? ?? '',
+            );
+          }
         }
       }
     });
@@ -1131,11 +1168,7 @@ class LocalStorageService {
     final parentName = file.parent.uri.pathSegments
         .where((segment) => segment.isNotEmpty)
         .lastOrNull;
-    final compact = const {
-      'chats',
-      'novel_chats',
-      'theater_messages',
-    }.contains(parentName);
+    final compact = const {'chats', 'theater_messages'}.contains(parentName);
     await jsonStore.writeNow(file, data, compact: compact);
   }
 
@@ -1143,74 +1176,84 @@ class LocalStorageService {
     List<AppCharacter> Function(List<AppCharacter>) update,
   ) async {
     final file = (await _paths).characters;
-    await _enqueueWrite(file, () async {
-      final decoded = await _readJsonNow(
-        file,
-        <dynamic>[],
-        recoverOnInvalid: true,
-      );
-      if (decoded is! List) {
-        throw StorageException('角色文件异常：${file.path}');
-      }
-      final characters = decoded
-          .whereType<Map<String, dynamic>>()
-          .map(AppCharacter.fromJson)
-          .where((character) => character.id.isNotEmpty)
-          .toList();
-      final next = update(characters);
-      await _writeJsonNow(
-        file,
-        next.map((character) => character.toJson()).toList(),
-      );
-    });
+    await _updateJsonList(
+      file,
+      error: '角色文件异常：${file.path}',
+      fromJson: AppCharacter.fromJson,
+      isValid: (character) => character.id.isNotEmpty,
+      toJson: (character) => character.toJson(),
+      update: update,
+    );
   }
 
   Future<void> _updateNovels(
     List<NovelBook> Function(List<NovelBook>) update,
   ) async {
     final file = (await _paths).novels;
-    await _enqueueWrite(file, () async {
-      final decoded = await _readJsonNow(
-        file,
-        <dynamic>[],
-        recoverOnInvalid: true,
-      );
-      if (decoded is! List) {
-        throw StorageException('小说文件异常：${file.path}');
-      }
-      final books = decoded
-          .whereType<Map<String, dynamic>>()
-          .map(NovelBook.fromJson)
-          .where((book) => book.id.isNotEmpty)
-          .toList();
-      final next = update(books);
-      await _writeJsonNow(file, next.map((book) => book.toJson()).toList());
-    });
+    await _updateJsonList(
+      file,
+      error: '小说文件异常：${file.path}',
+      fromJson: NovelBook.fromJson,
+      isValid: (book) => book.id.isNotEmpty,
+      toJson: (book) => book.toJson(),
+      update: update,
+    );
   }
 
   Future<void> _updateTheaterSessions(
     List<TheaterSession> Function(List<TheaterSession>) update,
   ) async {
     final file = (await _paths).theaterSessions;
+    await _updateJsonList(
+      file,
+      error: '群聊文件异常：${file.path}',
+      fromJson: TheaterSession.fromJson,
+      isValid: (session) => session.id.isNotEmpty,
+      toJson: (session) => session.toJson(),
+      update: update,
+    );
+  }
+
+  Future<List<T>> _loadJsonList<T>(
+    File file, {
+    required String error,
+    required T Function(Map<String, dynamic>) fromJson,
+    required bool Function(T) isValid,
+  }) async {
+    final decoded = await _readJson(file, <dynamic>[], recoverOnInvalid: true);
+    return _parseJsonList(decoded, error, fromJson, isValid);
+  }
+
+  List<T> _parseJsonList<T>(
+    dynamic decoded,
+    String error,
+    T Function(Map<String, dynamic>) fromJson,
+    bool Function(T) isValid,
+  ) {
+    if (decoded is! List) throw StorageException(error);
+    return decoded
+        .whereType<Map<String, dynamic>>()
+        .map(fromJson)
+        .where(isValid)
+        .toList();
+  }
+
+  Future<void> _updateJsonList<T>(
+    File file, {
+    required String error,
+    required T Function(Map<String, dynamic>) fromJson,
+    required bool Function(T) isValid,
+    required Map<String, dynamic> Function(T) toJson,
+    required List<T> Function(List<T>) update,
+  }) async {
     await _enqueueWrite(file, () async {
       final decoded = await _readJsonNow(
         file,
         <dynamic>[],
         recoverOnInvalid: true,
       );
-      if (decoded is! List) {
-        throw StorageException('群聊文件异常：${file.path}');
-      }
-      final sessions = decoded
-          .whereType<Map<String, dynamic>>()
-          .map(TheaterSession.fromJson)
-          .where((session) => session.id.isNotEmpty)
-          .toList();
-      final next = update(sessions);
-      await _writeJsonNow(
-        file,
-        next.map((session) => session.toJson()).toList(),
-      );
+      final next = update(_parseJsonList(decoded, error, fromJson, isValid));
+      await _writeJsonNow(file, next.map(toJson).toList());
     });
   }
 

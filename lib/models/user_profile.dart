@@ -15,24 +15,6 @@ class UserProfile {
   final String speakingStyle;
   final String extraPrompt;
 
-  UserProfile copyWith({
-    String? name,
-    String? avatar,
-    String? description,
-    String? personality,
-    String? speakingStyle,
-    String? extraPrompt,
-  }) {
-    return UserProfile(
-      name: name ?? this.name,
-      avatar: avatar ?? this.avatar,
-      description: description ?? this.description,
-      personality: personality ?? this.personality,
-      speakingStyle: speakingStyle ?? this.speakingStyle,
-      extraPrompt: extraPrompt ?? this.extraPrompt,
-    );
-  }
-
   factory UserProfile.fromJson(Map<String, dynamic>? json) {
     return UserProfile(
       name: json?['name'] as String? ?? '用户',

@@ -4,7 +4,7 @@ import 'package:http/testing.dart';
 import 'package:whisnya/models/api_config.dart';
 import 'package:whisnya/models/app_character.dart';
 import 'package:whisnya/models/app_settings.dart';
-import 'package:whisnya/models/chat_session.dart';
+import 'package:whisnya/models/chat_message.dart';
 import 'package:whisnya/models/chat_summary.dart';
 import 'package:whisnya/models/novel_book.dart';
 import 'package:whisnya/models/theater.dart';
@@ -227,8 +227,7 @@ final class _TrackingStorage extends LocalStorageService {
       ChatSummary.empty(characterId);
 
   @override
-  Future<ChatSession> loadChat(String characterId) async =>
-      ChatSession.empty(characterId);
+  Future<List<ChatMessage>> loadChat(String characterId) async => const [];
 
   @override
   Future<void> markCharacterUsed(String characterId) async {

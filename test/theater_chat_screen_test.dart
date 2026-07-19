@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:whisnya/models/ai_usage.dart';
 import 'package:whisnya/models/api_config.dart';
 import 'package:whisnya/models/app_settings.dart';
+import 'package:whisnya/models/chat_bubble_preset.dart';
+import 'package:whisnya/models/chat_bubble_theme.dart';
 import 'package:whisnya/models/novel_book.dart';
 import 'package:whisnya/models/theater.dart';
 import 'package:whisnya/screens/theater/theater_reply_settings.dart';
@@ -13,7 +15,94 @@ import 'package:whisnya/services/local_storage_service.dart';
 import 'package:whisnya/utils/app_i18n.dart';
 
 void main() {
-  testWidgets('theater bubble settings follow input opacity', (tester) async {
+  testWidgets('all theater AI messages share the role bubble preset', (
+    tester,
+  ) async {
+    final now = DateTime(2026);
+    final preset = ChatBubblePreset(
+      id: 'role',
+      name: 'AI 气泡',
+      appearance: const ChatBubbleAppearance(style: ChatBubbleStyle.square),
+    );
+    final session = _session.copyWith(roleBubblePresetId: 'role');
+    final messages = [
+      ..._messages,
+      TheaterMessage(
+        id: 'role-a-message',
+        sessionId: 'session',
+        round: 2,
+        speakerType: TheaterSpeakerType.role,
+        speakerId: 'a',
+        speakerName: '甲',
+        content: '继续',
+        time: now,
+      ),
+    ];
+    final storage = _MemoryStorage(
+      session: session,
+      messages: messages,
+      bubblePresets: ChatBubblePresetSettings(presets: [preset]),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TheaterChatScreen(
+          storage: storage,
+          aiService: _FakeGateway('回复'),
+          settings: const AppSettings(),
+          session: session,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('chat-bubble-square')), findsNWidgets(2));
+  });
+
+  testWidgets('theater top bar follows opacity and exposes transparency', (
+    tester,
+  ) async {
+    final session = _session.copyWith(topBarOpacity: 0.25);
+    final storage = _MemoryStorage(session: session, messages: _messages);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TheaterChatScreen(
+          storage: storage,
+          aiService: _FakeGateway('回复'),
+          settings: const AppSettings(),
+          session: session,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final appBar = tester.widget<AppBar>(
+      find.byKey(const ValueKey('theater-chat-app-bar')),
+    );
+    expect(appBar.backgroundColor!.a, closeTo(0.25, 0.001));
+
+    await tester.tap(find.byIcon(Icons.settings_outlined));
+    await tester.pumpAndSettle();
+    final setting = find.byKey(
+      const ValueKey('theater-chat-top-bar-transparency-setting'),
+    );
+    await tester.scrollUntilVisible(
+      setting,
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(
+      tester
+          .widget<Slider>(
+            find.descendant(of: setting, matching: find.byType(Slider)),
+          )
+          .value,
+      0.75,
+    );
+  });
+
+  testWidgets('theater bubble preset settings follow input opacity', (
+    tester,
+  ) async {
     final storage = _MemoryStorage(session: _session, messages: _messages);
     await tester.pumpWidget(
       MaterialApp(
@@ -30,15 +119,15 @@ void main() {
     await tester.tap(find.byIcon(Icons.settings_outlined));
     await tester.pumpAndSettle();
 
-    final expansion = find.byKey(
-      const ValueKey('theater-chat-bubble-theme-expansion'),
+    final rolePreset = find.byKey(
+      const ValueKey('theater-chat-role-bubble-preset-setting'),
     );
     await tester.scrollUntilVisible(
-      expansion,
+      rolePreset,
       300,
       scrollable: find.byType(Scrollable).last,
     );
-    expect(tester.widget<ExpansionTile>(expansion).initiallyExpanded, isFalse);
+    expect(rolePreset, findsOneWidget);
 
     final settings = tester.widget<ListView>(find.byType(ListView).last);
     final children =
@@ -47,7 +136,8 @@ void main() {
       children.map((child) => child.key),
       containsAllInOrder(const [
         ValueKey('theater-chat-input-opacity-setting'),
-        ValueKey('theater-chat-bubble-theme-expansion'),
+        ValueKey('theater-chat-role-bubble-preset-setting'),
+        ValueKey('theater-chat-user-bubble-preset-setting'),
       ]),
     );
   });
@@ -412,10 +502,12 @@ final class _MemoryStorage extends LocalStorageService {
   _MemoryStorage({
     required this.session,
     required List<TheaterMessage> messages,
+    this.bubblePresets = const ChatBubblePresetSettings(),
   }) : messages = [...messages];
 
   final TheaterSession session;
   List<TheaterMessage> messages;
+  ChatBubblePresetSettings bubblePresets;
   final savedSessions = <TheaterSession>[];
 
   @override
@@ -442,6 +534,10 @@ final class _MemoryStorage extends LocalStorageService {
 
   @override
   Future<List<NovelBook>> loadNovels() async => const [];
+
+  @override
+  Future<ChatBubblePresetSettings> loadChatBubblePresets() async =>
+      bubblePresets;
 
   @override
   Future<void> saveTheaterMessages(

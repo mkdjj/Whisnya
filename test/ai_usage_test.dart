@@ -82,7 +82,6 @@ void main() {
 
     expect(usage.promptTokens, 0);
     expect(usage.cacheHitTokens, 0);
-    expect(usage.hasUsage, isTrue);
   });
 
   test('summarizes usage by chat category', () {

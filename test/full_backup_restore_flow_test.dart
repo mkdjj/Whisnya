@@ -2,8 +2,11 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/services.dart';
+import 'package:image/image.dart' as img;
 import 'package:whisnya/models/app_character.dart';
 import 'package:whisnya/models/app_settings.dart';
+import 'package:whisnya/models/chat_bubble_preset.dart';
+import 'package:whisnya/models/chat_bubble_theme.dart';
 import 'package:whisnya/models/chat_message.dart';
 import 'package:whisnya/models/theater.dart';
 import 'package:whisnya/models/user_profile.dart';
@@ -42,6 +45,34 @@ void main() {
       final source = LocalStorageService(appDataDirectory: sourceDirectory);
       final target = LocalStorageService(appDataDirectory: targetDirectory);
       final now = DateTime(2026);
+      final skinBytes = Uint8List.fromList(
+        img.encodePng(img.Image(width: 32, height: 32, numChannels: 4)),
+      );
+      final skinDirectory = Directory(
+        '${sourceDirectory.path}${Platform.pathSeparator}media'
+        '${Platform.pathSeparator}bubble_skins${Platform.pathSeparator}skin',
+      );
+      await skinDirectory.create(recursive: true);
+      final skinFile = File(
+        '${skinDirectory.path}${Platform.pathSeparator}role.png',
+      );
+      await skinFile.writeAsBytes(skinBytes);
+      final skin = ChatBubbleImageSkin(
+        imagePath: skinFile.path,
+        imageWidth: 32,
+        imageHeight: 32,
+      );
+      await source.saveChatBubblePresets(
+        ChatBubblePresetSettings(
+          presets: [
+            ChatBubblePreset(
+              id: 'skin',
+              name: '皮肤',
+              appearance: ChatBubbleAppearance(imageSkin: skin),
+            ),
+          ],
+        ),
+      );
 
       final avatar = await source.saveMediaImage(
         folder: 'avatars',
@@ -64,19 +95,18 @@ void main() {
         'name': '角色',
         'avatar': avatar,
         'defaultEndpointId': 'custom-endpoint',
+        'roleBubblePresetId': 'skin',
       });
       await source.saveCharacter(character);
       await source.saveChat('c', [
         ChatMessage(role: 'user', content: '你好', time: now),
       ]);
-      final novel = await source.importNovelText(
-        title: '小说',
-        content: '第一章\n正文',
-      );
-      await source.saveNovelChat(novel.id, [
-        ChatMessage(role: 'assistant', content: '回复', time: now),
-      ]);
-      final theater = TheaterSession.fromJson({'id': 't', 'title': '群聊'});
+      await source.importNovelText(title: '小说', content: '第一章\n正文');
+      final theater = TheaterSession.fromJson({
+        'id': 't',
+        'title': '群聊',
+        'userBubblePresetId': 'skin',
+      });
       await source.saveTheaterSession(theater);
       await source.saveTheaterMessages('t', [
         TheaterMessage(
@@ -110,16 +140,20 @@ void main() {
       final restoredCharacter = (await target.loadCharacters()).single;
       expect(restoredCharacter.name, '角色');
       expect(restoredCharacter.defaultEndpointId, 'custom-endpoint');
+      expect(restoredCharacter.roleBubblePresetId, 'skin');
       expect(await File(restoredCharacter.avatar).readAsBytes(), [1, 2, 3, 4]);
-      expect((await target.loadChat('c')).messages.single.content, '你好');
+      expect((await target.loadChat('c')).single.content, '你好');
       final restoredNovel = (await target.loadNovels()).single;
       expect(await target.loadNovelText(restoredNovel), contains('正文'));
-      expect(
-        (await target.loadNovelChat(restoredNovel.id)).messages.single.content,
-        '回复',
-      );
-      expect((await target.loadTheaterSessions()).single.title, '群聊');
+      final restoredTheater = (await target.loadTheaterSessions()).single;
+      expect(restoredTheater.title, '群聊');
+      expect(restoredTheater.userBubblePresetId, 'skin');
       expect((await target.loadTheaterMessages('t')).single.content, '开场');
+      final restoredPresets = await target.loadChatBubblePresets();
+      final restoredSkin = restoredPresets.presets.single.appearance.imageSkin!;
+      expect(restoredPresets.presets.single.id, 'skin');
+      expect(restoredSkin.imagePath, startsWith(targetDirectory.path));
+      expect(await File(restoredSkin.imagePath).readAsBytes(), skinBytes);
     },
   );
 }

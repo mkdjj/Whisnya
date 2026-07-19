@@ -292,6 +292,8 @@ class TheaterSession {
     this.backgroundImageOpacity = 1,
     this.backgroundBlur = 0,
     this.bubbleTheme = ChatBubbleTheme.theaterDefault,
+    this.roleBubblePresetId = '',
+    this.userBubblePresetId = '',
     this.inputOpacity = 0.92,
     this.topBarOpacity = 0,
     this.isHidden = false,
@@ -320,6 +322,8 @@ class TheaterSession {
   final double backgroundImageOpacity;
   final double backgroundBlur;
   final ChatBubbleTheme bubbleTheme;
+  final String roleBubblePresetId;
+  final String userBubblePresetId;
   final double inputOpacity;
   final double topBarOpacity;
   final bool isHidden;
@@ -355,13 +359,11 @@ class TheaterSession {
 
   List<TheaterParticipant> get aiParticipants => activeAiParticipants;
 
-  TheaterParticipant? get userParticipant {
-    if (userParticipantId.isEmpty) return null;
-    for (final participant in participants) {
-      if (participant.id == userParticipantId) return participant;
-    }
-    return null;
-  }
+  TheaterParticipant? get userParticipant => userParticipantId.isEmpty
+      ? null
+      : participants
+            .where((participant) => participant.id == userParticipantId)
+            .firstOrNull;
 
   int get participantUnitCount => 1 + activeAiParticipants.length;
 
@@ -376,6 +378,8 @@ class TheaterSession {
     double? backgroundImageOpacity,
     double? backgroundBlur,
     ChatBubbleTheme? bubbleTheme,
+    String? roleBubblePresetId,
+    String? userBubblePresetId,
     double? inputOpacity,
     double? topBarOpacity,
     bool? isHidden,
@@ -408,6 +412,8 @@ class TheaterSession {
           backgroundImageOpacity ?? this.backgroundImageOpacity,
       backgroundBlur: backgroundBlur ?? this.backgroundBlur,
       bubbleTheme: bubbleTheme ?? this.bubbleTheme,
+      roleBubblePresetId: roleBubblePresetId ?? this.roleBubblePresetId,
+      userBubblePresetId: userBubblePresetId ?? this.userBubblePresetId,
       inputOpacity: inputOpacity ?? this.inputOpacity,
       topBarOpacity: topBarOpacity ?? this.topBarOpacity,
       isHidden: isHidden ?? this.isHidden,
@@ -447,8 +453,10 @@ class TheaterSession {
       backgroundBlur: jsonDouble(json['backgroundBlur'], 0),
       bubbleTheme: ChatBubbleTheme.fromJson(
         json['bubbleTheme'],
-        legacyOpacity: jsonDouble(json['bubbleOpacity'], 0.94),
+        defaultOpacity: 0.94,
       ),
+      roleBubblePresetId: json['roleBubblePresetId'] as String? ?? '',
+      userBubblePresetId: json['userBubblePresetId'] as String? ?? '',
       inputOpacity: jsonDouble(json['inputOpacity'], 0.92),
       topBarOpacity: jsonDouble(json['topBarOpacity'], 0),
       isHidden: json['isHidden'] as bool? ?? false,
@@ -490,6 +498,8 @@ class TheaterSession {
       'backgroundImageOpacity': backgroundImageOpacity,
       'backgroundBlur': backgroundBlur,
       'bubbleTheme': bubbleTheme.toJson(),
+      'roleBubblePresetId': roleBubblePresetId,
+      'userBubblePresetId': userBubblePresetId,
       'inputOpacity': inputOpacity,
       'topBarOpacity': topBarOpacity,
       'isHidden': isHidden,

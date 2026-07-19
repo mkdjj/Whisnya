@@ -20,7 +20,7 @@ Whisnya 是一个本地优先的 Android / Windows AI 角色聊天和 TXT 小说
 - 可创建多个角色或小说角色参与的群聊/剧场。
 - 导入 TXT 小说，支持 UTF-8 / GBK 识别，按章节阅读、总结小说，并将提取角色加入群聊。
 - 小说列表支持列表/网格视图切换。
-- 自定义聊天气泡、输入框透明度，以及角色/小说/群聊共用的列表卡片透明度。
+- 使用内置或导入的全局聊天气泡预设，并统一设置各类界面透明度。
 - 统一的用户设定可用于角色聊天和群聊。
 - 导出/导入全部本地数据，默认不包含 API Key。
 - 隐私密码保护上锁角色和小说。
@@ -50,7 +50,7 @@ APK 会生成在：
 build/app/outputs/flutter-apk/app-release.apk
 ```
 
-当前发布版本是 `1.3.6+14`。每次公开发版都要同时递增 `versionName`
+当前发布版本是 `1.3.7+15`。每次公开发版都要同时递增 `versionName`
 和 `versionCode`。Android 包名是 `com.mkdjj.whisnya`。
 
 如果要公开分发，请先配置自己的 Android 签名文件：
@@ -66,7 +66,7 @@ Copy-Item android/key.properties.example android/key.properties
 推荐发布文件名：
 
 ```text
-Whisnya-android-v1.3.6-release.apk
+Whisnya-android-v1.3.7-release.apk
 ```
 
 ## 其他平台
@@ -88,7 +88,7 @@ build/windows/x64/runner/Release/
 推荐 Windows 发布文件名：
 
 ```text
-Whisnya-windows-x64-v1.3.6.zip
+Whisnya-windows-x64-v1.3.7.zip
 ```
 
 iOS 或 macOS 需要先生成平台文件，然后在安装了 Xcode 的 macOS 上打包：

@@ -1,5 +1,3 @@
-import 'ai_provider.dart';
-
 String? endpointValidationError(AiEndpointConfig? endpoint) =>
     endpoint == null ? '请先到 API 设置添加配置。' : endpoint.validationError;
 
@@ -103,16 +101,8 @@ class ApiConfig {
   List<AiEndpointConfig> get enabledEndpoints =>
       endpoints.where((endpoint) => endpoint.enabled).toList();
 
-  List<AiEndpointConfig> get readyEndpoints => endpoints
-      .where((endpoint) => endpoint.enabled && endpoint.isComplete)
-      .toList();
-
-  AiEndpointConfig? endpointById(String id) {
-    for (final endpoint in endpoints) {
-      if (endpoint.id == id) return endpoint;
-    }
-    return null;
-  }
+  AiEndpointConfig? endpointById(String id) =>
+      endpoints.where((endpoint) => endpoint.id == id).firstOrNull;
 
   AiEndpointConfig? effectiveEndpoint(String id) {
     final selected = endpointById(id);
@@ -121,10 +111,7 @@ class ApiConfig {
       final endpoint = endpointById(defaultEndpointId);
       if (endpoint != null && endpoint.enabled) return endpoint;
     }
-    for (final endpoint in endpoints) {
-      if (endpoint.enabled) return endpoint;
-    }
-    return null;
+    return endpoints.where((endpoint) => endpoint.enabled).firstOrNull;
   }
 
   ApiConfig copyWith({
@@ -157,47 +144,15 @@ class ApiConfig {
 
   factory ApiConfig.fromJson(Map<String, dynamic>? json) {
     final rawEndpoints = json?['endpoints'];
-    if (rawEndpoints is List) {
-      return ApiConfig(
-        endpoints: rawEndpoints
-            .whereType<Map<String, dynamic>>()
-            .map(AiEndpointConfig.fromJson)
-            .toList(),
-        defaultEndpointId: json?['defaultEndpointId'] as String? ?? '',
-      );
-    }
-
-    final endpoints = <AiEndpointConfig>[];
-    for (final provider in AiProvider.values) {
-      final raw = json?[provider.id];
-      if (raw is! Map<String, dynamic>) continue;
-      final apiKey = raw['apiKey'] as String? ?? '';
-      final baseUrl = raw['baseUrl'] as String? ?? '';
-      final model = raw['model'] as String? ?? '';
-      if (apiKey.trim().isEmpty &&
-          baseUrl.trim().isEmpty &&
-          model.trim().isEmpty) {
-        continue;
-      }
-      final now = DateTime.now();
-      endpoints.add(
-        AiEndpointConfig(
-          id: provider.id,
-          name: provider.label,
-          apiKey: apiKey,
-          baseUrl: baseUrl,
-          model: model,
-          enabled:
-              apiKey.trim().isNotEmpty &&
-              baseUrl.trim().isNotEmpty &&
-              model.trim().isNotEmpty,
-          createdAt: now,
-          updatedAt: now,
-        ),
-      );
-    }
-
-    return ApiConfig(endpoints: endpoints, defaultEndpointId: 'deepseek');
+    return ApiConfig(
+      endpoints: rawEndpoints is List
+          ? rawEndpoints
+                .whereType<Map<String, dynamic>>()
+                .map(AiEndpointConfig.fromJson)
+                .toList()
+          : const [],
+      defaultEndpointId: json?['defaultEndpointId'] as String? ?? '',
+    );
   }
 
   Map<String, dynamic> toJson() {

@@ -23,9 +23,13 @@ void main() {
       ),
     );
 
-    await tester.drag(find.byType(Scrollable), const Offset(0, -400));
-    await tester.pumpAndSettle();
-    expect(find.textContaining(RegExp('用户设定|User profile')), findsOneWidget);
+    final profileTile = find.textContaining(RegExp('用户设定|User profile'));
+    await tester.scrollUntilVisible(
+      profileTile,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(profileTile, findsOneWidget);
   });
 
   testWidgets('edits a user profile and defaults an empty nickname', (

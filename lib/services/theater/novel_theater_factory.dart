@@ -13,21 +13,21 @@ class NovelTheaterFactory {
   }) {
     final created = now ?? DateTime.now();
     final sessionId = 'theater_${created.microsecondsSinceEpoch}';
-    final userRoleIndex = userRole == null
+    final selectedUserIndex = userRole == null
         ? -1
         : book.roles.indexWhere(
             (role) => identical(role, userRole) || role.name == userRole.name,
           );
-    final user = userRoleIndex < 0
+    final user = selectedUserIndex < 0
         ? TheaterParticipant.fromUserProfile(userProfile, id: '$sessionId-user')
         : TheaterParticipant.fromNovelRole(
             book: book,
-            role: book.roles[userRoleIndex],
+            role: book.roles[selectedUserIndex],
             id: '$sessionId-user',
           );
     final aiIndexes = [
       for (var index = 0; index < book.roles.length; index++) index,
-    ]..remove(userRoleIndex);
+    ]..remove(selectedUserIndex);
     return TheaterSession(
       id: sessionId,
       title: _title(book.title),
@@ -43,57 +43,6 @@ class NovelTheaterFactory {
         ),
         user,
       ],
-      createdAt: created,
-      updatedAt: created,
-    );
-  }
-
-  TheaterSession createLegacySession(
-    NovelBook book, {
-    required String sessionId,
-    required String theaterSummary,
-    required int summarizedMessageCount,
-    UserProfile userProfile = const UserProfile(),
-    DateTime? now,
-  }) {
-    final created = now ?? DateTime.now();
-    final validUser =
-        book.userRoleIndex >= 0 && book.userRoleIndex < book.roles.length;
-    final validSelected =
-        book.selectedRoleIndex >= 0 &&
-        book.selectedRoleIndex < book.roles.length;
-    final indexes = [for (var i = 0; i < book.roles.length; i++) i]
-      ..removeWhere((index) => validUser && index == book.userRoleIndex);
-    if (validSelected && book.selectedRoleIndex != book.userRoleIndex) {
-      indexes
-        ..remove(book.selectedRoleIndex)
-        ..insert(0, book.selectedRoleIndex);
-    }
-    final ai = _aiParticipants(book, sessionId: sessionId, indexes: indexes);
-    final user = validUser
-        ? TheaterParticipant.fromNovelRole(
-            book: book,
-            role: book.roles[book.userRoleIndex],
-            id: '$sessionId-user',
-          )
-        : TheaterParticipant.fromUserProfile(
-            userProfile,
-            id: '$sessionId-user',
-          );
-    return TheaterSession(
-      id: sessionId,
-      title: _title(book.title),
-      backgroundImage: book.chatBackgroundImage,
-      backgroundImageOpacity: book.chatBackgroundOpacity,
-      backgroundBlur: book.chatBackgroundBlur,
-      boundNovelId: book.id,
-      boundNovelTitle: book.title,
-      userParticipantId: user.id,
-      theaterSummary: theaterSummary,
-      summarizedMessageCount: theaterSummary.trim().isEmpty
-          ? 0
-          : summarizedMessageCount,
-      participants: [...ai, user],
       createdAt: created,
       updatedAt: created,
     );

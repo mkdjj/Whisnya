@@ -26,7 +26,6 @@ final _connectedPattern = RegExp(r'^(.+) 连接成功：(.+)$');
 final _incompleteConfigPattern = RegExp(r'^(.+) 配置不完整，请先到设置里配置 API。$');
 final _apiErrorPattern = RegExp(r'^API 返回错误 (\d+)：(.+)$');
 final _novelRoleCountPattern = RegExp(r'^共 (\d+) 个角色$');
-final _migratedNovelChatsPattern = RegExp(r'^已将 (\d+) 本小说的旧聊天迁移到群聊$');
 
 const _dynamicPrefixes = {
   '设置文件异常': 'Settings file is invalid',
@@ -113,11 +112,6 @@ String? _dynamicEn(String text) {
 
   match = _novelRoleCountPattern.firstMatch(text);
   if (match != null) return '${match[1]} novel roles';
-
-  match = _migratedNovelChatsPattern.firstMatch(text);
-  if (match != null) {
-    return 'Migrated legacy chats from ${match[1]} novels to theater chats';
-  }
 
   for (final entry in _dynamicPrefixes.entries) {
     final prefix = '${entry.key}：';
@@ -280,9 +274,9 @@ const _en = {
   '主页和设置背景': 'Home and settings background',
   '未设置': 'Not set',
   '已设置': 'Set',
-  '界面背景透明度': 'Background opacity',
+  '界面背景透明度': 'Background transparency',
   '界面背景模糊度': 'Background blur',
-  '底部导航栏透明度': 'Navigation bar opacity',
+  '底部导航栏透明度': 'Navigation bar transparency',
   '清空界面背景': 'Clear background',
   '只删除背景引用，不影响图片文件': 'Only clears the reference, not the image file',
   '隐私': 'Privacy',
@@ -444,10 +438,10 @@ const _en = {
   '暂无历史总结': 'No saved summary',
   '已有历史总结': 'Saved summary available',
   '建议先生成历史总结': 'Consider generating a chat summary first',
-  '背景图透明度': 'Background image opacity',
+  '背景图透明度': 'Background image transparency',
   '背景图模糊度': 'Background image blur',
-  '聊天气泡透明度': 'Chat bubble opacity',
-  '输入框透明度': 'Input box opacity',
+  '聊天气泡透明度': 'Chat bubble transparency',
+  '输入框透明度': 'Input box transparency',
   '清空聊天记录': 'Clear chat history',
   '历史总结不会被删除': 'The saved summary will not be deleted',
   '速度判断：正常': 'Speed: normal',
@@ -579,8 +573,8 @@ const _en = {
   '自定义': 'Custom',
   '自定义轮数': 'Custom rounds',
   '自定义轮数必须在 5-100 之间': 'Custom rounds must be between 5 and 100',
-  '文本框透明度': 'Message bubble opacity',
-  '顶部状态栏透明度': 'Top bar opacity',
+  '文本框透明度': 'Message bubble transparency',
+  '顶部状态栏透明度': 'Top bar transparency',
   '流式对话': 'Streaming replies',
   '边返回边显示': 'Show text as it arrives',
   '显示思考过程': 'Show thinking process',
@@ -628,7 +622,7 @@ const _en = {
   '我的气泡': 'My bubble',
   '气泡颜色': 'Bubble color',
   '文字颜色': 'Text color',
-  '气泡透明度': 'Bubble opacity',
+  '气泡透明度': 'Bubble transparency',
   '恢复当前默认': 'Restore this default',
   '恢复全部默认': 'Restore all defaults',
   '默认圆润': 'Rounded',
@@ -645,7 +639,7 @@ const _en = {
   '角色乙：我也准备好了。': 'Role B: I am ready too.',
   '很高兴见到你。': 'Nice to meet you.',
   '好的，开始吧。': 'Okay, let us begin.',
-  '列表卡片透明度': 'List card opacity',
+  '列表卡片透明度': 'List card transparency',
   '小说角色': 'Novel roles',
   '管理小说角色': 'Manage novel roles',
   '创建小说群聊': 'Create novel theater chat',
@@ -663,6 +657,4 @@ const _en = {
   '扮演小说角色': 'Play a novel character',
   '自定义临时身份': 'Use a temporary identity',
   '至少添加一个 AI 角色': 'Add at least one AI role',
-  '部分小说聊天迁移失败，旧数据已保留，下次启动会重试':
-      'Some novel chats failed to migrate. Old data was kept and migration will retry next launch.',
 };

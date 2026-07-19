@@ -48,19 +48,3 @@ String? sanitizeParticipantReply({
 
   return targetBlocks.isEmpty ? null : targetBlocks.join('\n');
 }
-
-Future<String?> requestSanitizedParticipantReply({
-  required Future<String> Function(bool isRetry) request,
-  required String targetName,
-  required List<String> allParticipantNames,
-}) async {
-  for (var attempt = 0; attempt < 2; attempt++) {
-    final reply = sanitizeParticipantReply(
-      rawReply: await request(attempt == 1),
-      targetName: targetName,
-      allParticipantNames: allParticipantNames,
-    );
-    if (reply != null) return reply;
-  }
-  return null;
-}

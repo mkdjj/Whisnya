@@ -12,6 +12,7 @@ import 'package:http/http.dart' as http;
 import '../models/app_character.dart';
 import '../services/local_storage_service.dart';
 import 'app_i18n.dart';
+import 'confirm_dialog.dart';
 import 'role_import_parser.dart';
 import 'snack.dart';
 
@@ -527,31 +528,12 @@ Future<CharacterImportResult> _importPickedFiles(
 }
 
 Future<String?> _askImportUrl(BuildContext context) {
-  final controller = TextEditingController();
-  return showDialog<String>(
+  return showTextInputDialog(
     context: context,
-    builder: (context) => AlertDialog(
-      title: Text(context.t('从 URL 导入角色卡')),
-      content: TextField(
-        controller: controller,
-        autofocus: true,
-        decoration: InputDecoration(
-          labelText: context.t('文件直链'),
-          hintText: 'https://example.com/role.json',
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(context.t('取消')),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-          child: Text(context.t('确认')),
-        ),
-      ],
-    ),
-  ).whenComplete(controller.dispose);
+    title: '从 URL 导入角色卡',
+    label: '文件直链',
+    hint: 'https://example.com/role.json',
+  );
 }
 
 Future<void> _showCharacterImportResult(

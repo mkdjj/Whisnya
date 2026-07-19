@@ -92,38 +92,4 @@ void main() {
       );
     });
   });
-
-  test(
-    'requestSanitizedParticipantReply retries once and returns one reply',
-    () async {
-      var attempts = 0;
-      final reply = await requestSanitizedParticipantReply(
-        request: (isRetry) async {
-          attempts++;
-          expect(isRetry, attempts == 2);
-          return attempts == 1 ? '[糖璃] 错误角色' : '[梓涵] 正确回复';
-        },
-        targetName: '梓涵',
-        allParticipantNames: names,
-      );
-
-      expect(attempts, 2);
-      expect(reply, '正确回复');
-    },
-  );
-
-  test('requestSanitizedParticipantReply stops after the retry', () async {
-    var attempts = 0;
-    final reply = await requestSanitizedParticipantReply(
-      request: (_) async {
-        attempts++;
-        return '[糖璃] 仍然错误';
-      },
-      targetName: '梓涵',
-      allParticipantNames: names,
-    );
-
-    expect(attempts, 2);
-    expect(reply, isNull);
-  });
 }

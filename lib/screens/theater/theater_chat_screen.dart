@@ -25,6 +25,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   TheaterSession get _session => _chat.session;
   List<TheaterMessage> get _messages => _chat.messages;
   var _apiConfig = ApiConfig();
+  var _bubblePresets = const ChatBubblePresetSettings();
   var _novelSummary = '';
   var _isLoading = true;
   var _isGenerating = false;
@@ -32,6 +33,20 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   var _generationId = 0;
   AiCancelToken? _cancelToken;
   final _streamFlushers = <void Function()>{};
+
+  ChatBubbleAppearance get _roleBubbleAppearance => resolveBubbleAppearance(
+    presetId: _session.roleBubblePresetId,
+    presets: _bubblePresets,
+    isUser: false,
+    fallback: _session.bubbleTheme.role,
+  );
+
+  ChatBubbleAppearance get _userBubbleAppearance => resolveBubbleAppearance(
+    presetId: _session.userBubblePresetId,
+    presets: _bubblePresets,
+    isUser: true,
+    fallback: _session.bubbleTheme.user,
+  );
 
   @override
   void initState() {
@@ -50,6 +65,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
 
   Future<void> _load() async {
     final apiConfig = await widget.storage.loadApiConfig();
+    final bubblePresets = await widget.storage.loadChatBubblePresets();
     final messages = await widget.storage.loadTheaterMessages(_session.id);
     var novelSummary = '';
     if (_session.boundNovelId.isNotEmpty) {
@@ -64,6 +80,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     if (!mounted) return;
     setState(() {
       _apiConfig = apiConfig;
+      _bubblePresets = bubblePresets;
       _chat.replaceMessages(messages);
       _novelSummary = novelSummary;
       _isLoading = false;
@@ -812,6 +829,11 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   }
 
   Future<void> _openSettings() async {
+    try {
+      final presets = await widget.storage.loadChatBubblePresets();
+      if (mounted) setState(() => _bubblePresets = presets);
+    } catch (_) {}
+    if (!mounted) return;
     var draft = _session;
     var openEditor = false;
     await showModalBottomSheet<void>(
@@ -913,24 +935,14 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
                     ],
                   ),
                   const SizedBox(height: 14),
-                  SettingSlider(
+                  SettingSlider.transparency(
                     label: '背景图透明度',
-                    value: opacityToTransparency(draft.backgroundImageOpacity),
-                    min: 0,
-                    max: 1,
-                    divisions: 100,
-                    display:
-                        '${(opacityToTransparency(draft.backgroundImageOpacity) * 100).round()}%',
-                    onChanged: (value) => preview(
-                      draft.copyWith(
-                        backgroundImageOpacity: transparencyToOpacity(value),
-                      ),
+                    opacity: draft.backgroundImageOpacity,
+                    onChanged: (opacity) => preview(
+                      draft.copyWith(backgroundImageOpacity: opacity),
                     ),
-                    onChangeEnd: (value) => apply(
-                      draft.copyWith(
-                        backgroundImageOpacity: transparencyToOpacity(value),
-                      ),
-                    ),
+                    onChangeEnd: (opacity) =>
+                        apply(draft.copyWith(backgroundImageOpacity: opacity)),
                     height: 26,
                     displayWidth: 52,
                   ),
@@ -948,44 +960,57 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
                     height: 26,
                     displayWidth: 52,
                   ),
-                  SettingSlider(
-                    key: const ValueKey('theater-chat-input-opacity-setting'),
-                    label: '输入框透明度',
-                    value: opacityToTransparency(draft.inputOpacity),
-                    min: 0,
-                    max: 1,
-                    divisions: 100,
-                    display:
-                        '${(opacityToTransparency(draft.inputOpacity) * 100).round()}%',
-                    onChanged: (value) => preview(
-                      draft.copyWith(
-                        inputOpacity: transparencyToOpacity(value),
-                      ),
+                  SettingSlider.transparency(
+                    key: const ValueKey(
+                      'theater-chat-top-bar-transparency-setting',
                     ),
-                    onChangeEnd: (value) => apply(
-                      draft.copyWith(
-                        inputOpacity: transparencyToOpacity(value),
-                      ),
-                    ),
+                    label: '顶部状态栏透明度',
+                    opacity: draft.topBarOpacity,
+                    onChanged: (opacity) =>
+                        preview(draft.copyWith(topBarOpacity: opacity)),
+                    onChangeEnd: (opacity) =>
+                        apply(draft.copyWith(topBarOpacity: opacity)),
                     height: 26,
                     displayWidth: 52,
                   ),
-                  ExpansionTile(
-                    key: const ValueKey('theater-chat-bubble-theme-expansion'),
-                    initiallyExpanded: false,
-                    tilePadding: EdgeInsets.zero,
-                    title: Text(context.t('聊天气泡样式')),
-                    children: [
-                      ChatBubbleThemeEditor(
-                        theme: draft.bubbleTheme,
-                        defaultTheme: ChatBubbleTheme.theaterDefault,
-                        isTheater: true,
-                        onPreview: (theme) =>
-                            preview(draft.copyWith(bubbleTheme: theme)),
-                        onSave: (theme) =>
-                            apply(draft.copyWith(bubbleTheme: theme)),
-                      ),
-                    ],
+                  SettingSlider.transparency(
+                    key: const ValueKey('theater-chat-input-opacity-setting'),
+                    label: '输入框透明度',
+                    opacity: draft.inputOpacity,
+                    onChanged: (opacity) =>
+                        preview(draft.copyWith(inputOpacity: opacity)),
+                    onChangeEnd: (opacity) =>
+                        apply(draft.copyWith(inputOpacity: opacity)),
+                    height: 26,
+                    displayWidth: 52,
+                  ),
+                  ChatBubblePresetSelectionTile(
+                    key: const ValueKey(
+                      'theater-chat-role-bubble-preset-setting',
+                    ),
+                    title: 'AI 共用气泡',
+                    presetId: draft.roleBubblePresetId,
+                    presets: _bubblePresets,
+                    isUser: false,
+                    onChanged: (value) {
+                      final next = draft.copyWith(roleBubblePresetId: value);
+                      preview(next);
+                      apply(next);
+                    },
+                  ),
+                  ChatBubblePresetSelectionTile(
+                    key: const ValueKey(
+                      'theater-chat-user-bubble-preset-setting',
+                    ),
+                    title: '我的气泡',
+                    presetId: draft.userBubblePresetId,
+                    presets: _bubblePresets,
+                    isUser: true,
+                    onChanged: (value) {
+                      final next = draft.copyWith(userBubblePresetId: value);
+                      preview(next);
+                      apply(next);
+                    },
                   ),
                   const SizedBox(height: 16),
                   OutlinedButton.icon(
@@ -1081,7 +1106,10 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
         child: Scaffold(
           backgroundColor: hasBackground ? Colors.transparent : null,
           appBar: AppBar(
-            backgroundColor: Colors.transparent,
+            key: const ValueKey('theater-chat-app-bar'),
+            backgroundColor: Theme.of(context).colorScheme.surface.withValues(
+              alpha: _session.topBarOpacity.clamp(0, 1).toDouble(),
+            ),
             surfaceTintColor: Colors.transparent,
             systemOverlayStyle: appSystemOverlayStyle(context),
             title: Column(
@@ -1119,7 +1147,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
             children: [
               if (_isSummarizing) const LinearProgressIndicator(minHeight: 2),
               Expanded(child: _buildMessages()),
-              _TheaterInputComposer(
+              ChatInputComposer(
                 controller: _inputController,
                 isGenerating: _isGenerating,
                 hasBackground: hasBackground,
@@ -1127,6 +1155,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
                 onContinue: _continueOneRound,
                 onSend: _send,
                 onStop: _stopGeneration,
+                requireText: true,
               ),
             ],
           ),
@@ -1154,9 +1183,10 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
         itemCount: _messages.length + (showTyping ? 1 : 0),
         itemBuilder: (context, index) {
           if (showTyping && index == 0) {
-            return _TheaterTypingBubble(
-              appearance: _session.bubbleTheme.role,
+            return TypingBubble(
+              appearance: _roleBubbleAppearance,
               chatTextColor: widget.settings.chatTextColor,
+              showLabel: false,
             );
           }
           final messageIndex =
@@ -1176,8 +1206,8 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
               message: message,
               participant: participant,
               appearance: message.isUser
-                  ? _session.bubbleTheme.user
-                  : _session.bubbleTheme.role,
+                  ? _userBubbleAppearance
+                  : _roleBubbleAppearance,
               chatTextColor: widget.settings.chatTextColor,
               onCopy: () => _copy(message),
               onDelete: _isGenerating

@@ -128,17 +128,10 @@ class _TheaterMessageBubble extends StatelessWidget {
                       ),
                     ),
                   ],
-                  IconButton(
-                    tooltip: context.t('复制消息'),
-                    visualDensity: VisualDensity.compact,
-                    onPressed: onCopy,
-                    icon: const Icon(Icons.copy, size: 16),
-                  ),
-                  IconButton(
-                    tooltip: context.t('删除消息'),
-                    visualDensity: VisualDensity.compact,
-                    onPressed: onDelete,
-                    icon: const Icon(Icons.delete_outline, size: 16),
+                  ...messageBubbleActions(
+                    context,
+                    onCopy: onCopy,
+                    onDelete: onDelete,
                   ),
                   if (onRetry != null)
                     TextButton.icon(

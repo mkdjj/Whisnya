@@ -64,13 +64,9 @@ final class TheaterChatController {
   void clearMessages() => _messages = [];
 
   TheaterParticipantReply resolveParticipantReply(String participantId) {
-    TheaterParticipant? participant;
-    for (final item in _session.participants) {
-      if (item.id == participantId) {
-        participant = item;
-        break;
-      }
-    }
+    final participant = _session.participants
+        .where((item) => item.id == participantId)
+        .firstOrNull;
     if (participant == null) {
       return const TheaterParticipantReply(
         TheaterParticipantReplyStatus.missing,

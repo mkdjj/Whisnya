@@ -9,7 +9,6 @@ void main() {
     late String save;
     late String progress;
     late String bubble;
-    late String migration;
     late String userProfile;
     await tester.pumpWidget(
       MaterialApp(
@@ -21,7 +20,6 @@ void main() {
             save = context.t('保存');
             progress = context.t('正在总结 2 / 5');
             bubble = context.t('聊天气泡样式');
-            migration = context.t('已将 2 本小说的旧聊天迁移到群聊');
             userProfile = context.t('用户设定');
             return const SizedBox.shrink();
           },
@@ -32,7 +30,6 @@ void main() {
     expect(save, 'Save');
     expect(progress, 'Summarizing 2 / 5');
     expect(bubble, 'Chat bubble style');
-    expect(migration, 'Migrated legacy chats from 2 novels to theater chats');
     expect(userProfile, 'User profile');
   });
 }

@@ -203,40 +203,13 @@ class NovelScreenState extends State<NovelScreen> {
     }
 
     if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.error_outline, size: 44),
-              const SizedBox(height: 12),
-              Text(_error!, textAlign: TextAlign.center),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: _load,
-                icon: const Icon(Icons.refresh),
-                label: Text(context.t('重新加载')),
-              ),
-            ],
-          ),
-        ),
-      );
+      return PageStatusView.error(message: _error!, onRetry: _load);
     }
 
     final content = _books.isEmpty
-        ? Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.menu_book_outlined, size: 48),
-                  const SizedBox(height: 12),
-                  Text(context.t('还没有导入小说')),
-                ],
-              ),
-            ),
+        ? PageStatusView.empty(
+            icon: Icons.menu_book_outlined,
+            message: context.t('还没有导入小说'),
           )
         : widget.useGridView
         ? GridView.builder(

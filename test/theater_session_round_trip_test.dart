@@ -18,7 +18,6 @@ void main() {
       profile,
       id: 'user-1',
     );
-    final changed = profile.copyWith(name: '后来修改');
 
     expect(participant.id, 'user-1');
     expect(participant.name, '小明');
@@ -27,7 +26,6 @@ void main() {
     expect(participant.personality, '开朗');
     expect(participant.speakingStyle, '简洁');
     expect(participant.background, '喜欢猫');
-    expect(participant.name, isNot(changed.name));
   });
 
   test('legacy sessions default missing reply counts', () {
@@ -52,7 +50,10 @@ void main() {
       backgroundImage: 'background.png',
       backgroundImageOpacity: 0.7,
       backgroundBlur: 4,
-      bubbleTheme: ChatBubbleTheme.sameOpacity(0.8),
+      bubbleTheme: const ChatBubbleTheme(
+        role: ChatBubbleAppearance(opacity: 0.8),
+        user: ChatBubbleAppearance(opacity: 0.8),
+      ),
       inputOpacity: 0.9,
       topBarOpacity: 0.2,
       isHidden: true,
