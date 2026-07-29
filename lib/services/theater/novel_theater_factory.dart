@@ -28,58 +28,40 @@ class NovelTheaterFactory {
     final aiIndexes = [
       for (var index = 0; index < book.roles.length; index++) index,
     ]..remove(selectedUserIndex);
+    final aiParticipants = book.roles.isEmpty
+        ? [
+            TheaterParticipant(
+              id: '$sessionId-role-fallback',
+              source: TheaterRoleSource.novelRole,
+              sourceNovelId: book.id,
+              sourceNovelTitle: book.title,
+              sourceRoleId: '小说角色',
+              name: '小说角色',
+              avatar: '',
+              description: '根据小说设定参与群聊。',
+              personality: '参考小说设定档。',
+              background: book.summary,
+              speakingStyle: '参考小说原文。',
+            ),
+          ]
+        : [
+            for (final index in aiIndexes)
+              TheaterParticipant.fromNovelRole(
+                book: book,
+                role: book.roles[index],
+                id: '$sessionId-role-$index',
+              ),
+          ];
     return TheaterSession(
       id: sessionId,
       title: _title(book.title),
       boundNovelId: book.id,
       boundNovelTitle: book.title,
       userParticipantId: user.id,
-      participants: [
-        ..._aiParticipants(
-          book,
-          sessionId: sessionId,
-          indexes: aiIndexes,
-          fallbackWhenEmpty: book.roles.isEmpty,
-        ),
-        user,
-      ],
+      participants: [...aiParticipants, user],
       createdAt: created,
       updatedAt: created,
     );
-  }
-
-  List<TheaterParticipant> _aiParticipants(
-    NovelBook book, {
-    required String sessionId,
-    List<int>? indexes,
-    bool fallbackWhenEmpty = true,
-  }) {
-    final selected = indexes ?? [for (var i = 0; i < book.roles.length; i++) i];
-    if (selected.isEmpty && fallbackWhenEmpty) {
-      return [
-        TheaterParticipant(
-          id: '$sessionId-role-fallback',
-          source: TheaterRoleSource.novelRole,
-          sourceNovelId: book.id,
-          sourceNovelTitle: book.title,
-          sourceRoleId: '小说角色',
-          name: '小说角色',
-          avatar: '',
-          description: '根据小说设定参与群聊。',
-          personality: '参考小说设定档。',
-          background: book.summary,
-          speakingStyle: '参考小说原文。',
-        ),
-      ];
-    }
-    return [
-      for (final index in selected)
-        TheaterParticipant.fromNovelRole(
-          book: book,
-          role: book.roles[index],
-          id: '$sessionId-role-$index',
-        ),
-    ];
   }
 
   String _title(String raw) {

@@ -39,4 +39,20 @@ void main() {
       throwsA(isA<StorageException>()),
     );
   });
+
+  test('rejects an unsupported backup format', () async {
+    final directory = await Directory.systemTemp.createTemp('whisnya_backup_');
+    addTearDown(() async {
+      if (await directory.exists()) await directory.delete(recursive: true);
+    });
+
+    await File(
+      '${directory.path}${Platform.pathSeparator}backup_manifest.json',
+    ).writeAsString(jsonEncode({'format': 999}));
+
+    await expectLater(
+      validateBackupDirectory(directory),
+      throwsA(isA<StorageException>()),
+    );
+  });
 }

@@ -53,7 +53,6 @@ class TheaterListScreenState extends State<TheaterListScreen> {
       MaterialPageRoute(
         builder: (_) => TheaterEditScreen(
           storage: widget.storage,
-          aiService: widget.aiService,
           initialUserProfile: widget.settings.userProfile,
         ),
       ),
@@ -66,7 +65,11 @@ class TheaterListScreenState extends State<TheaterListScreen> {
     if (!await _verifySessionOperation(session, '进入聊天')) return;
     if (!mounted) return;
     final opened = session.copyWith(lastOpenedAt: DateTime.now());
-    await widget.storage.saveTheaterSession(opened);
+    if (!await context.tryAction(
+      () => widget.storage.saveTheaterSession(opened),
+    )) {
+      return;
+    }
     if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -92,9 +95,14 @@ class TheaterListScreenState extends State<TheaterListScreen> {
       confirmLabel: '保存',
     );
     if (title == null || title.isEmpty) return;
-    await widget.storage.saveTheaterSession(
-      session.copyWith(title: title, updatedAt: DateTime.now()),
-    );
+    if (!mounted) return;
+    if (!await context.tryAction(
+      () => widget.storage.saveTheaterSession(
+        session.copyWith(title: title, updatedAt: DateTime.now()),
+      ),
+    )) {
+      return;
+    }
     await _load();
   }
 
@@ -103,11 +111,8 @@ class TheaterListScreenState extends State<TheaterListScreen> {
     if (!mounted) return;
     final updated = await Navigator.of(context).push<TheaterSession>(
       MaterialPageRoute(
-        builder: (_) => TheaterEditScreen(
-          storage: widget.storage,
-          aiService: widget.aiService,
-          session: session,
-        ),
+        builder: (_) =>
+            TheaterEditScreen(storage: widget.storage, session: session),
       ),
     );
     if (updated != null && mounted) await _load();
@@ -125,7 +130,12 @@ class TheaterListScreenState extends State<TheaterListScreen> {
       confirmLabel: '删除',
     );
     if (!ok) return;
-    await widget.storage.deleteTheaterSession(session.id);
+    if (!mounted) return;
+    if (!await context.tryAction(
+      () => widget.storage.deleteTheaterSession(session.id),
+    )) {
+      return;
+    }
     if (mounted) await _load();
   }
 
@@ -136,9 +146,17 @@ class TheaterListScreenState extends State<TheaterListScreen> {
     )) {
       return;
     }
-    await widget.storage.saveTheaterSession(
-      session.copyWith(isHidden: !session.isHidden, updatedAt: DateTime.now()),
-    );
+    if (!mounted) return;
+    if (!await context.tryAction(
+      () => widget.storage.saveTheaterSession(
+        session.copyWith(
+          isHidden: !session.isHidden,
+          updatedAt: DateTime.now(),
+        ),
+      ),
+    )) {
+      return;
+    }
     if (!mounted) return;
     context.showSnack(session.isHidden ? '已显示设定' : '已隐藏设定');
     await _load();
@@ -152,9 +170,17 @@ class TheaterListScreenState extends State<TheaterListScreen> {
     if (session.isLocked && !await _verifySessionOperation(session, '解除上锁')) {
       return;
     }
-    await widget.storage.saveTheaterSession(
-      session.copyWith(isLocked: !session.isLocked, updatedAt: DateTime.now()),
-    );
+    if (!mounted) return;
+    if (!await context.tryAction(
+      () => widget.storage.saveTheaterSession(
+        session.copyWith(
+          isLocked: !session.isLocked,
+          updatedAt: DateTime.now(),
+        ),
+      ),
+    )) {
+      return;
+    }
     if (!mounted) return;
     context.showSnack(session.isLocked ? '已解除上锁' : '已上锁');
     await _load();

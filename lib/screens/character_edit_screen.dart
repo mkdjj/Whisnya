@@ -8,7 +8,6 @@ import 'package:flutter/services.dart';
 
 import '../models/api_config.dart';
 import '../models/app_character.dart';
-import '../models/chat_bubble_preset.dart';
 import '../models/chat_bubble_theme.dart';
 import '../models/image_crop_region.dart';
 import '../services/local_storage_service.dart';
@@ -44,7 +43,6 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
   late final TextEditingController _extraPromptController;
 
   var _apiConfig = ApiConfig();
-  var _bubblePresets = const ChatBubblePresetSettings();
   var _defaultEndpointId = '';
   var _roleBubblePresetId = '';
   var _userBubblePresetId = '';
@@ -89,7 +87,6 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
     _roleBubblePresetId = character?.roleBubblePresetId ?? '';
     _userBubblePresetId = character?.userBubblePresetId ?? '';
     unawaited(_loadApiConfig());
-    unawaited(_loadBubblePresets());
   }
 
   @override
@@ -121,6 +118,8 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
       bubbleTheme: existing?.bubbleTheme ?? ChatBubbleTheme.characterDefault,
       roleBubblePresetId: _roleBubblePresetId,
       userBubblePresetId: _userBubblePresetId,
+      roleBubbleOpacity: existing?.roleBubbleOpacity,
+      userBubbleOpacity: existing?.userBubbleOpacity,
       inputOpacity: existing?.inputOpacity ?? 0.92,
       description: _descriptionController.text.trim(),
       personality: _personalityController.text.trim(),
@@ -168,15 +167,6 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
       });
     } catch (_) {
       // Keep character editing usable even if API config is broken.
-    }
-  }
-
-  Future<void> _loadBubblePresets() async {
-    try {
-      final presets = await widget.storage.loadChatBubblePresets();
-      if (mounted) setState(() => _bubblePresets = presets);
-    } catch (_) {
-      // Bubble selection can still follow the built-in default.
     }
   }
 
@@ -297,12 +287,13 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
 
       if (kind == _CharacterImageKind.background) {
         final selection = await _openBackgroundCropper(kind, sourcePath);
-        if (selection == null) return;
+        if (selection == null || !mounted) return;
         final savedPath = await widget.storage.saveMediaImage(
           folder: kind.folder,
           characterId: _draftCharacterId,
           bytes: picked.bytes ?? await File(sourcePath).readAsBytes(),
         );
+        if (!mounted) return;
         setState(() {
           _backgroundImageController.text = savedPath;
           _backgroundImageRegion = selection;
@@ -311,15 +302,14 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
       }
 
       final cropped = await _openCropper(kind, sourcePath);
-      if (cropped == null) {
-        return;
-      }
+      if (cropped == null || !mounted) return;
 
       final savedPath = await widget.storage.saveMediaImage(
         folder: kind.folder,
         characterId: _draftCharacterId,
         bytes: cropped,
       );
+      if (!mounted) return;
       setState(() => kind.controller(this).text = savedPath);
     } catch (error) {
       if (!mounted) return;
@@ -340,21 +330,20 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
 
     if (kind == _CharacterImageKind.background) {
       final selection = await _openBackgroundCropper(kind, path);
-      if (selection == null) return;
+      if (selection == null || !mounted) return;
       setState(() => _backgroundImageRegion = selection);
       return;
     }
 
     final cropped = await _openCropper(kind, path);
-    if (cropped == null) {
-      return;
-    }
+    if (cropped == null || !mounted) return;
 
     final savedPath = await widget.storage.saveMediaImage(
       folder: kind.folder,
       characterId: _draftCharacterId,
       bytes: cropped,
     );
+    if (!mounted) return;
     setState(() => kind.controller(this).text = savedPath);
   }
 
@@ -475,14 +464,12 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
             ChatBubblePresetSelectionTile(
               title: '角色气泡',
               presetId: _roleBubblePresetId,
-              presets: _bubblePresets,
               isUser: false,
               onChanged: (value) => setState(() => _roleBubblePresetId = value),
             ),
             ChatBubblePresetSelectionTile(
               title: '我的气泡',
               presetId: _userBubblePresetId,
-              presets: _bubblePresets,
               isUser: true,
               onChanged: (value) => setState(() => _userBubblePresetId = value),
             ),
@@ -590,7 +577,7 @@ class _ImagePickerField extends StatelessWidget {
                 : shape == BoxShape.rectangle
                 ? ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: croppedFileImage(context, file, region: region),
+                    child: croppedFileImage(file, region: region),
                   )
                 : null,
           ),
@@ -625,48 +612,27 @@ class _ImagePickerField extends StatelessWidget {
 }
 
 enum _CharacterImageKind {
-  avatar,
-  background;
+  avatar('avatars', '裁剪头像', 1, 512, 512),
+  background('backgrounds', '裁剪聊天背景', 9 / 16, 1080, 1920);
+
+  const _CharacterImageKind(
+    this.folder,
+    this.cropTitle,
+    this.aspectRatio,
+    this.outputWidth,
+    this.outputHeight,
+  );
+
+  final String folder;
+  final String cropTitle;
+  final double aspectRatio;
+  final int outputWidth;
+  final int outputHeight;
 
   TextEditingController controller(_CharacterEditScreenState state) {
     return switch (this) {
       _CharacterImageKind.avatar => state._avatarController,
       _CharacterImageKind.background => state._backgroundImageController,
-    };
-  }
-
-  String get folder {
-    return switch (this) {
-      _CharacterImageKind.avatar => 'avatars',
-      _CharacterImageKind.background => 'backgrounds',
-    };
-  }
-
-  String get cropTitle {
-    return switch (this) {
-      _CharacterImageKind.avatar => '裁剪头像',
-      _CharacterImageKind.background => '裁剪聊天背景',
-    };
-  }
-
-  double get aspectRatio {
-    return switch (this) {
-      _CharacterImageKind.avatar => 1,
-      _CharacterImageKind.background => 9 / 16,
-    };
-  }
-
-  int get outputWidth {
-    return switch (this) {
-      _CharacterImageKind.avatar => 512,
-      _CharacterImageKind.background => 1080,
-    };
-  }
-
-  int get outputHeight {
-    return switch (this) {
-      _CharacterImageKind.avatar => 512,
-      _CharacterImageKind.background => 1920,
     };
   }
 }

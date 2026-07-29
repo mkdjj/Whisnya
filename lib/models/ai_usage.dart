@@ -203,13 +203,9 @@ class AiUsageTotals {
 List<AiUsageRecord> filterAiUsage(
   List<AiUsageRecord> records,
   AiUsageCategory category,
-) => records.where((record) {
-  return switch (category) {
-    AiUsageCategory.character => record.requestType.startsWith('character'),
-    AiUsageCategory.novel => record.requestType.startsWith('novel'),
-    AiUsageCategory.theater => record.requestType.startsWith('theater'),
-  };
-}).toList();
+) => records
+    .where((record) => record.requestType.startsWith(category.name))
+    .toList();
 
 AiUsageTotals summarizeAiUsage(
   List<AiUsageRecord> records,

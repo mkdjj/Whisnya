@@ -14,24 +14,10 @@ import 'package:whisnya/services/ai_service.dart';
 import 'package:whisnya/services/local_storage_service.dart';
 
 void main() {
-  testWidgets('character chat resolves its global bubble preset', (
+  testWidgets('character chat resolves its built-in bubble style', (
     tester,
   ) async {
-    final storage = _ApiStorage(
-      _config(model: 'model', apiKey: 'key'),
-      bubblePresets: ChatBubblePresetSettings(
-        presets: [
-          ChatBubblePreset(
-            id: 'role',
-            name: '角色气泡',
-            appearance: const ChatBubbleAppearance(
-              style: ChatBubbleStyle.square,
-              backgroundColor: 0xFF123456,
-            ),
-          ),
-        ],
-      ),
-    );
+    final storage = _ApiStorage(_config(model: 'model', apiKey: 'key'));
     await tester.pumpWidget(
       MaterialApp(
         home: ChatScreen(
@@ -41,7 +27,10 @@ void main() {
             'id': 'character',
             'name': 'Character',
             'openingMessage': 'hello',
-            'roleBubblePresetId': 'role',
+            'roleBubblePresetId': builtInBubblePresetId(ChatBubbleStyle.square),
+            'bubbleTheme': {
+              'role': {'backgroundColor': 0xFF123456},
+            },
           }),
           settings: const AppSettings(),
         ),
@@ -115,6 +104,7 @@ void main() {
           character: AppCharacter.fromJson({
             'id': 'character',
             'name': 'Character',
+            'openingMessage': 'hello',
           }),
           settings: const AppSettings(),
         ),
@@ -143,10 +133,35 @@ void main() {
       containsAllInOrder(const [
         ValueKey('chat-input-opacity-setting'),
         ValueKey('chat-role-bubble-preset-setting'),
+        ValueKey('chat-role-bubble-transparency-setting'),
         ValueKey('chat-user-bubble-preset-setting'),
+        ValueKey('chat-user-bubble-transparency-setting'),
         ValueKey('chat-clear-history-setting'),
       ]),
     );
+
+    final roleTransparency = find.byKey(
+      const ValueKey('chat-role-bubble-transparency-setting'),
+    );
+    await tester.scrollUntilVisible(
+      roleTransparency,
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
+    final slider = tester.widget<Slider>(
+      find.descendant(of: roleTransparency, matching: find.byType(Slider)),
+    );
+    slider.onChanged!(0.7);
+    slider.onChangeEnd!(0.7);
+    await tester.pump();
+    expect(storage.savedCharacters.last.roleBubbleOpacity, closeTo(0.3, 0.001));
+
+    Navigator.of(tester.element(roleTransparency)).pop();
+    await tester.pumpAndSettle();
+    final bubble = tester.widget<DecoratedBox>(
+      find.byKey(const ValueKey('chat-bubble-rounded')),
+    );
+    expect((bubble.decoration as BoxDecoration).color!.a, closeTo(0.3, 0.001));
   });
 
   testWidgets('character chat reloads edited API before sending', (
@@ -226,6 +241,128 @@ void main() {
     expect(prompt, isNot(contains('旧名字')));
     expect(prompt, isNot(contains('avatar.png')));
   });
+
+  testWidgets('character chat restores input when the initial save fails', (
+    tester,
+  ) async {
+    final storage = _ApiStorage(
+      _config(model: 'model', apiKey: 'key'),
+      failSaveChat: true,
+    );
+    final gateway = _RecordingGateway();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChatScreen(
+          storage: storage,
+          aiService: gateway,
+          character: AppCharacter.fromJson({
+            'id': 'character',
+            'name': 'Character',
+            'defaultEndpointId': 'endpoint',
+          }),
+          settings: const AppSettings(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).last, 'hello');
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(
+      tester.widget<TextField>(find.byType(TextField).last).controller!.text,
+      'hello',
+    );
+    expect(find.byIcon(Icons.send), findsOneWidget);
+    expect(find.byIcon(Icons.stop), findsNothing);
+    expect(gateway.messages, isNull);
+    expect(find.textContaining('save failed'), findsOneWidget);
+  });
+
+  testWidgets('edit and resend rolls back when saving the edit fails', (
+    tester,
+  ) async {
+    final storage = _ApiStorage(
+      _config(model: 'model', apiKey: 'key'),
+      chat: [
+        ChatMessage(role: 'user', content: 'original', time: DateTime(2026)),
+        ChatMessage(role: 'assistant', content: 'reply', time: DateTime(2026)),
+      ],
+      failSaveChat: true,
+    );
+    final gateway = _RecordingGateway();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChatScreen(
+          storage: storage,
+          aiService: gateway,
+          character: AppCharacter.fromJson({
+            'id': 'character',
+            'name': 'Character',
+            'defaultEndpointId': 'endpoint',
+          }),
+          settings: const AppSettings(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.edit_note));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'edited');
+    await tester.tap(find.byType(FilledButton).last);
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('original'), findsOneWidget);
+    expect(find.text('reply'), findsOneWidget);
+    expect(find.text('edited'), findsNothing);
+    expect(find.byIcon(Icons.send), findsOneWidget);
+    expect(find.byIcon(Icons.stop), findsNothing);
+    expect(gateway.messages, isNull);
+    expect(find.textContaining('save failed'), findsOneWidget);
+  });
+
+  testWidgets('deleting one character message requires confirmation', (
+    tester,
+  ) async {
+    final storage = _ApiStorage(
+      _config(model: 'model', apiKey: 'key'),
+      chat: [
+        ChatMessage(role: 'user', content: 'original', time: DateTime(2026)),
+        ChatMessage(role: 'assistant', content: 'reply', time: DateTime(2026)),
+      ],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChatScreen(
+          storage: storage,
+          aiService: _RecordingGateway(),
+          character: AppCharacter.fromJson({
+            'id': 'character',
+            'name': 'Character',
+            'defaultEndpointId': 'endpoint',
+          }),
+          settings: const AppSettings(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.delete_outline).first);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(storage.saveChatCalls, 0);
+
+    await tester.tap(find.byType(FilledButton).last);
+    await tester.pumpAndSettle();
+
+    expect(storage.saveChatCalls, 1);
+    expect(find.text('reply'), findsNothing);
+  });
 }
 
 ApiConfig _config({required String model, required String apiKey}) => ApiConfig(
@@ -248,17 +385,18 @@ final class _ApiStorage extends LocalStorageService {
   _ApiStorage(
     this.config, {
     this.settings = const AppSettings(),
-    this.bubblePresets = const ChatBubblePresetSettings(),
-  }) : super();
+    List<ChatMessage> chat = const [],
+    this.failSaveChat = false,
+  }) : chat = [...chat],
+       super();
 
   ApiConfig config;
   AppSettings settings;
-  ChatBubblePresetSettings bubblePresets;
+  final List<ChatMessage> chat;
+  final bool failSaveChat;
   var loadApiConfigCalls = 0;
   var saveChatCalls = 0;
-
-  @override
-  Future<void> markCharacterUsed(String characterId) async {}
+  final savedCharacters = <AppCharacter>[];
 
   @override
   Future<ApiConfig> loadApiConfig() async {
@@ -270,23 +408,22 @@ final class _ApiStorage extends LocalStorageService {
   Future<AppSettings> loadSettings() async => settings;
 
   @override
-  Future<ChatBubblePresetSettings> loadChatBubblePresets() async =>
-      bubblePresets;
-
-  @override
   Future<ChatSummary> loadSummary(String characterId) async =>
       ChatSummary.empty(characterId);
 
   @override
-  Future<List<ChatMessage>> loadChat(String characterId) async => const [];
+  Future<List<ChatMessage>> loadChat(String characterId) async => [...chat];
 
   @override
   Future<void> saveChat(String characterId, List<ChatMessage> messages) async {
     saveChatCalls++;
+    if (failSaveChat) throw StateError('save failed');
   }
 
   @override
-  Future<void> saveCharacter(AppCharacter character) async {}
+  Future<void> saveCharacter(AppCharacter character) async {
+    savedCharacters.add(character);
+  }
 
   @override
   Future<void> recordAiUsage({

@@ -54,7 +54,7 @@ class MediaBackground extends StatelessWidget {
           opacity: alpha,
           child: ImageFiltered(
             imageFilter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-            child: croppedFileImage(context, File(path), region: region),
+            child: croppedFileImage(File(path), region: region),
           ),
         ),
         if (overlayOpacity > 0)
@@ -72,7 +72,6 @@ class MediaBackground extends StatelessWidget {
 }
 
 Widget croppedFileImage(
-  BuildContext context,
   File file, {
   ImageCropRegion region = ImageCropRegion.full,
 }) {

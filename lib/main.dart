@@ -33,7 +33,12 @@ class _WhisnyaAppState extends State<WhisnyaApp> {
   }
 
   Future<void> _loadSettings() async {
-    final settings = await widget.storage.loadSettings();
+    late final AppSettings settings;
+    try {
+      settings = await widget.storage.loadSettings();
+    } catch (_) {
+      return;
+    }
     if (!mounted) return;
     setState(() => _settings = settings);
   }

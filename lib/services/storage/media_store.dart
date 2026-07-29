@@ -1,5 +1,13 @@
 import 'dart:io';
 
+String imageFileExtension(List<int> bytes) => switch (bytes) {
+  [0x89, 0x50, 0x4e, 0x47, ...] => '.png',
+  [0xff, 0xd8, ...] => '.jpg',
+  [0x47, 0x49, 0x46, ...] => '.gif',
+  [0x52, 0x49, 0x46, 0x46, _, _, _, _, 0x57, 0x45, 0x42, 0x50, ...] => '.webp',
+  _ => '.jpg',
+};
+
 Future<void> cleanupTemporaryMedia(
   Directory root, [
   Duration maxAge = const Duration(hours: 24),

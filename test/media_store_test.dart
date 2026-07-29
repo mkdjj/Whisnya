@@ -4,6 +4,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:whisnya/services/storage/media_store.dart';
 
 void main() {
+  test('detects common image file extensions from bytes', () {
+    expect(imageFileExtension([0x89, 0x50, 0x4e, 0x47]), '.png');
+    expect(imageFileExtension([0xff, 0xd8, 0xff]), '.jpg');
+    expect(imageFileExtension('RIFF1234WEBP'.codeUnits), '.webp');
+    expect(imageFileExtension('GIF89a'.codeUnits), '.gif');
+    expect(imageFileExtension([1, 2, 3]), '.jpg');
+  });
+
   test('cleans only expired files from media temp', () async {
     final root = await Directory.systemTemp.createTemp('media_store_');
     addTearDown(() => root.delete(recursive: true));

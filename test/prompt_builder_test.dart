@@ -373,7 +373,7 @@ void main() {
     expect(restored.lastOpenedSortTime, DateTime(2026, 2));
     expect(legacySession.lastOpenedSortTime, session.updatedAt);
     expect(restored.participants.single.isMuted, isTrue);
-    expect(restored.activeAiParticipants, isEmpty);
+    expect(restored.aiParticipants, isEmpty);
     expect(restored.recentMessageLimit, 30);
     final request = PromptBuilder.buildTheaterSingleApiRequest(
       session: session,

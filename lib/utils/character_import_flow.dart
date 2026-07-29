@@ -14,6 +14,7 @@ import '../services/local_storage_service.dart';
 import 'app_i18n.dart';
 import 'confirm_dialog.dart';
 import 'role_import_parser.dart';
+import 'safe_zip.dart';
 import 'snack.dart';
 
 class CharacterImportSource {
@@ -200,11 +201,12 @@ class CharacterImportService {
     CharacterImportSource source,
     Set<String> usedNames,
   ) async {
-    if (source.bytes.length > maxZipBytes) {
-      throw const _CharacterImportException('文件过大，暂不支持导入。');
+    late final Archive archive;
+    try {
+      archive = decodeSafeZip(source.bytes, maxZipBytes: maxZipBytes);
+    } on SafeZipException catch (error) {
+      throw _CharacterImportException(error.message);
     }
-
-    final archive = ZipDecoder().decodeBytes(source.bytes);
     if (archive.findFile('character.json') != null) {
       final character = await storage.importCharacterPackage(source.bytes);
       final renamed = await _renameIfNeeded(character, usedNames);
@@ -357,7 +359,6 @@ class CharacterImportService {
       speakingStyle: parsed.speakingStyle,
       openingMessage: parsed.openingMessage,
       extraPrompt: parsed.extraPrompt,
-      defaultEndpointId: 'deepseek',
       createdAt: now,
       updatedAt: now,
       lastUsedAt: now,

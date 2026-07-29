@@ -56,3 +56,21 @@ class ImageCropRegion {
 
 double jsonDouble(Object? value, double fallback) =>
     value is num ? value.toDouble() : fallback;
+
+double jsonRangeDouble(
+  Object? value,
+  double fallback,
+  double min,
+  double max,
+) => jsonDouble(value, fallback).clamp(min, max).toDouble();
+
+double jsonUnitDouble(Object? value, double fallback) =>
+    jsonRangeDouble(value, fallback, 0, 1);
+
+double jsonNonNegativeDouble(Object? value, double fallback) {
+  final result = jsonDouble(value, fallback);
+  return result < 0 ? 0 : result;
+}
+
+double? jsonNullableUnitDouble(Object? value) =>
+    value is num ? value.toDouble().clamp(0, 1).toDouble() : null;

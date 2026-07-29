@@ -60,6 +60,19 @@ class AiRequest {
 class OpenAiCompatibleAdapter {
   const OpenAiCompatibleAdapter();
 
+  Uri buildModelsUri(String baseUrl) {
+    final normalized = baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    const suffix = '/chat/completions';
+    final root = normalized.toLowerCase().endsWith(suffix)
+        ? normalized.substring(0, normalized.length - suffix.length)
+        : normalized;
+    final uri = Uri.tryParse('$root/models');
+    if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+      throw AiException('Base URL 格式不正确。');
+    }
+    return uri;
+  }
+
   Uri buildUri(AiRequest request) {
     final normalized = request.baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
     final url = normalized.toLowerCase().endsWith('/chat/completions')
@@ -83,6 +96,19 @@ class OpenAiCompatibleAdapter {
     'temperature': request.temperature,
     if (request.stream) 'stream': true,
   };
+
+  List<String> parseModels(dynamic json) {
+    if (json is! Map<String, dynamic> || json['data'] is! List) return const [];
+    final seen = <String>{};
+    return [
+      for (final item in json['data'] as List)
+        if (item is Map<String, dynamic> &&
+            item['id'] is String &&
+            (item['id'] as String).trim().isNotEmpty &&
+            seen.add((item['id'] as String).trim()))
+          (item['id'] as String).trim(),
+    ];
+  }
 
   ({String? text, AiUsage? usage})? parseStream(
     String line, {
@@ -153,12 +179,67 @@ class OpenAiCompatibleAdapter {
   }
 }
 
+String? selectAutomaticModel(List<String> models) {
+  const excluded = [
+    'embedding',
+    'rerank',
+    'tts',
+    'whisper',
+    'audio',
+    'image',
+    'moderation',
+  ];
+  final usable = models.where(
+    (model) => !excluded.any(model.toLowerCase().contains),
+  );
+  if (usable.isEmpty) return models.firstOrNull;
+  return usable.firstWhere((model) {
+    final name = model.toLowerCase();
+    return name.contains('chat') || name.contains('instruct');
+  }, orElse: () => usable.first);
+}
+
 class AiConversationRunner {
-  AiConversationRunner({http.Client? client})
-    : _client = client ?? http.Client();
+  AiConversationRunner({
+    http.Client? client,
+    this.timeout = const Duration(seconds: 90),
+  }) : _client = client ?? http.Client();
 
   final http.Client _client;
+  final Duration timeout;
   static const _adapter = OpenAiCompatibleAdapter();
+
+  Future<List<String>> listModels({
+    required String apiKey,
+    required String baseUrl,
+  }) async {
+    if (apiKey.trim().isEmpty) {
+      throw AiException('API Key 为空，请先配置。');
+    }
+    if (baseUrl.trim().isEmpty) {
+      throw AiException('Base URL 为空，请先配置。');
+    }
+    final response = await _client
+        .get(
+          _adapter.buildModelsUri(baseUrl),
+          headers: {'Authorization': 'Bearer ${apiKey.trim()}'},
+        )
+        .timeout(timeout);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw AiException(
+        'API 返回错误 ${response.statusCode}：${_extractError(response.body)}',
+      );
+    }
+    try {
+      final models = _adapter.parseModels(
+        jsonDecode(utf8.decode(response.bodyBytes)),
+      );
+      if (models.isEmpty) throw AiException('API 没有返回可用模型。');
+      return models;
+    } on FormatException {
+      throw AiException('API 返回内容不是有效 JSON。');
+    }
+  }
 
   Future<({String text, AiUsage usage})> send(
     AiRequest request, {
@@ -174,7 +255,7 @@ class AiConversationRunner {
             headers: _adapter.buildHeaders(request),
             body: jsonEncode(_adapter.buildBody(request)),
           )
-          .timeout(const Duration(seconds: 90));
+          .timeout(timeout);
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw AiException(
           'API 返回错误 ${response.statusCode}：${_extractError(response.body)}',
@@ -204,17 +285,18 @@ class AiConversationRunner {
       final httpRequest = http.Request('POST', _adapter.buildUri(request))
         ..headers.addAll(_adapter.buildHeaders(request))
         ..body = jsonEncode(_adapter.buildBody(request));
-      final response = await client
-          .send(httpRequest)
-          .timeout(const Duration(seconds: 90));
+      final response = await client.send(httpRequest).timeout(timeout);
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        final body = await response.stream.bytesToString();
+        final body = await utf8.decoder
+            .bind(response.stream.timeout(timeout))
+            .join();
         throw AiException(
           'API 返回错误 ${response.statusCode}：${_extractError(body)}',
         );
       }
       await for (final line
           in response.stream
+              .timeout(timeout)
               .transform(utf8.decoder)
               .transform(const LineSplitter())) {
         final event = _adapter.parseStream(

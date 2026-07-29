@@ -276,7 +276,7 @@ $items
         TheaterGenerationIntent.userReply,
     TheaterReplyPhase phase = TheaterReplyPhase.main,
   }) {
-    final allowed = allowedParticipants ?? session.activeAiParticipants;
+    final allowed = allowedParticipants ?? session.aiParticipants;
     return [
       {
         'role': 'system',

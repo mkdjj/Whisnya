@@ -1,12 +1,11 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/services.dart';
-import 'package:image/image.dart' as img;
 import 'package:whisnya/models/app_character.dart';
 import 'package:whisnya/models/app_settings.dart';
-import 'package:whisnya/models/chat_bubble_preset.dart';
-import 'package:whisnya/models/chat_bubble_theme.dart';
 import 'package:whisnya/models/chat_message.dart';
 import 'package:whisnya/models/theater.dart';
 import 'package:whisnya/models/user_profile.dart';
@@ -45,34 +44,6 @@ void main() {
       final source = LocalStorageService(appDataDirectory: sourceDirectory);
       final target = LocalStorageService(appDataDirectory: targetDirectory);
       final now = DateTime(2026);
-      final skinBytes = Uint8List.fromList(
-        img.encodePng(img.Image(width: 32, height: 32, numChannels: 4)),
-      );
-      final skinDirectory = Directory(
-        '${sourceDirectory.path}${Platform.pathSeparator}media'
-        '${Platform.pathSeparator}bubble_skins${Platform.pathSeparator}skin',
-      );
-      await skinDirectory.create(recursive: true);
-      final skinFile = File(
-        '${skinDirectory.path}${Platform.pathSeparator}role.png',
-      );
-      await skinFile.writeAsBytes(skinBytes);
-      final skin = ChatBubbleImageSkin(
-        imagePath: skinFile.path,
-        imageWidth: 32,
-        imageHeight: 32,
-      );
-      await source.saveChatBubblePresets(
-        ChatBubblePresetSettings(
-          presets: [
-            ChatBubblePreset(
-              id: 'skin',
-              name: '皮肤',
-              appearance: ChatBubbleAppearance(imageSkin: skin),
-            ),
-          ],
-        ),
-      );
 
       final avatar = await source.saveMediaImage(
         folder: 'avatars',
@@ -95,18 +66,13 @@ void main() {
         'name': '角色',
         'avatar': avatar,
         'defaultEndpointId': 'custom-endpoint',
-        'roleBubblePresetId': 'skin',
       });
       await source.saveCharacter(character);
       await source.saveChat('c', [
         ChatMessage(role: 'user', content: '你好', time: now),
       ]);
       await source.importNovelText(title: '小说', content: '第一章\n正文');
-      final theater = TheaterSession.fromJson({
-        'id': 't',
-        'title': '群聊',
-        'userBubblePresetId': 'skin',
-      });
+      final theater = TheaterSession.fromJson({'id': 't', 'title': '群聊'});
       await source.saveTheaterSession(theater);
       await source.saveTheaterMessages('t', [
         TheaterMessage(
@@ -140,20 +106,60 @@ void main() {
       final restoredCharacter = (await target.loadCharacters()).single;
       expect(restoredCharacter.name, '角色');
       expect(restoredCharacter.defaultEndpointId, 'custom-endpoint');
-      expect(restoredCharacter.roleBubblePresetId, 'skin');
       expect(await File(restoredCharacter.avatar).readAsBytes(), [1, 2, 3, 4]);
       expect((await target.loadChat('c')).single.content, '你好');
       final restoredNovel = (await target.loadNovels()).single;
       expect(await target.loadNovelText(restoredNovel), contains('正文'));
       final restoredTheater = (await target.loadTheaterSessions()).single;
       expect(restoredTheater.title, '群聊');
-      expect(restoredTheater.userBubblePresetId, 'skin');
       expect((await target.loadTheaterMessages('t')).single.content, '开场');
-      final restoredPresets = await target.loadChatBubblePresets();
-      final restoredSkin = restoredPresets.presets.single.appearance.imageSkin!;
-      expect(restoredPresets.presets.single.id, 'skin');
-      expect(restoredSkin.imagePath, startsWith(targetDirectory.path));
-      expect(await File(restoredSkin.imagePath).readAsBytes(), skinBytes);
     },
   );
+
+  test('backup excludes recovery artifacts and temporary media', () async {
+    final root = await Directory.systemTemp.createTemp('backup-filter-');
+    addTearDown(() => root.delete(recursive: true));
+    final appData = Directory('${root.path}${Platform.pathSeparator}app_data');
+    final storage = LocalStorageService(appDataDirectory: appData);
+    await storage.saveSettings(const AppSettings());
+
+    const secret = 'sk-recovery-copy-must-not-export';
+    for (final name in const [
+      'api_config.json.broken_1',
+      'api_config.json.bak',
+      'api_config.json.tmp',
+      'api_config.json.corrupt.1',
+    ]) {
+      await File(
+        '${appData.path}${Platform.pathSeparator}$name',
+      ).writeAsString(secret);
+    }
+    final temporary = File(
+      '${appData.path}${Platform.pathSeparator}media'
+      '${Platform.pathSeparator}temp${Platform.pathSeparator}picked.png',
+    );
+    await temporary.parent.create(recursive: true);
+    await temporary.writeAsString(secret);
+
+    final archive = ZipDecoder().decodeBytes(await storage.exportAllData());
+    final names = archive.files.map((file) => file.name).toList();
+    final text = archive.files
+        .where((file) => file.isFile)
+        .map(
+          (file) =>
+              utf8.decode(file.content as List<int>, allowMalformed: true),
+        )
+        .join();
+
+    for (final name in const [
+      'api_config.json.broken_1',
+      'api_config.json.bak',
+      'api_config.json.tmp',
+      'api_config.json.corrupt.1',
+      'media/temp/picked.png',
+    ]) {
+      expect(names, isNot(contains(name)));
+    }
+    expect(text, isNot(contains(secret)));
+  });
 }

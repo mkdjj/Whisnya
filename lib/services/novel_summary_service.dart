@@ -4,48 +4,37 @@ import 'storage/storage_paths.dart';
 class NovelSummaryCache {
   const NovelSummaryCache({
     required this.novelId,
-    required this.selectedChunkIndexes,
     required this.selectedChunks,
     required this.completedSummaries,
     required this.currentIndex,
-    required this.endpointId,
-    required this.updatedAt,
   });
 
   final String novelId;
-  final List<int> selectedChunkIndexes;
   final List<String> selectedChunks;
   final List<String> completedSummaries;
   final int currentIndex;
-  final String endpointId;
-  final DateTime updatedAt;
 
   bool get canResume =>
-      selectedChunks.isNotEmpty && currentIndex <= selectedChunks.length;
+      selectedChunks.isNotEmpty &&
+      currentIndex >= 0 &&
+      currentIndex <= selectedChunks.length &&
+      completedSummaries.length >= currentIndex;
 
   NovelSummaryCache copyWith({
     List<String>? completedSummaries,
     int? currentIndex,
-    DateTime? updatedAt,
   }) {
     return NovelSummaryCache(
       novelId: novelId,
-      selectedChunkIndexes: selectedChunkIndexes,
       selectedChunks: selectedChunks,
       completedSummaries: completedSummaries ?? this.completedSummaries,
       currentIndex: currentIndex ?? this.currentIndex,
-      endpointId: endpointId,
-      updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 
   factory NovelSummaryCache.fromJson(Map<String, dynamic> json) {
     return NovelSummaryCache(
       novelId: json['novelId'] as String? ?? '',
-      selectedChunkIndexes: (json['selectedChunkIndexes'] as List? ?? const [])
-          .whereType<num>()
-          .map((value) => value.toInt())
-          .toList(),
       selectedChunks: (json['selectedChunks'] as List? ?? const [])
           .whereType<String>()
           .toList(),
@@ -53,22 +42,15 @@ class NovelSummaryCache {
           .whereType<String>()
           .toList(),
       currentIndex: (json['currentIndex'] as num?)?.toInt() ?? 0,
-      endpointId: json['endpointId'] as String? ?? '',
-      updatedAt:
-          DateTime.tryParse(json['updatedAt'] as String? ?? '') ??
-          DateTime.now(),
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
       'novelId': novelId,
-      'selectedChunkIndexes': selectedChunkIndexes,
       'selectedChunks': selectedChunks,
       'completedSummaries': completedSummaries,
       'currentIndex': currentIndex,
-      'endpointId': endpointId,
-      'updatedAt': updatedAt.toIso8601String(),
     };
   }
 }

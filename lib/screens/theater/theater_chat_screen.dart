@@ -23,11 +23,14 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   final _scrollController = ScrollController();
   late final TheaterChatController _chat;
   TheaterSession get _session => _chat.session;
+  TheaterSession get _sequentialSession => _session.copyWith(
+    multiApiReplyMode: TheaterMultiApiReplyMode.randomSequential,
+  );
   List<TheaterMessage> get _messages => _chat.messages;
   var _apiConfig = ApiConfig();
-  var _bubblePresets = const ChatBubblePresetSettings();
   var _novelSummary = '';
   var _isLoading = true;
+  String? _loadError;
   var _isGenerating = false;
   var _isSummarizing = false;
   var _generationId = 0;
@@ -36,16 +39,14 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
 
   ChatBubbleAppearance get _roleBubbleAppearance => resolveBubbleAppearance(
     presetId: _session.roleBubblePresetId,
-    presets: _bubblePresets,
-    isUser: false,
     fallback: _session.bubbleTheme.role,
+    opacityOverride: _session.roleBubbleOpacity,
   );
 
   ChatBubbleAppearance get _userBubbleAppearance => resolveBubbleAppearance(
     presetId: _session.userBubblePresetId,
-    presets: _bubblePresets,
-    isUser: true,
     fallback: _session.bubbleTheme.user,
+    opacityOverride: _session.userBubbleOpacity,
   );
 
   @override
@@ -64,27 +65,37 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   }
 
   Future<void> _load() async {
-    final apiConfig = await widget.storage.loadApiConfig();
-    final bubblePresets = await widget.storage.loadChatBubblePresets();
-    final messages = await widget.storage.loadTheaterMessages(_session.id);
-    var novelSummary = '';
-    if (_session.boundNovelId.isNotEmpty) {
-      final novels = await widget.storage.loadNovels();
-      for (final novel in novels) {
-        if (novel.id == _session.boundNovelId) {
-          novelSummary = novel.summary;
-          break;
+    setState(() {
+      _isLoading = true;
+      _loadError = null;
+    });
+    try {
+      final apiConfig = await widget.storage.loadApiConfig();
+      final messages = await widget.storage.loadTheaterMessages(_session.id);
+      var novelSummary = '';
+      if (_session.boundNovelId.isNotEmpty) {
+        final novels = await widget.storage.loadNovels();
+        for (final novel in novels) {
+          if (novel.id == _session.boundNovelId) {
+            novelSummary = novel.summary;
+            break;
+          }
         }
       }
+      if (!mounted) return;
+      setState(() {
+        _apiConfig = apiConfig;
+        _chat.replaceMessages(messages);
+        _novelSummary = novelSummary;
+        _isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loadError = error.toString();
+        _isLoading = false;
+      });
     }
-    if (!mounted) return;
-    setState(() {
-      _apiConfig = apiConfig;
-      _bubblePresets = bubblePresets;
-      _chat.replaceMessages(messages);
-      _novelSummary = novelSummary;
-      _isLoading = false;
-    });
   }
 
   Future<void> _send() async {
@@ -103,13 +114,29 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
       content: text,
       time: now,
     );
+    final previousMessages = [..._messages];
     setState(() {
       _chat.appendMessage(message);
       _isGenerating = true;
     });
     _inputController.clear();
-    await _saveMessages();
-    await _saveSession(_session.copyWith(updatedAt: now));
+    try {
+      await _saveMessages();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _chat.replaceMessages(previousMessages);
+        _isGenerating = false;
+      });
+      if (_inputController.text.isEmpty) _inputController.text = text;
+      context.showSnack(error.toString());
+      return;
+    }
+    try {
+      await _saveSession(_session.copyWith(updatedAt: now));
+    } catch (error) {
+      if (mounted) context.showSnack(error.toString());
+    }
     await _generateReplies(round, TheaterGenerationIntent.userReply);
   }
 
@@ -148,12 +175,14 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
         cancelToken,
       );
       if (!mounted || generationId != _generationId) return;
-      await _generateForParticipant(
-        participant,
+      await _runGenerationService(
+        [participant],
         round,
         generationId,
         cancelToken,
+        session: _sequentialSession,
         generationIntent: TheaterGenerationIntent.continueConversation,
+        phase: TheaterReplyPhase.main,
         summaryUpdated: summaryUpdated,
       );
     } finally {
@@ -192,7 +221,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
         cancelToken,
       );
       if (!mounted || generationId != _generationId) return;
-      final available = _session.activeAiParticipants;
+      final available = _session.aiParticipants;
       if (available.isEmpty) {
         await _appendSystemError('没有可自动回复的角色', round);
         return;
@@ -268,127 +297,28 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     required bool summaryUpdated,
     bool forceSequential = false,
   }) async {
-    if (_session.apiMode == TheaterApiMode.singleApi) {
-      await _generateSingleApi(
-        participants,
-        round,
-        generationId,
-        cancelToken,
-        generationIntent: generationIntent,
-        phase: phase,
-        summaryUpdated: summaryUpdated,
-      );
-      return;
-    }
-    if (!forceSequential &&
-        _session.multiApiReplyMode == TheaterMultiApiReplyMode.parallel) {
-      await _generateParallel(
-        participants,
-        round,
-        generationId,
-        cancelToken,
-        generationIntent: generationIntent,
-        phase: phase,
-        summaryUpdated: summaryUpdated,
-      );
-      return;
-    }
-    await _generateSequential(
+    final parallel =
+        _session.apiMode == TheaterApiMode.multiApi &&
+        !forceSequential &&
+        _session.multiApiReplyMode == TheaterMultiApiReplyMode.parallel;
+    await _runGenerationService(
       participants,
       round,
       generationId,
       cancelToken,
+      session: _session.apiMode == TheaterApiMode.singleApi
+          ? _session
+          : parallel
+          ? _session.copyWith(
+              multiApiReplyMode: TheaterMultiApiReplyMode.parallel,
+            )
+          : _sequentialSession,
+      messages: parallel ? _recentMessages() : null,
       generationIntent: generationIntent,
       phase: phase,
       summaryUpdated: summaryUpdated,
     );
   }
-
-  Future<void> _generateSingleApi(
-    List<TheaterParticipant> participants,
-    int round,
-    int generationId,
-    AiCancelToken cancelToken, {
-    required TheaterGenerationIntent generationIntent,
-    required TheaterReplyPhase phase,
-    required bool summaryUpdated,
-  }) => _runGenerationService(
-    participants,
-    round,
-    generationId,
-    cancelToken,
-    session: _session,
-    generationIntent: generationIntent,
-    phase: phase,
-    summaryUpdated: summaryUpdated,
-  );
-
-  Future<void> _generateSequential(
-    List<TheaterParticipant> participants,
-    int round,
-    int generationId,
-    AiCancelToken cancelToken, {
-    required TheaterGenerationIntent generationIntent,
-    required TheaterReplyPhase phase,
-    required bool summaryUpdated,
-  }) => _runGenerationService(
-    participants,
-    round,
-    generationId,
-    cancelToken,
-    session: _session.copyWith(
-      multiApiReplyMode: TheaterMultiApiReplyMode.randomSequential,
-    ),
-    generationIntent: generationIntent,
-    phase: phase,
-    summaryUpdated: summaryUpdated,
-  );
-
-  Future<void> _generateParallel(
-    List<TheaterParticipant> participants,
-    int round,
-    int generationId,
-    AiCancelToken cancelToken, {
-    required TheaterGenerationIntent generationIntent,
-    required TheaterReplyPhase phase,
-    required bool summaryUpdated,
-  }) => _runGenerationService(
-    participants,
-    round,
-    generationId,
-    cancelToken,
-    session: _session.copyWith(
-      multiApiReplyMode: TheaterMultiApiReplyMode.parallel,
-    ),
-    messages: _recentMessages(),
-    generationIntent: generationIntent,
-    phase: phase,
-    summaryUpdated: summaryUpdated,
-  );
-
-  Future<void> _generateForParticipant(
-    TheaterParticipant participant,
-    int round,
-    int generationId,
-    AiCancelToken cancelToken, {
-    List<TheaterMessage>? contextMessages,
-    TheaterGenerationIntent generationIntent =
-        TheaterGenerationIntent.userReply,
-    TheaterReplyPhase phase = TheaterReplyPhase.main,
-    bool summaryUpdated = false,
-  }) => _runGenerationService(
-    [participant],
-    round,
-    generationId,
-    cancelToken,
-    session: _session.copyWith(
-      multiApiReplyMode: TheaterMultiApiReplyMode.randomSequential,
-    ),
-    messages: contextMessages,
-    generationIntent: generationIntent,
-    phase: phase,
-    summaryUpdated: summaryUpdated,
-  );
 
   Future<void> _runGenerationService(
     List<TheaterParticipant> participants,
@@ -397,9 +327,10 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     AiCancelToken cancelToken, {
     required TheaterSession session,
     List<TheaterMessage>? messages,
-    required TheaterGenerationIntent generationIntent,
-    required TheaterReplyPhase phase,
-    required bool summaryUpdated,
+    TheaterGenerationIntent generationIntent =
+        TheaterGenerationIntent.userReply,
+    TheaterReplyPhase phase = TheaterReplyPhase.main,
+    bool summaryUpdated = false,
   }) async {
     if (participants.isEmpty) {
       await _appendSystemError('没有可自动回复的角色', round);
@@ -514,11 +445,12 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
       final index = participants.indexWhere(
         (item) => item.id == participant.id,
       );
-      await _generateForParticipant(
-        participant,
+      await _runGenerationService(
+        [participant],
         round,
         generationId,
         cancelToken,
+        session: _sequentialSession,
         generationIntent: generationIntent,
         summaryUpdated: summaryUpdated,
       );
@@ -533,6 +465,14 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   }
 
   Future<void> _deleteTheaterMessage(String id) async {
+    final confirmed = await showConfirmDialog(
+      context: context,
+      title: '删除消息',
+      content: context.t('确定删除这条消息吗？'),
+      confirmLabel: '删除',
+    );
+    if (!confirmed) return;
+
     final index = _messages.indexWhere((message) => message.id == id);
     if (index < 0) return;
     final summary = theaterSummaryAfterMessageDeletion(
@@ -626,17 +566,25 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     final generationId = ++_generationId;
     final cancelToken = AiCancelToken();
     _cancelToken = cancelToken;
+    final previousMessages = [..._messages];
     setState(() {
       _isGenerating = true;
       _chat.removeMessage(message.id);
     });
-    await _saveMessages();
+    if (!await _saveRetryMessages(
+      previousMessages,
+      generationId,
+      cancelToken,
+    )) {
+      return;
+    }
     try {
-      await _generateForParticipant(
-        participant,
+      await _runGenerationService(
+        [participant],
         message.round,
         generationId,
         cancelToken,
+        session: _sequentialSession,
       );
     } finally {
       if (identical(_cancelToken, cancelToken)) _cancelToken = null;
@@ -661,29 +609,55 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
         ? TheaterGenerationIntent.userReply
         : TheaterGenerationIntent.continueConversation;
     final participants = selectParticipants(
-      participants: _session.activeAiParticipants,
+      participants: _session.aiParticipants,
       count: _session.mainReplyCount,
     );
+    final previousMessages = [..._messages];
     setState(() {
       _isGenerating = true;
       _chat.replaceMessages(retry.messages);
     });
-    await _saveMessages();
+    if (!await _saveRetryMessages(
+      previousMessages,
+      generationId,
+      cancelToken,
+    )) {
+      return;
+    }
     try {
-      await _generateSingleApi(
+      await _runGenerationService(
         participants,
         retry.round,
         generationId,
         cancelToken,
+        session: _session,
         generationIntent: intent,
-        phase: TheaterReplyPhase.main,
-        summaryUpdated: false,
       );
     } finally {
       if (identical(_cancelToken, cancelToken)) _cancelToken = null;
       if (mounted && generationId == _generationId) {
         setState(() => _isGenerating = false);
       }
+    }
+  }
+
+  Future<bool> _saveRetryMessages(
+    List<TheaterMessage> previousMessages,
+    int generationId,
+    AiCancelToken cancelToken,
+  ) async {
+    try {
+      await _saveMessages();
+      return true;
+    } catch (error) {
+      if (identical(_cancelToken, cancelToken)) _cancelToken = null;
+      if (!mounted || generationId != _generationId) return false;
+      setState(() {
+        _chat.replaceMessages(previousMessages);
+        _isGenerating = false;
+      });
+      context.showSnack(error.toString());
+      return false;
     }
   }
 
@@ -729,7 +703,10 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
         ),
       );
       return true;
-    } catch (_) {
+    } catch (error) {
+      if (mounted && generationId == _generationId) {
+        context.showSnack(error.toString());
+      }
       return false;
     } finally {
       if (mounted) setState(() => _isSummarizing = false);
@@ -829,11 +806,6 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   }
 
   Future<void> _openSettings() async {
-    try {
-      final presets = await widget.storage.loadChatBubblePresets();
-      if (mounted) setState(() => _bubblePresets = presets);
-    } catch (_) {}
-    if (!mounted) return;
     var draft = _session;
     var openEditor = false;
     await showModalBottomSheet<void>(
@@ -849,7 +821,11 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
           void apply(TheaterSession next) {
             final saved = next.copyWith(updatedAt: DateTime.now());
             preview(saved);
-            unawaited(widget.storage.saveTheaterSession(saved));
+            unawaited(
+              widget.storage.saveTheaterSession(saved).onError((error, _) {
+                if (mounted) this.context.showSnack(error.toString());
+              }),
+            );
           }
 
           return SafeArea(
@@ -895,7 +871,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
                           TheaterMultiApiReplyMode.turnBased) ...[
                     const SizedBox(height: 8),
                     TheaterReplySettings(
-                      participantCount: draft.activeAiParticipants.length,
+                      participantCount: draft.aiParticipants.length,
                       mainReplyCount: draft.mainReplyCount,
                       extraReplyMode: draft.extraReplyMode,
                       onMainReplyCountChanged: (value) =>
@@ -990,13 +966,27 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
                     ),
                     title: 'AI 共用气泡',
                     presetId: draft.roleBubblePresetId,
-                    presets: _bubblePresets,
                     isUser: false,
                     onChanged: (value) {
-                      final next = draft.copyWith(roleBubblePresetId: value);
-                      preview(next);
+                      final next = draft.copyWith(
+                        roleBubblePresetId: value,
+                        clearRoleBubbleOpacity: true,
+                      );
                       apply(next);
                     },
+                  ),
+                  SettingSlider.transparency(
+                    key: const ValueKey(
+                      'theater-chat-role-bubble-transparency-setting',
+                    ),
+                    label: '角色气泡透明度',
+                    opacity: _roleBubbleAppearance.opacity,
+                    onChanged: (opacity) =>
+                        preview(draft.copyWith(roleBubbleOpacity: opacity)),
+                    onChangeEnd: (opacity) =>
+                        apply(draft.copyWith(roleBubbleOpacity: opacity)),
+                    height: 26,
+                    displayWidth: 52,
                   ),
                   ChatBubblePresetSelectionTile(
                     key: const ValueKey(
@@ -1004,13 +994,27 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
                     ),
                     title: '我的气泡',
                     presetId: draft.userBubblePresetId,
-                    presets: _bubblePresets,
                     isUser: true,
                     onChanged: (value) {
-                      final next = draft.copyWith(userBubblePresetId: value);
-                      preview(next);
+                      final next = draft.copyWith(
+                        userBubblePresetId: value,
+                        clearUserBubbleOpacity: true,
+                      );
                       apply(next);
                     },
+                  ),
+                  SettingSlider.transparency(
+                    key: const ValueKey(
+                      'theater-chat-user-bubble-transparency-setting',
+                    ),
+                    label: '我的气泡透明度',
+                    opacity: _userBubbleAppearance.opacity,
+                    onChanged: (opacity) =>
+                        preview(draft.copyWith(userBubbleOpacity: opacity)),
+                    onChangeEnd: (opacity) =>
+                        apply(draft.copyWith(userBubbleOpacity: opacity)),
+                    height: 26,
+                    displayWidth: 52,
                   ),
                   const SizedBox(height: 16),
                   OutlinedButton.icon(
@@ -1037,11 +1041,8 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   Future<void> _openFullSettings() async {
     final session = await Navigator.of(context).push<TheaterSession>(
       MaterialPageRoute(
-        builder: (_) => TheaterEditScreen(
-          storage: widget.storage,
-          aiService: widget.aiService,
-          session: _session,
-        ),
+        builder: (_) =>
+            TheaterEditScreen(storage: widget.storage, session: _session),
       ),
     );
     if (session == null || !mounted) return;
@@ -1093,6 +1094,11 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     if (_isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
+    if (_loadError != null) {
+      return Scaffold(
+        body: PageStatusView.error(message: _loadError!, onRetry: _load),
+      );
+    }
     final hasBackground = _session.backgroundImage.trim().isNotEmpty;
     return ColoredBox(
       key: const ValueKey('theater-chat-background-base'),
@@ -1110,6 +1116,8 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
             backgroundColor: Theme.of(context).colorScheme.surface.withValues(
               alpha: _session.topBarOpacity.clamp(0, 1).toDouble(),
             ),
+            elevation: 0,
+            scrolledUnderElevation: 0,
             surfaceTintColor: Colors.transparent,
             systemOverlayStyle: appSystemOverlayStyle(context),
             title: Column(

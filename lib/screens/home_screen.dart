@@ -40,6 +40,32 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  static const _tabs = [
+    (
+      label: '角色',
+      title: 'Whisnya',
+      icon: Icons.people_outline,
+      selectedIcon: Icons.people,
+    ),
+    (
+      label: '小说',
+      title: '小说',
+      icon: Icons.menu_book_outlined,
+      selectedIcon: Icons.menu_book,
+    ),
+    (
+      label: '群聊',
+      title: '群聊',
+      icon: Icons.forum_outlined,
+      selectedIcon: Icons.forum,
+    ),
+    (
+      label: '设置',
+      title: '设置',
+      icon: Icons.settings_outlined,
+      selectedIcon: Icons.settings,
+    ),
+  ];
   final _novelKey = GlobalKey<NovelScreenState>();
   final _theaterKey = GlobalKey<TheaterListScreenState>();
 
@@ -120,12 +146,17 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
     if (!mounted) return;
+    final opened = character.copyWith(lastUsedAt: DateTime.now());
+    if (!await context.tryAction(() => widget.storage.saveCharacter(opened))) {
+      return;
+    }
+    if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ChatScreen(
           storage: widget.storage,
           aiService: widget.aiService,
-          character: character,
+          character: opened,
           settings: widget.settings,
         ),
       ),
@@ -140,12 +171,15 @@ class _HomeScreenState extends State<HomeScreen> {
     )) {
       return;
     }
+    if (!mounted) return;
 
     final next = character.copyWith(
       isPinned: !character.isPinned,
       updatedAt: DateTime.now(),
     );
-    await widget.storage.saveCharacter(next);
+    if (!await context.tryAction(() => widget.storage.saveCharacter(next))) {
+      return;
+    }
     if (!mounted) return;
     context.showSnack(next.isPinned ? '已置顶角色' : '已取消置顶');
     await _load();
@@ -158,12 +192,15 @@ class _HomeScreenState extends State<HomeScreen> {
     )) {
       return;
     }
+    if (!mounted) return;
 
     final next = character.copyWith(
       isHidden: !character.isHidden,
       updatedAt: DateTime.now(),
     );
-    await widget.storage.saveCharacter(next);
+    if (!await context.tryAction(() => widget.storage.saveCharacter(next))) {
+      return;
+    }
     if (!mounted) return;
     context.showSnack(next.isHidden ? '已隐藏设定' : '已显示设定');
     await _load();
@@ -177,12 +214,15 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!await _verifyCharacterOperation(character, '解除上锁')) {
       return;
     }
+    if (!mounted) return;
 
     final next = character.copyWith(
       isLocked: !character.isLocked,
       updatedAt: DateTime.now(),
     );
-    await widget.storage.saveCharacter(next);
+    if (!await context.tryAction(() => widget.storage.saveCharacter(next))) {
+      return;
+    }
     if (!mounted) return;
     context.showSnack(next.isLocked ? '已上锁' : '已解除上锁');
     await _load();
@@ -218,16 +258,16 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     if (!shouldDelete) return;
+    if (!mounted) return;
 
-    try {
-      await widget.storage.deleteCharacter(character.id);
-      if (!mounted) return;
-      context.showSnack('已删除角色');
-      await _load();
-    } catch (error) {
-      if (!mounted) return;
-      context.showSnack(error.toString());
+    if (!await context.tryAction(
+      () => widget.storage.deleteCharacter(character.id),
+    )) {
+      return;
     }
+    if (!mounted) return;
+    context.showSnack('已删除角色');
+    await _load();
   }
 
   void _selectTab(int index) {
@@ -258,12 +298,7 @@ class _HomeScreenState extends State<HomeScreen> {
             scrolledUnderElevation: 0,
             surfaceTintColor: Colors.transparent,
             systemOverlayStyle: appSystemOverlayStyle(context),
-            title: switch (_tabIndex) {
-              0 => Text(context.t('Whisnya')),
-              1 => Text(context.t('小说')),
-              2 => Text(context.t('群聊')),
-              _ => Text(context.t('设置')),
-            },
+            title: Text(context.t(_tabs[_tabIndex].title)),
             actions: [
               if (_tabIndex == 0)
                 Padding(
@@ -404,26 +439,12 @@ class _HomeScreenState extends State<HomeScreen> {
       selectedIndex: _tabIndex,
       onDestinationSelected: _selectTab,
       destinations: [
-        NavigationDestination(
-          icon: const Icon(Icons.people_outline),
-          selectedIcon: const Icon(Icons.people),
-          label: context.t('角色'),
-        ),
-        NavigationDestination(
-          icon: const Icon(Icons.menu_book_outlined),
-          selectedIcon: const Icon(Icons.menu_book),
-          label: context.t('小说'),
-        ),
-        NavigationDestination(
-          icon: const Icon(Icons.forum_outlined),
-          selectedIcon: const Icon(Icons.forum),
-          label: context.t('群聊'),
-        ),
-        NavigationDestination(
-          icon: const Icon(Icons.settings_outlined),
-          selectedIcon: const Icon(Icons.settings),
-          label: context.t('设置'),
-        ),
+        for (final tab in _tabs)
+          NavigationDestination(
+            icon: Icon(tab.icon),
+            selectedIcon: Icon(tab.selectedIcon),
+            label: context.t(tab.label),
+          ),
       ],
     );
   }
@@ -437,26 +458,12 @@ class _HomeScreenState extends State<HomeScreen> {
       selectedIndex: _tabIndex,
       onDestinationSelected: _selectTab,
       destinations: [
-        NavigationRailDestination(
-          icon: const Icon(Icons.people_outline),
-          selectedIcon: const Icon(Icons.people),
-          label: Text(context.t('角色')),
-        ),
-        NavigationRailDestination(
-          icon: const Icon(Icons.menu_book_outlined),
-          selectedIcon: const Icon(Icons.menu_book),
-          label: Text(context.t('小说')),
-        ),
-        NavigationRailDestination(
-          icon: const Icon(Icons.forum_outlined),
-          selectedIcon: const Icon(Icons.forum),
-          label: Text(context.t('群聊')),
-        ),
-        NavigationRailDestination(
-          icon: const Icon(Icons.settings_outlined),
-          selectedIcon: const Icon(Icons.settings),
-          label: Text(context.t('设置')),
-        ),
+        for (final tab in _tabs)
+          NavigationRailDestination(
+            icon: Icon(tab.icon),
+            selectedIcon: Icon(tab.selectedIcon),
+            label: Text(context.t(tab.label)),
+          ),
       ],
     );
   }

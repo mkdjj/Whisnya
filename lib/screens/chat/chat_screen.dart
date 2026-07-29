@@ -57,7 +57,6 @@ class _ChatScreenState extends State<ChatScreen> {
   Timer? _toolBarTimer;
 
   var _apiConfig = ApiConfig();
-  var _bubblePresets = const ChatBubblePresetSettings();
   late AppCharacter _character;
   late final ChatConversationController _conversation;
   List<ChatMessage> get _messages => _conversation.messages;
@@ -77,16 +76,14 @@ class _ChatScreenState extends State<ChatScreen> {
 
   ChatBubbleAppearance get _roleBubbleAppearance => resolveBubbleAppearance(
     presetId: _character.roleBubblePresetId,
-    presets: _bubblePresets,
-    isUser: false,
     fallback: _character.bubbleTheme.role,
+    opacityOverride: _character.roleBubbleOpacity,
   );
 
   ChatBubbleAppearance get _userBubbleAppearance => resolveBubbleAppearance(
     presetId: _character.userBubblePresetId,
-    presets: _bubblePresets,
-    isUser: true,
     fallback: _character.bubbleTheme.user,
+    opacityOverride: _character.userBubbleOpacity,
   );
 
   @override
@@ -114,9 +111,7 @@ class _ChatScreenState extends State<ChatScreen> {
     });
 
     try {
-      await widget.storage.markCharacterUsed(_character.id);
       final apiConfig = await widget.storage.loadApiConfig();
-      final bubblePresets = await widget.storage.loadChatBubblePresets();
       final summary = await widget.storage.loadSummary(_character.id);
       final chat = await widget.storage.loadChat(_character.id);
       final selectedEndpointId =
@@ -139,7 +134,6 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!mounted) return;
       setState(() {
         _apiConfig = apiConfig;
-        _bubblePresets = bubblePresets;
         _selectedEndpointId = selectedEndpointId;
         _conversation.load(messages: messages, summary: summary);
         _isLoading = false;
@@ -167,6 +161,7 @@ class _ChatScreenState extends State<ChatScreen> {
       content: text,
       time: DateTime.now(),
     );
+    final previousMessages = [..._messages];
 
     setState(() {
       _conversation.append(userMessage);
@@ -175,7 +170,18 @@ class _ChatScreenState extends State<ChatScreen> {
     _inputController.clear();
     _scrollToEnd();
 
-    await widget.storage.saveChat(_character.id, _messages);
+    try {
+      await widget.storage.saveChat(_character.id, _messages);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _conversation.replaceMessages(previousMessages);
+        _isSending = false;
+      });
+      if (_inputController.text.isEmpty) _inputController.text = text;
+      context.showSnack(error.toString());
+      return;
+    }
 
     await _requestAssistantReply(endpoint);
   }
@@ -333,11 +339,22 @@ class _ChatScreenState extends State<ChatScreen> {
     final endpoint = await _reloadEndpoint();
     if (endpoint == null) return;
 
+    final previousMessages = [..._messages];
     setState(() {
       _conversation.editUserMessageAndTruncate(index, edited, DateTime.now());
       _isSending = true;
     });
-    await widget.storage.saveChat(_character.id, _messages);
+    try {
+      await widget.storage.saveChat(_character.id, _messages);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _conversation.replaceMessages(previousMessages);
+        _isSending = false;
+      });
+      context.showSnack(error.toString());
+      return;
+    }
     _scrollToEnd();
     await _requestAssistantReply(endpoint);
   }
@@ -714,11 +731,6 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _showChatSettings() async {
-    try {
-      final presets = await widget.storage.loadChatBubblePresets();
-      if (mounted) setState(() => _bubblePresets = presets);
-    } catch (_) {}
-    if (!mounted) return;
     var draft = _character;
     await showModalBottomSheet<void>(
       context: context,
@@ -729,6 +741,16 @@ class _ChatScreenState extends State<ChatScreen> {
             draft = character;
             setSheetState(() {});
             setState(() => _character = character);
+          }
+
+          void apply(AppCharacter character) {
+            final saved = character.copyWith(updatedAt: DateTime.now());
+            preview(saved);
+            unawaited(
+              widget.storage.saveCharacter(saved).onError((error, _) {
+                if (mounted) this.context.showSnack(error.toString());
+              }),
+            );
           }
 
           return SafeArea(
@@ -769,8 +791,7 @@ class _ChatScreenState extends State<ChatScreen> {
                             defaultEndpointId: endpointId,
                           );
                           setState(() => _selectedEndpointId = endpointId);
-                          preview(next);
-                          _applyCharacterSettings(next);
+                          apply(next);
                         },
                 ),
                 ListTile(
@@ -798,8 +819,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     final next = draft.copyWith(
                       useFullChatContext: useFullContext,
                     );
-                    preview(next);
-                    _applyCharacterSettings(next);
+                    apply(next);
                   },
                 ),
                 if (!draft.useFullChatContext) ...[
@@ -821,7 +841,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       );
                     },
                     onChangeEnd: (value) {
-                      _applyCharacterSettings(
+                      apply(
                         draft.copyWith(chatSummaryMessageLimit: value.round()),
                       );
                     },
@@ -835,9 +855,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     preview(draft.copyWith(backgroundImageOpacity: opacity));
                   },
                   onChangeEnd: (opacity) {
-                    _applyCharacterSettings(
-                      draft.copyWith(backgroundImageOpacity: opacity),
-                    );
+                    apply(draft.copyWith(backgroundImageOpacity: opacity));
                   },
                 ),
                 SettingSlider(
@@ -851,9 +869,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     preview(draft.copyWith(backgroundBlur: value));
                   },
                   onChangeEnd: (value) {
-                    _applyCharacterSettings(
-                      draft.copyWith(backgroundBlur: value),
-                    );
+                    apply(draft.copyWith(backgroundBlur: value));
                   },
                 ),
                 SettingSlider.transparency(
@@ -864,9 +880,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     preview(draft.copyWith(topBarOpacity: opacity));
                   },
                   onChangeEnd: (opacity) {
-                    _applyCharacterSettings(
-                      draft.copyWith(topBarOpacity: opacity),
-                    );
+                    apply(draft.copyWith(topBarOpacity: opacity));
                   },
                 ),
                 SettingSlider.transparency(
@@ -877,33 +891,55 @@ class _ChatScreenState extends State<ChatScreen> {
                     preview(draft.copyWith(inputOpacity: opacity));
                   },
                   onChangeEnd: (opacity) {
-                    _applyCharacterSettings(
-                      draft.copyWith(inputOpacity: opacity),
-                    );
+                    apply(draft.copyWith(inputOpacity: opacity));
                   },
                 ),
                 ChatBubblePresetSelectionTile(
                   key: const ValueKey('chat-role-bubble-preset-setting'),
                   title: '角色气泡',
                   presetId: draft.roleBubblePresetId,
-                  presets: _bubblePresets,
                   isUser: false,
                   onChanged: (value) {
-                    final next = draft.copyWith(roleBubblePresetId: value);
-                    preview(next);
-                    _applyCharacterSettings(next);
+                    final next = draft.copyWith(
+                      roleBubblePresetId: value,
+                      clearRoleBubbleOpacity: true,
+                    );
+                    apply(next);
+                  },
+                ),
+                SettingSlider.transparency(
+                  key: const ValueKey('chat-role-bubble-transparency-setting'),
+                  label: '角色气泡透明度',
+                  opacity: _roleBubbleAppearance.opacity,
+                  onChanged: (opacity) {
+                    preview(draft.copyWith(roleBubbleOpacity: opacity));
+                  },
+                  onChangeEnd: (opacity) {
+                    apply(draft.copyWith(roleBubbleOpacity: opacity));
                   },
                 ),
                 ChatBubblePresetSelectionTile(
                   key: const ValueKey('chat-user-bubble-preset-setting'),
                   title: '我的气泡',
                   presetId: draft.userBubblePresetId,
-                  presets: _bubblePresets,
                   isUser: true,
                   onChanged: (value) {
-                    final next = draft.copyWith(userBubblePresetId: value);
-                    preview(next);
-                    _applyCharacterSettings(next);
+                    final next = draft.copyWith(
+                      userBubblePresetId: value,
+                      clearUserBubbleOpacity: true,
+                    );
+                    apply(next);
+                  },
+                ),
+                SettingSlider.transparency(
+                  key: const ValueKey('chat-user-bubble-transparency-setting'),
+                  label: '我的气泡透明度',
+                  opacity: _userBubbleAppearance.opacity,
+                  onChanged: (opacity) {
+                    preview(draft.copyWith(userBubbleOpacity: opacity));
+                  },
+                  onChangeEnd: (opacity) {
+                    apply(draft.copyWith(userBubbleOpacity: opacity));
                   },
                 ),
                 const Divider(),
@@ -956,12 +992,6 @@ class _ChatScreenState extends State<ChatScreen> {
     return count - startIndex;
   }
 
-  void _applyCharacterSettings(AppCharacter character) {
-    final next = character.copyWith(updatedAt: DateTime.now());
-    setState(() => _character = next);
-    unawaited(widget.storage.saveCharacter(next));
-  }
-
   String _speedHint(int count) {
     if (count < 100) {
       return context.t('速度判断：正常');
@@ -979,6 +1009,14 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _deleteMessage(int index) async {
+    final confirmed = await showConfirmDialog(
+      context: context,
+      title: '删除消息',
+      content: context.t('确定删除这条消息吗？'),
+      confirmLabel: '删除',
+    );
+    if (!confirmed) return;
+
     final deletion = _conversation.deleteAt(index);
     if (deletion == ChatMessageDeletion.ignored) return;
     if (deletion == ChatMessageDeletion.summaryInvalidated) {

@@ -54,6 +54,8 @@ void main() {
         role: ChatBubbleAppearance(opacity: 0.8),
         user: ChatBubbleAppearance(opacity: 0.8),
       ),
+      roleBubbleOpacity: 0.3,
+      userBubbleOpacity: 0.4,
       inputOpacity: 0.9,
       topBarOpacity: 0.2,
       isHidden: true,

@@ -15,16 +15,36 @@ import 'package:whisnya/services/local_storage_service.dart';
 import 'package:whisnya/utils/app_i18n.dart';
 
 void main() {
-  testWidgets('all theater AI messages share the role bubble preset', (
+  testWidgets('theater chat shows retry instead of spinning after load fails', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TheaterChatScreen(
+          storage: _MemoryStorage(
+            session: _session,
+            messages: const [],
+            failLoad: true,
+          ),
+          aiService: _FakeGateway(''),
+          settings: const AppSettings(),
+          session: _session,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byIcon(Icons.refresh), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+  });
+
+  testWidgets('all theater AI messages share the role bubble style', (
     tester,
   ) async {
     final now = DateTime(2026);
-    final preset = ChatBubblePreset(
-      id: 'role',
-      name: 'AI 气泡',
-      appearance: const ChatBubbleAppearance(style: ChatBubbleStyle.square),
+    final session = _session.copyWith(
+      roleBubblePresetId: builtInBubblePresetId(ChatBubbleStyle.square),
     );
-    final session = _session.copyWith(roleBubblePresetId: 'role');
     final messages = [
       ..._messages,
       TheaterMessage(
@@ -38,11 +58,7 @@ void main() {
         time: now,
       ),
     ];
-    final storage = _MemoryStorage(
-      session: session,
-      messages: messages,
-      bubblePresets: ChatBubblePresetSettings(presets: [preset]),
-    );
+    final storage = _MemoryStorage(session: session, messages: messages);
     await tester.pumpWidget(
       MaterialApp(
         home: TheaterChatScreen(
@@ -79,6 +95,8 @@ void main() {
       find.byKey(const ValueKey('theater-chat-app-bar')),
     );
     expect(appBar.backgroundColor!.a, closeTo(0.25, 0.001));
+    expect(appBar.elevation, 0);
+    expect(appBar.scrolledUnderElevation, 0);
 
     await tester.tap(find.byIcon(Icons.settings_outlined));
     await tester.pumpAndSettle();
@@ -137,9 +155,27 @@ void main() {
       containsAllInOrder(const [
         ValueKey('theater-chat-input-opacity-setting'),
         ValueKey('theater-chat-role-bubble-preset-setting'),
+        ValueKey('theater-chat-role-bubble-transparency-setting'),
         ValueKey('theater-chat-user-bubble-preset-setting'),
+        ValueKey('theater-chat-user-bubble-transparency-setting'),
       ]),
     );
+
+    final roleTransparency = find.byKey(
+      const ValueKey('theater-chat-role-bubble-transparency-setting'),
+    );
+    await tester.scrollUntilVisible(
+      roleTransparency,
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
+    final slider = tester.widget<Slider>(
+      find.descendant(of: roleTransparency, matching: find.byType(Slider)),
+    );
+    slider.onChanged!(0.7);
+    slider.onChangeEnd!(0.7);
+    await tester.pumpAndSettle();
+    expect(storage.savedSessions.last.roleBubbleOpacity, closeTo(0.3, 0.001));
   });
 
   testWidgets('reply choices follow the available participant count', (
@@ -401,6 +437,165 @@ void main() {
       isTrue,
     );
   });
+
+  testWidgets('theater chat restores input when the initial save fails', (
+    tester,
+  ) async {
+    final storage = _MemoryStorage(
+      session: _session,
+      messages: const [],
+      failSaveMessages: true,
+    );
+    final gateway = _FakeGateway('reply');
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TheaterChatScreen(
+          storage: storage,
+          aiService: gateway,
+          settings: const AppSettings(),
+          session: _session,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).last, 'hello');
+    await tester.pump();
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(
+      tester.widget<TextField>(find.byType(TextField).last).controller!.text,
+      'hello',
+    );
+    expect(find.byIcon(Icons.send), findsOneWidget);
+    expect(find.byIcon(Icons.stop), findsNothing);
+    expect(gateway.models, isEmpty);
+    expect(storage.saveAttempts, 1);
+    expect(find.textContaining('save failed'), findsOneWidget);
+  });
+
+  testWidgets('theater role retry rolls back when saving fails', (
+    tester,
+  ) async {
+    final error = TheaterMessage(
+      id: 'role-error',
+      sessionId: 'session',
+      round: 2,
+      speakerType: TheaterSpeakerType.role,
+      speakerId: 'b',
+      speakerName: 'B',
+      content: 'retry me',
+      isError: true,
+      errorMessage: 'request failed',
+      time: DateTime(2026),
+    );
+    final storage = _MemoryStorage(
+      session: _session,
+      messages: [..._messages, error],
+      failSaveMessages: true,
+    );
+    final gateway = _FakeGateway('reply');
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TheaterChatScreen(
+          storage: storage,
+          aiService: gateway,
+          settings: const AppSettings(),
+          session: _session,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.refresh).last);
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('retry me'), findsOneWidget);
+    expect(find.byIcon(Icons.send), findsOneWidget);
+    expect(find.byIcon(Icons.stop), findsNothing);
+    expect(gateway.models, isEmpty);
+    expect(find.textContaining('save failed'), findsOneWidget);
+  });
+
+  testWidgets('theater single API retry rolls back when saving fails', (
+    tester,
+  ) async {
+    final session = _session.copyWith(
+      apiMode: TheaterApiMode.singleApi,
+      singleEndpointId: 'a',
+    );
+    final error = TheaterMessage(
+      id: 'format-error',
+      sessionId: 'session',
+      round: 2,
+      speakerType: TheaterSpeakerType.system,
+      speakerId: '',
+      speakerName: 'System',
+      content: 'format error',
+      isError: true,
+      errorMessage: '模型没有按群聊格式输出，可重试',
+      time: DateTime(2026),
+    );
+    final storage = _MemoryStorage(
+      session: session,
+      messages: [..._messages, error],
+      failSaveMessages: true,
+    );
+    final gateway = _FakeGateway('reply');
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TheaterChatScreen(
+          storage: storage,
+          aiService: gateway,
+          settings: const AppSettings(),
+          session: session,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.refresh).last);
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('format error'), findsOneWidget);
+    expect(find.byIcon(Icons.send), findsOneWidget);
+    expect(find.byIcon(Icons.stop), findsNothing);
+    expect(gateway.models, isEmpty);
+    expect(find.textContaining('save failed'), findsOneWidget);
+  });
+
+  testWidgets('deleting one theater message requires confirmation', (
+    tester,
+  ) async {
+    final storage = _MemoryStorage(session: _session, messages: _messages);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TheaterChatScreen(
+          storage: storage,
+          aiService: _FakeGateway('reply'),
+          settings: const AppSettings(),
+          session: _session,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.delete_outline).first);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(storage.saveAttempts, 0);
+
+    await tester.tap(find.byType(FilledButton).last);
+    await tester.pumpAndSettle();
+
+    expect(storage.saveAttempts, 1);
+    expect(storage.messages, hasLength(1));
+  });
 }
 
 final class _FakeGateway implements AiGateway {
@@ -502,30 +697,36 @@ final class _MemoryStorage extends LocalStorageService {
   _MemoryStorage({
     required this.session,
     required List<TheaterMessage> messages,
-    this.bubblePresets = const ChatBubblePresetSettings(),
+    this.failLoad = false,
+    this.failSaveMessages = false,
   }) : messages = [...messages];
 
   final TheaterSession session;
   List<TheaterMessage> messages;
-  ChatBubblePresetSettings bubblePresets;
+  final bool failLoad;
+  final bool failSaveMessages;
+  var saveAttempts = 0;
   final savedSessions = <TheaterSession>[];
 
   @override
-  Future<ApiConfig> loadApiConfig() async => ApiConfig(
-    endpoints: [
-      for (final id in const ['a', 'b'])
-        AiEndpointConfig(
-          id: id,
-          name: id,
-          apiKey: 'key',
-          baseUrl: 'https://example.com/v1',
-          model: 'model-$id',
-          enabled: true,
-          createdAt: DateTime(2026),
-          updatedAt: DateTime(2026),
-        ),
-    ],
-  );
+  Future<ApiConfig> loadApiConfig() async {
+    if (failLoad) throw StateError('load failed');
+    return ApiConfig(
+      endpoints: [
+        for (final id in const ['a', 'b'])
+          AiEndpointConfig(
+            id: id,
+            name: id,
+            apiKey: 'key',
+            baseUrl: 'https://example.com/v1',
+            model: 'model-$id',
+            enabled: true,
+            createdAt: DateTime(2026),
+            updatedAt: DateTime(2026),
+          ),
+      ],
+    );
+  }
 
   @override
   Future<List<TheaterMessage>> loadTheaterMessages(String sessionId) async => [
@@ -536,14 +737,12 @@ final class _MemoryStorage extends LocalStorageService {
   Future<List<NovelBook>> loadNovels() async => const [];
 
   @override
-  Future<ChatBubblePresetSettings> loadChatBubblePresets() async =>
-      bubblePresets;
-
-  @override
   Future<void> saveTheaterMessages(
     String sessionId,
     List<TheaterMessage> messages,
   ) async {
+    saveAttempts++;
+    if (failSaveMessages) throw StateError('save failed');
     this.messages = [...messages];
   }
 

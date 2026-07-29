@@ -112,14 +112,15 @@ class NovelScreenState extends State<NovelScreen> {
     }
     if (!mounted) return;
     final opened = book.copyWith(lastOpenedAt: DateTime.now());
-    await widget.storage.saveNovel(opened);
+    if (!await context.tryAction(() => widget.storage.saveNovel(opened))) {
+      return;
+    }
     if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => NovelReaderScreen(
           storage: widget.storage,
           aiService: widget.aiService,
-          settings: widget.settings,
           book: opened,
         ),
       ),
@@ -134,9 +135,13 @@ class NovelScreenState extends State<NovelScreen> {
     }
     if (!mounted) return;
 
-    await widget.storage.saveNovel(
-      book.copyWith(isHidden: !book.isHidden, updatedAt: DateTime.now()),
-    );
+    if (!await context.tryAction(
+      () => widget.storage.saveNovel(
+        book.copyWith(isHidden: !book.isHidden, updatedAt: DateTime.now()),
+      ),
+    )) {
+      return;
+    }
     if (!mounted) return;
     context.showSnack(book.isHidden ? '已显示设定' : '已隐藏设定');
     await _load();
@@ -150,9 +155,14 @@ class NovelScreenState extends State<NovelScreen> {
     if (book.isLocked && !await _verifyBookOperation(book, '解除上锁')) {
       return;
     }
-    await widget.storage.saveNovel(
-      book.copyWith(isLocked: !book.isLocked, updatedAt: DateTime.now()),
-    );
+    if (!mounted) return;
+    if (!await context.tryAction(
+      () => widget.storage.saveNovel(
+        book.copyWith(isLocked: !book.isLocked, updatedAt: DateTime.now()),
+      ),
+    )) {
+      return;
+    }
     if (!mounted) return;
     context.showSnack(book.isLocked ? '已解除上锁' : '已上锁');
     await _load();
@@ -183,8 +193,11 @@ class NovelScreenState extends State<NovelScreen> {
       confirmLabel: '删除',
     );
     if (!shouldDelete) return;
+    if (!mounted) return;
 
-    await widget.storage.deleteNovel(book);
+    if (!await context.tryAction(() => widget.storage.deleteNovel(book))) {
+      return;
+    }
     if (!mounted) return;
     context.showSnack('已删除小说');
     await _load();

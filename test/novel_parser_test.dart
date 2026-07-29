@@ -61,12 +61,9 @@ Chapter 3 Reunion
   test('round trips novel summary cache json', () {
     final cache = NovelSummaryCache(
       novelId: 'n1',
-      selectedChunkIndexes: const [0, 1],
       selectedChunks: const ['a', 'b'],
       completedSummaries: const ['sa'],
       currentIndex: 1,
-      endpointId: 'e1',
-      updatedAt: DateTime(2026),
     );
 
     final restored = NovelSummaryCache.fromJson(cache.toJson());
@@ -74,6 +71,21 @@ Chapter 3 Reunion
     expect(restored.canResume, isTrue);
     expect(restored.completedSummaries, ['sa']);
     expect(restored.currentIndex, 1);
+  });
+
+  test('rejects inconsistent novel summary cache progress', () {
+    NovelSummaryCache cache(int index, List<String> summaries) =>
+        NovelSummaryCache(
+          novelId: 'n1',
+          selectedChunks: const ['a', 'b'],
+          completedSummaries: summaries,
+          currentIndex: index,
+        );
+
+    expect(cache(-1, const []).canResume, isFalse);
+    expect(cache(3, const ['a', 'b', 'c']).canResume, isFalse);
+    expect(cache(2, const ['a']).canResume, isFalse);
+    expect(cache(2, const ['a', 'b']).canResume, isTrue);
   });
 
   test('round trips novel last-opened time and defaults legacy data', () {

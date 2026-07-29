@@ -140,19 +140,22 @@ class AppSettings {
       globalBackgroundRegion: ImageCropRegion.fromJson(
         json?['globalBackgroundRegion'],
       ),
-      globalBackgroundOpacity: jsonDouble(json?['globalBackgroundOpacity'], 1),
-      globalBackgroundBlur: jsonDouble(json?['globalBackgroundBlur'], 0),
+      globalBackgroundOpacity: jsonUnitDouble(
+        json?['globalBackgroundOpacity'],
+        1,
+      ),
+      globalBackgroundBlur: jsonNonNegativeDouble(
+        json?['globalBackgroundBlur'],
+        0,
+      ),
       interfaceTextColor: json?['interfaceTextColor'] as int?,
       chatTextColor: json?['chatTextColor'] as int?,
-      fontScale: jsonDouble(json?['fontScale'], 1).clamp(0.85, 1.3),
-      navigationBarOpacity: jsonDouble(
-        json?['navigationBarOpacity'],
-        1,
-      ).clamp(0, 1),
-      characterListCardOpacity: jsonDouble(
+      fontScale: jsonRangeDouble(json?['fontScale'], 1, 0.85, 1.3),
+      navigationBarOpacity: jsonUnitDouble(json?['navigationBarOpacity'], 1),
+      characterListCardOpacity: jsonUnitDouble(
         json?['characterListCardOpacity'],
         1,
-      ).clamp(0, 1),
+      ),
       userProfile: UserProfile.fromJson(
         userProfile is Map<String, dynamic> ? userProfile : null,
       ),

@@ -13,6 +13,8 @@ class AppCharacter {
     this.bubbleTheme = ChatBubbleTheme.characterDefault,
     this.roleBubblePresetId = '',
     this.userBubblePresetId = '',
+    this.roleBubbleOpacity,
+    this.userBubbleOpacity,
     required this.inputOpacity,
     this.topBarOpacity = 0,
     required this.description,
@@ -50,6 +52,8 @@ class AppCharacter {
   final ChatBubbleTheme bubbleTheme;
   final String roleBubblePresetId;
   final String userBubblePresetId;
+  final double? roleBubbleOpacity;
+  final double? userBubbleOpacity;
   final double inputOpacity;
   final double topBarOpacity;
   final String description;
@@ -83,6 +87,10 @@ class AppCharacter {
     ChatBubbleTheme? bubbleTheme,
     String? roleBubblePresetId,
     String? userBubblePresetId,
+    double? roleBubbleOpacity,
+    double? userBubbleOpacity,
+    bool clearRoleBubbleOpacity = false,
+    bool clearUserBubbleOpacity = false,
     double? inputOpacity,
     double? topBarOpacity,
     String? description,
@@ -118,6 +126,12 @@ class AppCharacter {
       bubbleTheme: bubbleTheme ?? this.bubbleTheme,
       roleBubblePresetId: roleBubblePresetId ?? this.roleBubblePresetId,
       userBubblePresetId: userBubblePresetId ?? this.userBubblePresetId,
+      roleBubbleOpacity: clearRoleBubbleOpacity
+          ? null
+          : roleBubbleOpacity ?? this.roleBubbleOpacity,
+      userBubbleOpacity: clearUserBubbleOpacity
+          ? null
+          : userBubbleOpacity ?? this.userBubbleOpacity,
       inputOpacity: inputOpacity ?? this.inputOpacity,
       topBarOpacity: topBarOpacity ?? this.topBarOpacity,
       description: description ?? this.description,
@@ -154,13 +168,15 @@ class AppCharacter {
       backgroundImageRegion: ImageCropRegion.fromJson(
         json['backgroundImageRegion'],
       ),
-      backgroundImageOpacity: jsonDouble(json['backgroundImageOpacity'], 1),
-      backgroundBlur: jsonDouble(json['backgroundBlur'], 0),
+      backgroundImageOpacity: jsonUnitDouble(json['backgroundImageOpacity'], 1),
+      backgroundBlur: jsonNonNegativeDouble(json['backgroundBlur'], 0),
       bubbleTheme: ChatBubbleTheme.fromJson(json['bubbleTheme']),
       roleBubblePresetId: json['roleBubblePresetId'] as String? ?? '',
       userBubblePresetId: json['userBubblePresetId'] as String? ?? '',
-      inputOpacity: jsonDouble(json['inputOpacity'], 0.92),
-      topBarOpacity: jsonDouble(json['topBarOpacity'], 0),
+      roleBubbleOpacity: jsonNullableUnitDouble(json['roleBubbleOpacity']),
+      userBubbleOpacity: jsonNullableUnitDouble(json['userBubbleOpacity']),
+      inputOpacity: jsonUnitDouble(json['inputOpacity'], 0.92),
+      topBarOpacity: jsonUnitDouble(json['topBarOpacity'], 0),
       description: json['description'] as String? ?? '',
       personality: json['personality'] as String? ?? '',
       background: json['background'] as String? ?? '',
@@ -201,6 +217,8 @@ class AppCharacter {
       'bubbleTheme': bubbleTheme.toJson(),
       'roleBubblePresetId': roleBubblePresetId,
       'userBubblePresetId': userBubblePresetId,
+      if (roleBubbleOpacity != null) 'roleBubbleOpacity': roleBubbleOpacity,
+      if (userBubbleOpacity != null) 'userBubbleOpacity': userBubbleOpacity,
       'inputOpacity': inputOpacity,
       'topBarOpacity': topBarOpacity,
       'description': description,

@@ -6,70 +6,40 @@ import 'user_profile.dart';
 
 int _nonNegative(int value) => value < 0 ? 0 : value;
 
+T _enumByName<T extends Enum>(List<T> values, String? name, T fallback) =>
+    values.asNameMap()[name] ?? fallback;
+
 enum TheaterRoleSource {
-  appCharacter('appCharacter'),
-  novelRole('novelRole');
+  appCharacter,
+  novelRole;
 
-  const TheaterRoleSource(this.id);
-
-  final String id;
-
-  static TheaterRoleSource fromId(String? id) {
-    return values.firstWhere(
-      (value) => value.id == id,
-      orElse: () => TheaterRoleSource.appCharacter,
-    );
-  }
+  static TheaterRoleSource fromId(String? id) =>
+      _enumByName(values, id, appCharacter);
 }
 
 enum TheaterApiMode {
-  singleApi('singleApi'),
-  multiApi('multiApi');
+  singleApi,
+  multiApi;
 
-  const TheaterApiMode(this.id);
-
-  final String id;
-
-  static TheaterApiMode fromId(String? id) {
-    return values.firstWhere(
-      (value) => value.id == id,
-      orElse: () => TheaterApiMode.singleApi,
-    );
-  }
+  static TheaterApiMode fromId(String? id) =>
+      _enumByName(values, id, singleApi);
 }
 
 enum TheaterMultiApiReplyMode {
-  randomSequential('randomSequential'),
-  parallel('parallel'),
-  turnBased('turnBased');
+  randomSequential,
+  parallel,
+  turnBased;
 
-  const TheaterMultiApiReplyMode(this.id);
-
-  final String id;
-
-  static TheaterMultiApiReplyMode fromId(String? id) {
-    return values.firstWhere(
-      (value) => value.id == id,
-      orElse: () => TheaterMultiApiReplyMode.turnBased,
-    );
-  }
+  static TheaterMultiApiReplyMode fromId(String? id) =>
+      _enumByName(values, id, turnBased);
 }
 
 enum TheaterSpeakerType {
-  user('user'),
-  role('role'),
-  system('system');
+  user,
+  role,
+  system;
 
-  const TheaterSpeakerType(this.id);
-
-  final String id;
-
-  static TheaterSpeakerType fromId(String? id) {
-    return values.firstWhere(
-      (value) => value.id == id,
-      orElse: () => TheaterSpeakerType.role,
-    );
-  }
+  static TheaterSpeakerType fromId(String? id) => _enumByName(values, id, role);
 }
 
 enum TheaterGenerationIntent { userReply, continueConversation }
@@ -238,7 +208,7 @@ class TheaterParticipant {
   Map<String, dynamic> toJson() {
     return {
       'id': id,
-      'source': source.id,
+      'source': source.name,
       'sourceNovelId': sourceNovelId,
       'sourceNovelTitle': sourceNovelTitle,
       'sourceRoleId': sourceRoleId,
@@ -294,6 +264,8 @@ class TheaterSession {
     this.bubbleTheme = ChatBubbleTheme.theaterDefault,
     this.roleBubblePresetId = '',
     this.userBubblePresetId = '',
+    this.roleBubbleOpacity,
+    this.userBubbleOpacity,
     this.inputOpacity = 0.92,
     this.topBarOpacity = 0,
     this.isHidden = false,
@@ -324,6 +296,8 @@ class TheaterSession {
   final ChatBubbleTheme bubbleTheme;
   final String roleBubblePresetId;
   final String userBubblePresetId;
+  final double? roleBubbleOpacity;
+  final double? userBubbleOpacity;
   final double inputOpacity;
   final double topBarOpacity;
   final bool isHidden;
@@ -347,17 +321,15 @@ class TheaterSession {
 
   DateTime get lastOpenedSortTime => lastOpenedAt ?? updatedAt;
 
-  List<TheaterParticipant> get enabledParticipants =>
-      participants.where((participant) => participant.enabled).toList();
-
-  List<TheaterParticipant> get allAiParticipants => enabledParticipants
-      .where((participant) => participant.id != userParticipantId)
+  List<TheaterParticipant> get allAiParticipants => participants
+      .where(
+        (participant) =>
+            participant.enabled && participant.id != userParticipantId,
+      )
       .toList();
 
-  List<TheaterParticipant> get activeAiParticipants =>
+  List<TheaterParticipant> get aiParticipants =>
       allAiParticipants.where((participant) => !participant.isMuted).toList();
-
-  List<TheaterParticipant> get aiParticipants => activeAiParticipants;
 
   TheaterParticipant? get userParticipant => userParticipantId.isEmpty
       ? null
@@ -365,7 +337,7 @@ class TheaterSession {
             .where((participant) => participant.id == userParticipantId)
             .firstOrNull;
 
-  int get participantUnitCount => 1 + activeAiParticipants.length;
+  int get participantUnitCount => 1 + aiParticipants.length;
 
   int get recentMessageLimit => participantUnitCount * keepRoundCount;
 
@@ -380,6 +352,10 @@ class TheaterSession {
     ChatBubbleTheme? bubbleTheme,
     String? roleBubblePresetId,
     String? userBubblePresetId,
+    double? roleBubbleOpacity,
+    double? userBubbleOpacity,
+    bool clearRoleBubbleOpacity = false,
+    bool clearUserBubbleOpacity = false,
     double? inputOpacity,
     double? topBarOpacity,
     bool? isHidden,
@@ -414,6 +390,12 @@ class TheaterSession {
       bubbleTheme: bubbleTheme ?? this.bubbleTheme,
       roleBubblePresetId: roleBubblePresetId ?? this.roleBubblePresetId,
       userBubblePresetId: userBubblePresetId ?? this.userBubblePresetId,
+      roleBubbleOpacity: clearRoleBubbleOpacity
+          ? null
+          : roleBubbleOpacity ?? this.roleBubbleOpacity,
+      userBubbleOpacity: clearUserBubbleOpacity
+          ? null
+          : userBubbleOpacity ?? this.userBubbleOpacity,
       inputOpacity: inputOpacity ?? this.inputOpacity,
       topBarOpacity: topBarOpacity ?? this.topBarOpacity,
       isHidden: isHidden ?? this.isHidden,
@@ -449,16 +431,18 @@ class TheaterSession {
       backgroundImageRegion: ImageCropRegion.fromJson(
         json['backgroundImageRegion'],
       ),
-      backgroundImageOpacity: jsonDouble(json['backgroundImageOpacity'], 1),
-      backgroundBlur: jsonDouble(json['backgroundBlur'], 0),
+      backgroundImageOpacity: jsonUnitDouble(json['backgroundImageOpacity'], 1),
+      backgroundBlur: jsonNonNegativeDouble(json['backgroundBlur'], 0),
       bubbleTheme: ChatBubbleTheme.fromJson(
         json['bubbleTheme'],
         defaultOpacity: 0.94,
       ),
       roleBubblePresetId: json['roleBubblePresetId'] as String? ?? '',
       userBubblePresetId: json['userBubblePresetId'] as String? ?? '',
-      inputOpacity: jsonDouble(json['inputOpacity'], 0.92),
-      topBarOpacity: jsonDouble(json['topBarOpacity'], 0),
+      roleBubbleOpacity: jsonNullableUnitDouble(json['roleBubbleOpacity']),
+      userBubbleOpacity: jsonNullableUnitDouble(json['userBubbleOpacity']),
+      inputOpacity: jsonUnitDouble(json['inputOpacity'], 0.92),
+      topBarOpacity: jsonUnitDouble(json['topBarOpacity'], 0),
       isHidden: json['isHidden'] as bool? ?? false,
       isLocked: json['isLocked'] as bool? ?? false,
       boundNovelId: json['boundNovelId'] as String? ?? '',
@@ -500,14 +484,16 @@ class TheaterSession {
       'bubbleTheme': bubbleTheme.toJson(),
       'roleBubblePresetId': roleBubblePresetId,
       'userBubblePresetId': userBubblePresetId,
+      if (roleBubbleOpacity != null) 'roleBubbleOpacity': roleBubbleOpacity,
+      if (userBubbleOpacity != null) 'userBubbleOpacity': userBubbleOpacity,
       'inputOpacity': inputOpacity,
       'topBarOpacity': topBarOpacity,
       'isHidden': isHidden,
       'isLocked': isLocked,
       'boundNovelId': boundNovelId,
       'boundNovelTitle': boundNovelTitle,
-      'apiMode': apiMode.id,
-      'multiApiReplyMode': multiApiReplyMode.id,
+      'apiMode': apiMode.name,
+      'multiApiReplyMode': multiApiReplyMode.name,
       'singleEndpointId': singleEndpointId,
       'userParticipantId': userParticipantId,
       'keepRoundCount': keepRoundCount,
@@ -604,7 +590,7 @@ class TheaterMessage {
       'id': id,
       'sessionId': sessionId,
       'round': round,
-      'speakerType': speakerType.id,
+      'speakerType': speakerType.name,
       'speakerId': speakerId,
       'speakerName': speakerName,
       'content': content,

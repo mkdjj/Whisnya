@@ -33,12 +33,18 @@ class PasswordLock {
       final parts = expectedHash.split(':');
       if (parts.length != 3) return false;
       final iterations = int.tryParse(parts[1]);
-      if (iterations == null || iterations <= 0) return false;
-      final expected = base64Url.decode(parts[2]);
+      if (iterations != _iterations) return false;
+      late final List<int> expected;
+      try {
+        expected = base64Url.decode(parts[2]);
+      } on FormatException {
+        return false;
+      }
+      if (expected.length != _keyLength) return false;
       final actual = _pbkdf2(
         utf8.encode(value.trim()),
         utf8.encode(salt),
-        iterations,
+        _iterations,
         expected.length,
       );
       return _constantTimeEquals(actual, expected);
@@ -49,8 +55,11 @@ class PasswordLock {
   }
 
   static bool needsRehash(String expectedHash) {
-    return expectedHash.isNotEmpty &&
-        !expectedHash.startsWith('$_pbkdf2Prefix:');
+    if (expectedHash.isEmpty) return false;
+    final parts = expectedHash.split(':');
+    return parts.length != 3 ||
+        parts.first != _pbkdf2Prefix ||
+        int.tryParse(parts[1]) != _iterations;
   }
 
   static String normalizeAnswer(String value) {

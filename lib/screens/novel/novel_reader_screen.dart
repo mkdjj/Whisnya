@@ -4,14 +4,12 @@ class NovelReaderScreen extends StatefulWidget {
   const NovelReaderScreen({
     required this.storage,
     required this.aiService,
-    required this.settings,
     required this.book,
     super.key,
   });
 
   final LocalStorageService storage;
   final AiService aiService;
-  final AppSettings settings;
   final NovelBook book;
 
   @override
@@ -133,14 +131,9 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
         ? cached
         : NovelSummaryCache(
             novelId: _book.id,
-            selectedChunkIndexes: [
-              for (var index = 0; index < chunks.length; index++) index,
-            ],
             selectedChunks: chunks,
             completedSummaries: const [],
             currentIndex: 0,
-            endpointId: endpoint.id,
-            updatedAt: DateTime.now(),
           );
     final summaryService = NovelSummaryService(widget.storage);
     await summaryService.saveCache(cache);
@@ -150,7 +143,7 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
     final cancelToken = AiCancelToken();
     _cancelToken = cancelToken;
     Future<String> streamText(List<Map<String, String>> messages) async {
-      var text = '';
+      final text = StringBuffer();
       await for (final chunk in widget.aiService.streamMessage(
         apiKey: endpoint.apiKey,
         baseUrl: endpoint.baseUrl,
@@ -167,12 +160,13 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
           ),
         ),
       )) {
-        text += chunk;
+        text.write(chunk);
       }
-      if (text.trim().isEmpty) {
+      final result = text.toString();
+      if (result.trim().isEmpty) {
         throw AiException('API 没有返回可用回复。');
       }
-      return text;
+      return result;
     }
 
     final useEnglish = context.isEnglish;
@@ -200,7 +194,6 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
         cache = cache.copyWith(
           completedSummaries: summaries,
           currentIndex: i + 1,
-          updatedAt: DateTime.now(),
         );
         await summaryService.saveCache(cache);
         _summaryCache = cache;
@@ -831,11 +824,8 @@ ${role.speakingStyle}
     if (!mounted) return;
     final session = await Navigator.of(context).push<TheaterSession>(
       MaterialPageRoute(
-        builder: (_) => TheaterEditScreen(
-          storage: widget.storage,
-          aiService: widget.aiService,
-          session: draft,
-        ),
+        builder: (_) =>
+            TheaterEditScreen(storage: widget.storage, session: draft),
       ),
     );
     if (session != null && mounted) {

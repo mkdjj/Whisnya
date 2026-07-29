@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whisnya/models/app_character.dart';
+import 'package:whisnya/models/app_settings.dart';
 import 'package:whisnya/models/chat_bubble_theme.dart';
 import 'package:whisnya/models/theater.dart';
 
@@ -82,24 +83,92 @@ void main() {
       'id': 'c',
       'roleBubblePresetId': 'role-preset',
       'userBubblePresetId': 'user-preset',
+      'roleBubbleOpacity': 0.3,
+      'userBubbleOpacity': 0.4,
     });
     final theater = TheaterSession.fromJson({
       'id': 't',
       'roleBubblePresetId': 'theater-role',
       'userBubblePresetId': 'theater-user',
+      'roleBubbleOpacity': 0.5,
+      'userBubbleOpacity': 0.6,
     });
 
     expect(character.roleBubblePresetId, 'role-preset');
     expect(character.userBubblePresetId, 'user-preset');
+    expect(character.roleBubbleOpacity, 0.3);
+    expect(character.userBubbleOpacity, 0.4);
     expect(
       AppCharacter.fromJson(character.toJson()).roleBubblePresetId,
       'role-preset',
     );
     expect(theater.roleBubblePresetId, 'theater-role');
     expect(theater.userBubblePresetId, 'theater-user');
+    expect(theater.roleBubbleOpacity, 0.5);
+    expect(theater.userBubbleOpacity, 0.6);
     expect(
       TheaterSession.fromJson(theater.toJson()).userBubblePresetId,
       'theater-user',
     );
+  });
+
+  test('character and theater can clear bubble opacity overrides', () {
+    final character = AppCharacter.fromJson({
+      'id': 'c',
+      'roleBubbleOpacity': 0.3,
+      'userBubbleOpacity': 0.4,
+    }).copyWith(clearRoleBubbleOpacity: true, clearUserBubbleOpacity: true);
+    final theater = TheaterSession.fromJson({
+      'id': 't',
+      'roleBubbleOpacity': 0.5,
+      'userBubbleOpacity': 0.6,
+    }).copyWith(clearRoleBubbleOpacity: true, clearUserBubbleOpacity: true);
+
+    expect(character.roleBubbleOpacity, isNull);
+    expect(character.userBubbleOpacity, isNull);
+    expect(theater.roleBubbleOpacity, isNull);
+    expect(theater.userBubbleOpacity, isNull);
+  });
+
+  test('stored opacity and blur values are clamped', () {
+    final character = AppCharacter.fromJson({
+      'id': 'c',
+      'backgroundImageOpacity': -1,
+      'backgroundBlur': -2,
+      'inputOpacity': 2,
+      'topBarOpacity': 2,
+    });
+    final theater = TheaterSession.fromJson({
+      'id': 't',
+      'backgroundImageOpacity': 2,
+      'backgroundBlur': -2,
+      'inputOpacity': -1,
+      'topBarOpacity': -1,
+    });
+    final settings = AppSettings.fromJson({
+      'globalBackgroundOpacity': 2,
+      'globalBackgroundBlur': -2,
+    });
+
+    expect(
+      [
+        character.backgroundImageOpacity,
+        character.backgroundBlur,
+        character.inputOpacity,
+        character.topBarOpacity,
+      ],
+      [0, 0, 1, 1],
+    );
+    expect(
+      [
+        theater.backgroundImageOpacity,
+        theater.backgroundBlur,
+        theater.inputOpacity,
+        theater.topBarOpacity,
+      ],
+      [1, 0, 0, 0],
+    );
+    expect(settings.globalBackgroundOpacity, 1);
+    expect(settings.globalBackgroundBlur, 0);
   });
 }

@@ -3,7 +3,6 @@ class ChatMessage {
     required this.role,
     required this.content,
     required this.time,
-    this.provider,
     this.endpointId,
     this.endpointName,
     this.model,
@@ -12,7 +11,6 @@ class ChatMessage {
   final String role;
   final String content;
   final DateTime time;
-  final String? provider;
   final String? endpointId;
   final String? endpointName;
   final String? model;
@@ -24,7 +22,6 @@ class ChatMessage {
     String? role,
     String? content,
     DateTime? time,
-    String? provider,
     String? endpointId,
     String? endpointName,
     String? model,
@@ -33,7 +30,6 @@ class ChatMessage {
       role: role ?? this.role,
       content: content ?? this.content,
       time: time ?? this.time,
-      provider: provider ?? this.provider,
       endpointId: endpointId ?? this.endpointId,
       endpointName: endpointName ?? this.endpointName,
       model: model ?? this.model,
@@ -45,7 +41,6 @@ class ChatMessage {
       role: json['role'] as String? ?? 'user',
       content: json['content'] as String? ?? '',
       time: DateTime.tryParse(json['time'] as String? ?? '') ?? DateTime.now(),
-      provider: json['provider'] as String?,
       endpointId: json['endpointId'] as String? ?? json['provider'] as String?,
       endpointName: json['endpointName'] as String?,
       model: json['model'] as String?,
@@ -57,7 +52,6 @@ class ChatMessage {
       'role': role,
       'content': content,
       'time': time.toIso8601String(),
-      if (provider != null) 'provider': provider,
       if (endpointId != null) 'endpointId': endpointId,
       if (endpointName != null) 'endpointName': endpointName,
       if (model != null) 'model': model,

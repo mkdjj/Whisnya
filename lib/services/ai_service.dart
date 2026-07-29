@@ -5,13 +5,21 @@ import 'ai/ai_gateway.dart';
 import 'ai/ai_conversation_runner.dart';
 
 export '../models/ai_usage.dart' show AiUsage;
-export 'ai/ai_conversation_runner.dart' show AiCancelToken, AiException;
+export 'ai/ai_conversation_runner.dart'
+    show AiCancelToken, AiException, selectAutomaticModel;
 
 class AiService implements AiGateway {
   AiService({http.Client? client})
     : _runner = AiConversationRunner(client: client);
 
   final AiConversationRunner _runner;
+
+  Future<List<String>> listModels({
+    required String apiKey,
+    required String baseUrl,
+  }) {
+    return _runner.listModels(apiKey: apiKey, baseUrl: baseUrl);
+  }
 
   @override
   Future<String> sendMessage({

@@ -52,7 +52,9 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
   }
 
   Future<void> _saveConfig(ApiConfig config, [String? message]) async {
-    await widget.storage.saveApiConfig(config);
+    if (!await context.tryAction(() => widget.storage.saveApiConfig(config))) {
+      return;
+    }
     if (!mounted) return;
     setState(() => _config = config);
     if (message != null) context.showSnack(message);
@@ -173,12 +175,11 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                TextField(
-                  controller: modelController,
-                  decoration: const InputDecoration(
-                    labelText: 'Model',
-                    hintText: 'deepseek-chat / gpt-4o-mini',
-                  ),
+                _ModelPicker(
+                  aiService: widget.aiService,
+                  apiKeyController: apiKeyController,
+                  baseUrlController: baseUrlController,
+                  modelController: modelController,
                 ),
                 const SizedBox(height: 8),
                 SwitchListTile(
@@ -222,10 +223,6 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
       ),
     );
 
-    nameController.dispose();
-    apiKeyController.dispose();
-    baseUrlController.dispose();
-    modelController.dispose();
     return saved;
   }
 
@@ -584,5 +581,161 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
     }
   }
 }
+
+class _ModelPicker extends StatefulWidget {
+  const _ModelPicker({
+    required this.aiService,
+    required this.apiKeyController,
+    required this.baseUrlController,
+    required this.modelController,
+  });
+
+  final AiService aiService;
+  final TextEditingController apiKeyController;
+  final TextEditingController baseUrlController;
+  final TextEditingController modelController;
+
+  @override
+  State<_ModelPicker> createState() => _ModelPickerState();
+}
+
+class _ModelPickerState extends State<_ModelPicker> {
+  Timer? _timer;
+  List<String>? _models;
+  String? _automaticModel;
+  String? _error;
+  late String _selected;
+  var _loading = false;
+  var _requestId = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = widget.modelController.text.trim().isEmpty
+        ? _autoModelValue
+        : _manualModelValue;
+    widget.apiKeyController.addListener(_schedule);
+    widget.baseUrlController.addListener(_schedule);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _schedule());
+  }
+
+  void _schedule() {
+    _timer?.cancel();
+    final requestId = ++_requestId;
+    final apiKey = widget.apiKeyController.text.trim();
+    final baseUrl = widget.baseUrlController.text.trim();
+    if (!mounted) return;
+    setState(() {
+      _models = null;
+      _automaticModel = null;
+      _error = null;
+      _loading = false;
+    });
+    if (apiKey.isEmpty || baseUrl.isEmpty) return;
+    _timer = Timer(
+      const Duration(milliseconds: 600),
+      () => _load(requestId, apiKey, baseUrl),
+    );
+  }
+
+  Future<void> _load(int requestId, String apiKey, String baseUrl) async {
+    if (!mounted) return;
+    setState(() => _loading = true);
+    try {
+      final models = await widget.aiService.listModels(
+        apiKey: apiKey,
+        baseUrl: baseUrl,
+      );
+      final automatic = selectAutomaticModel(models)!;
+      if (!mounted || requestId != _requestId) return;
+      final current = widget.modelController.text.trim();
+      setState(() {
+        _models = models;
+        _automaticModel = automatic;
+        _loading = false;
+        if (_selected == _autoModelValue || current.isEmpty) {
+          _selected = _autoModelValue;
+          widget.modelController.text = automatic;
+        } else {
+          _selected = models.contains(current) ? current : _manualModelValue;
+        }
+      });
+    } catch (error) {
+      if (!mounted || requestId != _requestId) return;
+      setState(() {
+        _selected = _manualModelValue;
+        _error = error.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    widget.apiKeyController.removeListener(_schedule);
+    widget.baseUrlController.removeListener(_schedule);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final models = _models;
+    if (models == null || _automaticModel == null) return _manualField();
+    final dropdown = DropdownButtonFormField<String>(
+      key: ValueKey(_selected),
+      initialValue: _selected,
+      isExpanded: true,
+      decoration: const InputDecoration(labelText: 'Model'),
+      items: [
+        DropdownMenuItem(
+          value: _autoModelValue,
+          child: Text('${context.t('自动选择')}（$_automaticModel）'),
+        ),
+        for (final model in models)
+          DropdownMenuItem(value: model, child: Text(model)),
+        DropdownMenuItem(
+          value: _manualModelValue,
+          child: Text(context.t('手动填写')),
+        ),
+      ],
+      onChanged: (value) {
+        if (value == null) return;
+        setState(() {
+          _selected = value;
+          if (value == _autoModelValue) {
+            widget.modelController.text = _automaticModel!;
+          } else if (value != _manualModelValue) {
+            widget.modelController.text = value;
+          }
+        });
+      },
+    );
+    if (_selected != _manualModelValue) return dropdown;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [dropdown, const SizedBox(height: 8), _manualField()],
+    );
+  }
+
+  Widget _manualField() {
+    return TextField(
+      controller: widget.modelController,
+      decoration: InputDecoration(
+        labelText: 'Model',
+        hintText: 'deepseek-chat / gpt-4o-mini',
+        helperText: _loading
+            ? context.t('正在获取模型…')
+            : _error == null
+            ? context.t('填写 URL 和 API Key 后自动获取模型')
+            : null,
+        errorText: _error,
+      ),
+    );
+  }
+}
+
+const _autoModelValue = '\u0000auto';
+const _manualModelValue = '\u0000manual';
 
 enum _EndpointAction { edit, duplicate, setDefault, toggle, delete }

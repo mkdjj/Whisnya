@@ -8,16 +8,33 @@ import 'package:whisnya/models/chat_message.dart';
 import 'package:whisnya/models/chat_summary.dart';
 import 'package:whisnya/models/novel_book.dart';
 import 'package:whisnya/models/theater.dart';
+import 'package:whisnya/main.dart';
 import 'package:whisnya/screens/chat/chat_screen.dart';
 import 'package:whisnya/screens/home_screen.dart';
 import 'package:whisnya/screens/novel/novel_screens.dart';
 import 'package:whisnya/screens/settings_screen.dart';
 import 'package:whisnya/screens/theater/theater_screens.dart';
-import 'package:whisnya/services/ai/ai_gateway.dart';
 import 'package:whisnya/services/ai_service.dart';
 import 'package:whisnya/services/local_storage_service.dart';
 
 void main() {
+  testWidgets('app keeps default settings when startup settings fail', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      WhisnyaApp(
+        storage: _TrackingStorage(failLoadSettings: true),
+        aiService: AiService(
+          client: MockClient((request) async => throw UnimplementedError()),
+        ),
+      ),
+    );
+    await _pumpFrames(tester);
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(HomeScreen), findsOneWidget);
+  });
+
   testWidgets('home mounts tabs on first visit and keeps them mounted', (
     tester,
   ) async {
@@ -50,26 +67,38 @@ void main() {
     expect(find.byType(NovelScreen, skipOffstage: false), findsOneWidget);
   });
 
-  testWidgets('chat marks a character used once when opened', (tester) async {
-    final storage = _TrackingStorage();
+  testWidgets('home saves and passes a fresh last-used time to chat', (
+    tester,
+  ) async {
     final character = AppCharacter.fromJson({
       'id': 'character',
       'name': 'Character',
+      'lastUsedAt': DateTime(2020).toIso8601String(),
     });
+    final storage = _TrackingStorage(characters: [character]);
 
     await tester.pumpWidget(
       MaterialApp(
-        home: ChatScreen(
+        home: HomeScreen(
           storage: storage,
-          aiService: _FakeGateway(),
-          character: character,
+          aiService: AiService(
+            client: MockClient((request) async => throw UnimplementedError()),
+          ),
           settings: const AppSettings(),
+          onSettingsChanged: () async {},
         ),
       ),
     );
     await _pumpFrames(tester);
 
-    expect(storage.markCharacterUsedCalls, 1);
+    await tester.tap(find.byKey(const ValueKey('character-card-character')));
+    await _pumpFrames(tester);
+
+    expect(storage.savedCharacter?.lastUsedAt, isNot(DateTime(2020)));
+    expect(
+      tester.widget<ChatScreen>(find.byType(ChatScreen)).character.lastUsedAt,
+      storage.savedCharacter?.lastUsedAt,
+    );
   });
 
   for (final entry in const [(0.0, 0), (0.5, 128), (1.0, 255)]) {
@@ -193,13 +222,15 @@ final class _TrackingStorage extends LocalStorageService {
     this.characters = const [],
     this.novels = const [],
     this.theaterSessions = const [],
+    this.failLoadSettings = false,
   }) : super();
 
   final List<AppCharacter> characters;
   final List<NovelBook> novels;
   final List<TheaterSession> theaterSessions;
+  final bool failLoadSettings;
 
-  var markCharacterUsedCalls = 0;
+  AppCharacter? savedCharacter;
 
   @override
   Future<void> ensureReady() async {}
@@ -217,7 +248,10 @@ final class _TrackingStorage extends LocalStorageService {
   Future<List<TheaterSession>> loadTheaterSessions() async => theaterSessions;
 
   @override
-  Future<AppSettings> loadSettings() async => const AppSettings();
+  Future<AppSettings> loadSettings() async {
+    if (failLoadSettings) throw StateError('settings failed');
+    return const AppSettings();
+  }
 
   @override
   Future<ApiConfig> loadApiConfig() async => ApiConfig();
@@ -230,32 +264,6 @@ final class _TrackingStorage extends LocalStorageService {
   Future<List<ChatMessage>> loadChat(String characterId) async => const [];
 
   @override
-  Future<void> markCharacterUsed(String characterId) async {
-    markCharacterUsedCalls++;
-  }
-}
-
-final class _FakeGateway implements AiGateway {
-  @override
-  Future<String> sendMessage({
-    required String apiKey,
-    required String baseUrl,
-    required String model,
-    required List<Map<String, String>> messages,
-    double temperature = 0.8,
-    AiCancelToken? cancelToken,
-    void Function(AiUsage usage)? onUsage,
-  }) async => '';
-
-  @override
-  Stream<String> streamMessage({
-    required String apiKey,
-    required String baseUrl,
-    required String model,
-    required List<Map<String, String>> messages,
-    double temperature = 0.8,
-    AiCancelToken? cancelToken,
-    bool includeReasoning = false,
-    void Function(AiUsage usage)? onUsage,
-  }) => const Stream.empty();
+  Future<void> saveCharacter(AppCharacter character) async =>
+      savedCharacter = character;
 }

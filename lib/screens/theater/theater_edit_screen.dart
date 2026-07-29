@@ -3,14 +3,12 @@ part of 'theater_screens.dart';
 class TheaterEditScreen extends StatefulWidget {
   const TheaterEditScreen({
     required this.storage,
-    required this.aiService,
     this.session,
     this.initialUserProfile,
     super.key,
   });
 
   final LocalStorageService storage;
-  final AiGateway aiService;
   final TheaterSession? session;
   final UserProfile? initialUserProfile;
 
@@ -24,7 +22,6 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
   var _characters = <AppCharacter>[];
   var _novels = <NovelBook>[];
   var _apiConfig = ApiConfig();
-  var _bubblePresets = const ChatBubblePresetSettings();
   var _selectedParticipants = <TheaterParticipant>[];
   var _boundNovelId = '';
   var _avatar = '';
@@ -46,6 +43,7 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
   var _extraReplyMode = 0;
   var _useCustomRounds = false;
   var _isLoading = true;
+  String? _loadError;
   var _isSaving = false;
   var _speakerSequenceChanged = false;
 
@@ -113,27 +111,37 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
   }
 
   Future<void> _load() async {
-    final values = await Future.wait([
-      widget.storage.loadCharacters(),
-      widget.storage.loadNovels(),
-      widget.storage.loadApiConfig(),
-      widget.storage.loadChatBubblePresets(),
-    ]);
-    if (!mounted) return;
     setState(() {
-      _characters = values[0] as List<AppCharacter>;
-      _novels = values[1] as List<NovelBook>;
-      _apiConfig = values[2] as ApiConfig;
-      _bubblePresets = values[3] as ChatBubblePresetSettings;
-      _singleEndpointId = _effectiveEndpointId(_singleEndpointId);
-      _selectedParticipants = [
-        for (final participant in _selectedParticipants)
-          participant.copyWith(
-            endpointId: _effectiveEndpointId(participant.endpointId),
-          ),
-      ];
-      _isLoading = false;
+      _isLoading = true;
+      _loadError = null;
     });
+    try {
+      final (characters, novels, apiConfig) = await (
+        widget.storage.loadCharacters(),
+        widget.storage.loadNovels(),
+        widget.storage.loadApiConfig(),
+      ).wait;
+      if (!mounted) return;
+      setState(() {
+        _characters = characters;
+        _novels = novels;
+        _apiConfig = apiConfig;
+        _singleEndpointId = _effectiveEndpointId(_singleEndpointId);
+        _selectedParticipants = [
+          for (final participant in _selectedParticipants)
+            participant.copyWith(
+              endpointId: _effectiveEndpointId(participant.endpointId),
+            ),
+        ];
+        _isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loadError = error.toString();
+        _isLoading = false;
+      });
+    }
   }
 
   String _effectiveEndpointId(String requested) {
@@ -356,6 +364,8 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
       bubbleTheme: _bubbleTheme,
       roleBubblePresetId: _roleBubblePresetId,
       userBubblePresetId: _userBubblePresetId,
+      roleBubbleOpacity: old?.roleBubbleOpacity,
+      userBubbleOpacity: old?.userBubbleOpacity,
       inputOpacity: _inputOpacity,
       topBarOpacity: _topBarOpacity,
       boundNovelId: book?.id ?? '',
@@ -479,6 +489,11 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (_loadError != null) {
+      return Scaffold(
+        body: PageStatusView.error(message: _loadError!, onRetry: _load),
+      );
     }
     final book = _boundNovel;
     return Scaffold(
@@ -825,14 +840,12 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
         ChatBubblePresetSelectionTile(
           title: 'AI 共用气泡',
           presetId: _roleBubblePresetId,
-          presets: _bubblePresets,
           isUser: false,
           onChanged: (value) => setState(() => _roleBubblePresetId = value),
         ),
         ChatBubblePresetSelectionTile(
           title: '我的气泡',
           presetId: _userBubblePresetId,
-          presets: _bubblePresets,
           isUser: true,
           onChanged: (value) => setState(() => _userBubblePresetId = value),
         ),

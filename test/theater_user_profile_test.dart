@@ -1,14 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:http/testing.dart';
 import 'package:whisnya/models/api_config.dart';
 import 'package:whisnya/models/app_character.dart';
-import 'package:whisnya/models/chat_bubble_preset.dart';
 import 'package:whisnya/models/novel_book.dart';
 import 'package:whisnya/models/theater.dart';
 import 'package:whisnya/models/user_profile.dart';
 import 'package:whisnya/screens/theater/theater_screens.dart';
-import 'package:whisnya/services/ai_service.dart';
 import 'package:whisnya/services/local_storage_service.dart';
 
 void main() {
@@ -19,7 +16,6 @@ void main() {
       MaterialApp(
         home: TheaterEditScreen(
           storage: _Storage(),
-          aiService: _aiService(),
           initialUserProfile: const UserProfile(name: '小明'),
         ),
       ),
@@ -40,7 +36,6 @@ void main() {
       MaterialApp(
         home: TheaterEditScreen(
           storage: _Storage(),
-          aiService: _aiService(),
           session: TheaterSession(
             id: 'theater',
             title: '群聊',
@@ -89,7 +84,6 @@ void main() {
       MaterialApp(
         home: TheaterEditScreen(
           storage: _Storage(),
-          aiService: _aiService(),
           session: TheaterSession(
             id: 'theater',
             title: '群聊',
@@ -122,15 +116,7 @@ void main() {
   });
 }
 
-AiService _aiService() => AiService(
-  client: MockClient((request) async => throw UnimplementedError()),
-);
-
 final class _Storage extends LocalStorageService {
-  @override
-  Future<ChatBubblePresetSettings> loadChatBubblePresets() async =>
-      const ChatBubblePresetSettings();
-
   @override
   Future<List<AppCharacter>> loadCharacters() async => const [];
 

@@ -42,7 +42,7 @@ Future<String?> showTextInputDialog({
   bool clearOnCancel = false,
   bool emptyIsNull = false,
 }) {
-  final controller = TextEditingController(text: initialText);
+  var value = initialText;
   void finish(BuildContext dialogContext, String value) {
     final text = value.trim();
     Navigator.of(dialogContext).pop(emptyIsNull && text.isEmpty ? null : text);
@@ -52,8 +52,8 @@ Future<String?> showTextInputDialog({
     context: context,
     builder: (dialogContext) => AlertDialog(
       title: Text(dialogContext.t(title)),
-      content: TextField(
-        controller: controller,
+      content: TextFormField(
+        initialValue: initialText,
         autofocus: true,
         minLines: minLines,
         maxLines: maxLines,
@@ -62,7 +62,8 @@ Future<String?> showTextInputDialog({
           hintText: hint == null ? null : dialogContext.t(hint),
           prefixIcon: prefixIcon == null ? null : Icon(prefixIcon),
         ),
-        onSubmitted: maxLines == 1
+        onChanged: (text) => value = text,
+        onFieldSubmitted: maxLines == 1
             ? (value) => finish(dialogContext, value)
             : null,
       ),
@@ -73,10 +74,10 @@ Future<String?> showTextInputDialog({
           child: Text(dialogContext.t(cancelLabel)),
         ),
         FilledButton(
-          onPressed: () => finish(dialogContext, controller.text),
+          onPressed: () => finish(dialogContext, value),
           child: Text(dialogContext.t(confirmLabel)),
         ),
       ],
     ),
-  ).whenComplete(controller.dispose);
+  );
 }

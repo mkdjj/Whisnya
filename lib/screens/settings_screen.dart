@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models/app_settings.dart';
@@ -21,7 +21,6 @@ import '../utils/transparency.dart';
 import '../widgets/app_background.dart';
 import '../widgets/color_picker_dialog.dart';
 import 'api_settings_screen.dart';
-import 'chat_bubble_preset_screen.dart';
 import 'image_crop_screen.dart';
 import 'user_profile_edit_screen.dart';
 
@@ -63,10 +62,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _applySettings(AppSettings settings) {
     setState(() => _settings = settings);
-    unawaited(() async {
+    unawaited(_saveSettings(settings));
+  }
+
+  Future<void> _saveSettings(AppSettings settings) async {
+    try {
       await widget.storage.saveSettings(settings);
       await widget.onSettingsChanged();
-    }());
+    } catch (error) {
+      if (mounted) context.showSnack(error.toString());
+    }
   }
 
   void _previewSettings(AppSettings settings) {
@@ -94,16 +99,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
     );
-    if (profile != null) {
+    if (profile != null && mounted) {
       _applySettings(_settings.copyWith(userProfile: profile));
     }
   }
-
-  Future<void> _openChatBubblePresets() => Navigator.of(context).push(
-    MaterialPageRoute<void>(
-      builder: (_) => ChatBubblePresetScreen(storage: widget.storage),
-    ),
-  );
 
   Future<void> _pickBackground() async {
     final picked = await pickImage(widget.storage);
@@ -127,15 +126,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
     );
-    if (selection == null) {
-      return;
-    }
+    if (selection == null || !mounted) return;
 
     final path = await widget.storage.saveMediaImage(
       folder: 'global',
       characterId: 'app',
       bytes: picked.bytes ?? await File(sourcePath).readAsBytes(),
     );
+    if (!mounted) return;
     _applySettings(
       _settings.copyWith(
         globalBackgroundImage: path,
@@ -694,31 +692,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return '${now.year}${two(now.month)}${two(now.day)}_${two(now.hour)}${two(now.minute)}';
   }
 
-  void _setCustomChatSummaryEnabled(bool value) {
+  void _setCustomSummaryEnabled(bool value, {required bool isTheater}) {
+    final items = _summaryItems(isTheater);
+    final nextItems =
+        value && _isDefaultSummaryItems(items, isTheater: isTheater)
+        ? _summaryDefaults(isTheater: isTheater)
+        : items;
     _applySettings(
-      _settings.copyWith(
-        useCustomChatSummaryItems: value,
-        customChatSummaryItems:
-            value && _isDefaultSummaryItems(_settings.customChatSummaryItems)
-            ? _summaryDefaults(isTheater: false)
-            : _settings.customChatSummaryItems,
-      ),
-    );
-  }
-
-  void _setCustomTheaterSummaryEnabled(bool value) {
-    _applySettings(
-      _settings.copyWith(
-        useCustomTheaterSummaryItems: value,
-        customTheaterSummaryItems:
-            value &&
-                _isDefaultSummaryItems(
-                  _settings.customTheaterSummaryItems,
-                  isTheater: true,
-                )
-            ? _summaryDefaults(isTheater: true)
-            : _settings.customTheaterSummaryItems,
-      ),
+      isTheater
+          ? _settings.copyWith(
+              useCustomTheaterSummaryItems: value,
+              customTheaterSummaryItems: nextItems,
+            )
+          : _settings.copyWith(
+              useCustomChatSummaryItems: value,
+              customChatSummaryItems: nextItems,
+            ),
     );
   }
 
@@ -800,12 +789,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final en = isTheater
         ? AppSettings.defaultTheaterSummaryItemsEn
         : AppSettings.defaultChatSummaryItemsEn;
-    bool same(List<String> defaults) =>
-        items.length == defaults.length &&
-        Iterable<int>.generate(
-          items.length,
-        ).every((i) => items[i] == defaults[i]);
-    return same(zh) || same(en);
+    return listEquals(items, zh) || listEquals(items, en);
   }
 
   Future<String?> _summaryItemDialog({
@@ -884,12 +868,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onTap: _openThemeSettings,
             ),
             _tile(
-              icon: Icons.chat_bubble_outline,
-              title: context.t('聊天气泡'),
-              subtitle: context.t('创建和管理全局气泡预设'),
-              onTap: _openChatBubblePresets,
-            ),
-            _tile(
               icon: Icons.summarize_outlined,
               title: context.t('聊天总结'),
               subtitle: context.t('配置角色聊天和群聊总结项目'),
@@ -959,7 +937,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         builder: (_) => StatefulBuilder(
           builder: (pageContext, setPageState) {
             void refresh() {
-              if (mounted) setPageState(() {});
+              if (pageContext.mounted) setPageState(() {});
             }
 
             return ColoredBox(
@@ -1104,7 +1082,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: '底部导航栏透明度',
         opacity: _settings.navigationBarOpacity,
         onChanged: (opacity) =>
-            apply(_settings.copyWith(navigationBarOpacity: opacity)),
+            preview(_settings.copyWith(navigationBarOpacity: opacity)),
         onChangeEnd: (opacity) =>
             apply(_settings.copyWith(navigationBarOpacity: opacity)),
       ),
@@ -1144,7 +1122,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         useCustom: _settings.useCustomChatSummaryItems,
         items: _settings.customChatSummaryItems,
         onToggle: (value) {
-          _setCustomChatSummaryEnabled(value);
+          _setCustomSummaryEnabled(value, isTheater: false);
           refresh();
         },
         onAdd: () => refreshLater(_addSummaryItem(isTheater: false)),
@@ -1164,7 +1142,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         useCustom: _settings.useCustomTheaterSummaryItems,
         items: _settings.customTheaterSummaryItems,
         onToggle: (value) {
-          _setCustomTheaterSummaryEnabled(value);
+          _setCustomSummaryEnabled(value, isTheater: true);
           refresh();
         },
         onAdd: () => refreshLater(_addSummaryItem(isTheater: true)),

@@ -23,4 +23,15 @@ void main() {
     expect(PasswordLock.verify('secret', salt, hash), isTrue);
     expect(PasswordLock.verify('wrong', salt, hash), isFalse);
   });
+
+  test('rejects malformed pbkdf2 hashes', () {
+    for (final hash in [
+      'pbkdf2-sha256:1:',
+      'pbkdf2-sha256:120000:not-base64!',
+      'pbkdf2-sha256:999999999:${base64UrlEncode(List.filled(32, 0))}',
+      'pbkdf2-sha256:120000:${base64UrlEncode([0])}',
+    ]) {
+      expect(PasswordLock.verify('anything', 'salt', hash), isFalse);
+    }
+  });
 }

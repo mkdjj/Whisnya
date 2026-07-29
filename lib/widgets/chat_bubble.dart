@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -59,22 +58,14 @@ class ChatBubble extends StatelessWidget {
       style: TextStyle(color: textColor),
       child: Theme(data: bubbleTheme, child: child),
     );
-    final skin = appearance.imageSkin;
-    final bubble = skin != null && !isError
-        ? _ImageSkinBubble(
-            skin: skin,
-            isUser: isUser,
-            fill: base.withValues(alpha: appearance.opacity),
-            content: content,
-            fallback: _buildBubble(context, content, fill, base),
-          )
-        : _buildBubble(context, content, fill, base);
-
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: maxWidth),
-        child: Padding(padding: margin, child: bubble),
+        child: Padding(
+          padding: margin,
+          child: _buildBubble(context, content, fill, base),
+        ),
       ),
     );
   }
@@ -87,15 +78,19 @@ class ChatBubble extends StatelessWidget {
   ) {
     final style = appearance.style;
     final radius = _radius(style);
-    final borderColor = highlighted
+    final opacity = appearance.opacity.clamp(0, 1).toDouble();
+    final rawBorderColor = highlighted
         ? Theme.of(context).colorScheme.primary
         : base.withValues(alpha: 0.62);
+    final borderColor = rawBorderColor.withValues(
+      alpha: rawBorderColor.a * opacity,
+    );
     final border = switch (style) {
       ChatBubbleStyle.outline => Border.all(color: borderColor, width: 1.5),
       ChatBubbleStyle.note => Border.all(color: borderColor, width: 1),
       ChatBubbleStyle.pixel => Border.all(color: borderColor, width: 2),
       ChatBubbleStyle.glass => Border.all(
-        color: borderColor.withValues(alpha: 0.45),
+        color: borderColor.withValues(alpha: borderColor.a * 0.45),
       ),
       _ when highlighted => Border.all(color: borderColor, width: 2),
       _ => null,
@@ -142,21 +137,16 @@ class ChatBubble extends StatelessWidget {
       boxShadow: switch (style) {
         ChatBubbleStyle.note => [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.18 * appearance.opacity),
+            color: Colors.black.withValues(alpha: 0.18 * opacity),
             offset: const Offset(3, 3),
           ),
         ],
         ChatBubbleStyle.pixel => [
-          BoxShadow(
-            color: borderColor.withValues(
-              alpha: borderColor.a * appearance.opacity,
-            ),
-            offset: const Offset(4, 4),
-          ),
+          BoxShadow(color: borderColor, offset: const Offset(4, 4)),
         ],
         ChatBubbleStyle.candy => [
           BoxShadow(
-            color: base.withValues(alpha: 0.25 * appearance.opacity),
+            color: base.withValues(alpha: 0.25 * opacity),
             blurRadius: 12,
             offset: const Offset(0, 5),
           ),
@@ -169,7 +159,7 @@ class ChatBubble extends StatelessWidget {
       decoration: decoration,
       child: Padding(padding: padding, child: content),
     );
-    if (style != ChatBubbleStyle.glass || appearance.opacity == 0) {
+    if (style != ChatBubbleStyle.glass || opacity == 0) {
       return decorated;
     }
     return ClipRRect(
@@ -189,110 +179,6 @@ class ChatBubble extends StatelessWidget {
     ChatBubbleStyle.candy => BorderRadius.circular(24),
     _ => BorderRadius.circular(16),
   };
-}
-
-class _ImageSkinBubble extends StatefulWidget {
-  const _ImageSkinBubble({
-    required this.skin,
-    required this.isUser,
-    required this.fill,
-    required this.content,
-    required this.fallback,
-  });
-
-  final ChatBubbleImageSkin skin;
-  final bool isUser;
-  final Color fill;
-  final Widget content;
-  final Widget fallback;
-
-  @override
-  State<_ImageSkinBubble> createState() => _ImageSkinBubbleState();
-}
-
-class _ImageSkinBubbleState extends State<_ImageSkinBubble> {
-  var _failed = false;
-
-  @override
-  void didUpdateWidget(covariant _ImageSkinBubble oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.skin.imagePath != widget.skin.imagePath) _failed = false;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final skin = widget.skin;
-    if (_failed ||
-        skin.imageWidth <= 0 ||
-        skin.imageHeight <= 0 ||
-        !File(skin.imagePath).existsSync()) {
-      return widget.fallback;
-    }
-    final mirror = widget.isUser && skin.mirrorForUser;
-    final fillRegion = mirror ? skin.fillRegion.mirrored : skin.fillRegion;
-    final padding = mirror ? skin.textPadding.mirrored : skin.textPadding;
-    return ClipRect(
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: LayoutBuilder(
-              builder: (context, constraints) => Stack(
-                children: [
-                  Positioned(
-                    left: constraints.maxWidth * fillRegion.left,
-                    top: constraints.maxHeight * fillRegion.top,
-                    width:
-                        constraints.maxWidth *
-                        (fillRegion.right - fillRegion.left),
-                    height:
-                        constraints.maxHeight *
-                        (fillRegion.bottom - fillRegion.top),
-                    child: ColoredBox(
-                      key: const ValueKey('chat-bubble-image-fill'),
-                      color: widget.fill,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Positioned.fill(
-            child: Transform.flip(
-              key: const ValueKey('chat-bubble-image-decoration'),
-              flipX: mirror,
-              child: Image.file(
-                File(skin.imagePath),
-                fit: BoxFit.fill,
-                centerSlice: Rect.fromLTRB(
-                  skin.stretchRegion.left * skin.imageWidth,
-                  skin.stretchRegion.top * skin.imageHeight,
-                  skin.stretchRegion.right * skin.imageWidth,
-                  skin.stretchRegion.bottom * skin.imageHeight,
-                ),
-                errorBuilder: (_, _, _) {
-                  if (!_failed) {
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (mounted) setState(() => _failed = true);
-                    });
-                  }
-                  return const SizedBox.shrink();
-                },
-              ),
-            ),
-          ),
-          Padding(
-            padding: EdgeInsets.fromLTRB(
-              padding.left,
-              padding.top,
-              padding.right,
-              padding.bottom,
-            ),
-            child: widget.content,
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _ComicBubblePainter extends CustomPainter {

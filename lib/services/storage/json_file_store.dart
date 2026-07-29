@@ -38,17 +38,6 @@ class JsonFileStore {
     }
   }
 
-  Future<T> update<T>(
-    File file,
-    FutureOr<T> Function(dynamic current) action,
-  ) => synchronized(file, () async {
-    if (await recoveryNeeded(file)) await recover(file);
-    final current = await file.exists()
-        ? jsonDecode(await file.readAsString())
-        : null;
-    return action(current);
-  });
-
   Future<void> waitFor(File file) => _queues[file.path] ?? Future<void>.value();
 
   Future<void> writeNow(File file, dynamic data, {bool compact = false}) async {
