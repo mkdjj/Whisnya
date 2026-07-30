@@ -74,6 +74,14 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
         _summaryCache = summaryCache;
         _isLoading = false;
       });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_readScrollController.hasClients) return;
+        _readScrollController.jumpTo(
+          _reader.offsetForMaxExtent(
+            _readScrollController.position.maxScrollExtent,
+          ),
+        );
+      });
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -890,9 +898,14 @@ ${role.speakingStyle}
                             _book.copyWith(
                               readingMode: value ? 1 : 0,
                               chapterIndex: 0,
+                              readingProgress: 0,
                             ),
                           );
                           if (mounted) {
+                            if (_readScrollController.hasClients) {
+                              _readScrollController.jumpTo(0);
+                            }
+                            _reader.resetReadProgress();
                             setSheetState(() {});
                           }
                         },
@@ -1245,6 +1258,12 @@ ${role.speakingStyle}
     }
   }
 
+  void _saveReadProgress() {
+    final next = _reader.bookWithReadProgress();
+    if ((next.readingProgress - _book.readingProgress).abs() < 0.001) return;
+    unawaited(_saveBook(next));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1370,19 +1389,25 @@ ${role.speakingStyle}
             ),
           ),
           Expanded(
-            child: ListView.builder(
-              key: ValueKey(
-                useChapterMode ? 'chapter-$_safeChapterIndex' : 'continuous',
-              ),
-              controller: _readScrollController,
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-              itemCount: chunks.length,
-              itemBuilder: (context, index) => Padding(
-                padding: const EdgeInsets.only(bottom: 14),
-                child: _ReaderText(
-                  text: chunks[index],
-                  style: textStyle,
-                  highlightQuery: _readerSearchQuery,
+            child: NotificationListener<ScrollEndNotification>(
+              onNotification: (_) {
+                _saveReadProgress();
+                return false;
+              },
+              child: ListView.builder(
+                key: ValueKey(
+                  useChapterMode ? 'chapter-$_safeChapterIndex' : 'continuous',
+                ),
+                controller: _readScrollController,
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+                itemCount: chunks.length,
+                itemBuilder: (context, index) => Padding(
+                  padding: const EdgeInsets.only(bottom: 14),
+                  child: _ReaderText(
+                    text: chunks[index],
+                    style: textStyle,
+                    highlightQuery: _readerSearchQuery,
+                  ),
                 ),
               ),
             ),

@@ -19,7 +19,7 @@ import '../utils/password_lock.dart';
 import '../utils/role_import_parser.dart';
 import '../utils/safe_zip.dart';
 import 'storage/json_file_store.dart';
-import 'storage/media_store.dart';
+import 'storage/media_store.dart' as media_store;
 import 'storage/storage_paths.dart';
 
 List<T> _upsert<T>(List<T> items, T value, String Function(T) id) {
@@ -164,7 +164,7 @@ class LocalStorageService {
 
   Future<void> ensureReady() async {
     final directory = await appDataDirectory;
-    unawaited(cleanupTemporaryMedia(directory));
+    await media_store.cleanupTemporaryMedia(directory);
   }
 
   Future<void> _ensureAppDataDirectories(Directory directory) async {
@@ -365,13 +365,7 @@ class LocalStorageService {
   }
 
   Future<List<AppCharacter>> loadCharacters() async {
-    final file = (await _paths).characters;
-    final characters = await _loadJsonList(
-      file,
-      error: '角色文件异常：${file.path}',
-      fromJson: AppCharacter.fromJson,
-      isValid: (character) => character.id.isNotEmpty,
-    );
+    final characters = await _loadCharactersFile();
     if (characters.isEmpty) {
       await _recoverMissingCharacters(characters);
     }
@@ -390,18 +384,10 @@ class LocalStorageService {
   }
 
   Future<void> deleteCharacter(String characterId) async {
-    final deleted = <AppCharacter>[];
     await _updateCharacters((characters) {
-      deleted.addAll(
-        characters.where((character) => character.id == characterId),
-      );
       characters.removeWhere((character) => character.id == characterId);
       return characters;
     });
-    for (final character in deleted) {
-      await _deleteAppMediaFile(character.avatar);
-      await _deleteAppMediaFile(character.backgroundImage);
-    }
     final paths = await _paths;
     final chat = paths.chat(characterId);
     if (await chat.exists()) {
@@ -411,6 +397,7 @@ class LocalStorageService {
     if (await summary.exists()) {
       await summary.delete();
     }
+    await cleanupUnusedMedia();
   }
 
   Future<List<ChatMessage>> loadChat(String characterId) async {
@@ -488,6 +475,10 @@ class LocalStorageService {
     if (await textFile.exists()) {
       await textFile.delete();
     }
+    final cache = (await _paths).novelSummaryCache(book.id);
+    if (await cache.exists()) {
+      await cache.delete();
+    }
   }
 
   Future<ChatSummary> loadSummary(String characterId) async {
@@ -538,6 +529,30 @@ class LocalStorageService {
     if (await messages.exists()) {
       await messages.delete();
     }
+    await cleanupUnusedMedia();
+  }
+
+  Future<int> cleanupUnusedMedia() async {
+    final referenced = <String>{};
+    void add(String path) {
+      if (path.trim().isNotEmpty) referenced.add(path);
+    }
+
+    final settings = await loadSettings();
+    add(settings.globalBackgroundImage);
+    add(settings.userProfile.avatar);
+    for (final character in await _loadCharactersFile()) {
+      add(character.avatar);
+      add(character.backgroundImage);
+    }
+    for (final session in await loadTheaterSessions()) {
+      add(session.avatar);
+      add(session.backgroundImage);
+      for (final participant in session.participants) {
+        add(participant.avatar);
+      }
+    }
+    return media_store.cleanupUnusedMedia(await appDataDirectory, referenced);
   }
 
   Future<List<TheaterMessage>> loadTheaterMessages(String sessionId) async {
@@ -882,7 +897,7 @@ class LocalStorageService {
       RegExp(r'[^a-zA-Z0-9_-]'),
       '_',
     );
-    final extension = imageFileExtension(bytes);
+    final extension = media_store.imageFileExtension(bytes);
     final file = File(
       '${directory.path}${Platform.pathSeparator}${safeCharacterId}_${DateTime.now().microsecondsSinceEpoch}$extension',
     );
@@ -893,7 +908,7 @@ class LocalStorageService {
   Future<File> saveTemporaryImage(Uint8List bytes) async {
     final directory = await _mediaDirectory('temp');
     final file = File(
-      '${directory.path}${Platform.pathSeparator}picked_${DateTime.now().microsecondsSinceEpoch}${imageFileExtension(bytes)}',
+      '${directory.path}${Platform.pathSeparator}picked_${DateTime.now().microsecondsSinceEpoch}${media_store.imageFileExtension(bytes)}',
     );
     await file.writeAsBytes(bytes, flush: true);
     return file;
@@ -905,24 +920,6 @@ class LocalStorageService {
       await mediaDirectory.create(recursive: true);
     }
     return mediaDirectory;
-  }
-
-  Future<void> _deleteAppMediaFile(String path) async {
-    if (path.trim().isEmpty) {
-      return;
-    }
-
-    final directory = await appDataDirectory;
-    final mediaRoot =
-        '${directory.path}${Platform.pathSeparator}media${Platform.pathSeparator}';
-    if (!path.startsWith(mediaRoot)) {
-      return;
-    }
-
-    final file = File(path);
-    if (await file.exists()) {
-      await file.delete();
-    }
   }
 
   Future<void> _addMediaFile(
@@ -1033,6 +1030,16 @@ class LocalStorageService {
       isValid: (character) => character.id.isNotEmpty,
       toJson: (character) => character.toJson(),
       update: update,
+    );
+  }
+
+  Future<List<AppCharacter>> _loadCharactersFile() async {
+    final file = (await _paths).characters;
+    return _loadJsonList(
+      file,
+      error: '角色文件异常：${file.path}',
+      fromJson: AppCharacter.fromJson,
+      isValid: (character) => character.id.isNotEmpty,
     );
   }
 

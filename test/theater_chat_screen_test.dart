@@ -13,6 +13,8 @@ import 'package:whisnya/services/ai/ai_conversation_runner.dart';
 import 'package:whisnya/services/ai/ai_gateway.dart';
 import 'package:whisnya/services/local_storage_service.dart';
 import 'package:whisnya/utils/app_i18n.dart';
+import 'package:whisnya/widgets/chat_bubble.dart';
+import 'package:whisnya/widgets/message_content.dart';
 
 void main() {
   testWidgets('theater chat shows retry instead of spinning after load fails', (
@@ -72,6 +74,126 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('chat-bubble-square')), findsNWidgets(2));
+  });
+
+  testWidgets('theater role output can render as continuous bubbles', (
+    tester,
+  ) async {
+    final session = _session.copyWith(
+      roleBubblePresetId: builtInBubblePresetId(ChatBubbleStyle.square),
+    );
+    final storage = _MemoryStorage(
+      session: session,
+      messages: [
+        TheaterMessage(
+          id: 'role-message',
+          sessionId: session.id,
+          round: 1,
+          speakerType: TheaterSpeakerType.role,
+          speakerId: 'a',
+          speakerName: 'Role',
+          content: 'love\n(hug)\nbaby',
+          time: DateTime(2026),
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TheaterChatScreen(
+          storage: storage,
+          aiService: _FakeGateway('reply'),
+          settings: const AppSettings(splitRoleMessages: true),
+          session: session,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('chat-bubble-square')), findsNWidgets(3));
+  });
+
+  testWidgets('theater search highlights the matching message', (tester) async {
+    final storage = _MemoryStorage(
+      session: _session,
+      messages: [
+        _messages.first,
+        _messages.last.copyWith(content: 'Unique target phrase'),
+      ],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        home: TheaterChatScreen(
+          storage: storage,
+          aiService: _FakeGateway('reply'),
+          settings: const AppSettings(),
+          session: _session,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.search));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      ),
+      'target',
+    );
+    await tester.tap(find.byType(FilledButton).last);
+    await tester.pump();
+
+    expect(
+      tester
+          .widgetList<ChatBubble>(find.byType(ChatBubble))
+          .where((bubble) => bubble.highlighted),
+      hasLength(1),
+    );
+    expect(
+      tester
+          .widgetList<MessageContent>(find.byType(MessageContent))
+          .where((content) => content.highlightQuery == 'target'),
+      hasLength(2),
+    );
+  });
+
+  testWidgets('theater background slider maps transparency to opacity', (
+    tester,
+  ) async {
+    final session = _session.copyWith(backgroundImageOpacity: 0.25);
+    final storage = _MemoryStorage(session: session, messages: _messages);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TheaterChatScreen(
+          storage: storage,
+          aiService: _FakeGateway('reply'),
+          settings: const AppSettings(),
+          session: session,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.settings_outlined));
+    await tester.pumpAndSettle();
+    final setting = find.byKey(
+      const ValueKey('theater-chat-background-transparency-setting'),
+    );
+    await tester.scrollUntilVisible(
+      setting,
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
+    final slider = tester.widget<Slider>(
+      find.descendant(of: setting, matching: find.byType(Slider)),
+    );
+    expect(slider.value, 0.75);
+    slider.onChanged!(1);
+    slider.onChangeEnd!(1);
+    await tester.pump();
+    expect(storage.savedSessions.last.backgroundImageOpacity, 0);
   });
 
   testWidgets('theater top bar follows opacity and exposes transparency', (
@@ -158,6 +280,7 @@ void main() {
         ValueKey('theater-chat-role-bubble-transparency-setting'),
         ValueKey('theater-chat-user-bubble-preset-setting'),
         ValueKey('theater-chat-user-bubble-transparency-setting'),
+        ValueKey('theater-chat-export-history-setting'),
       ]),
     );
 

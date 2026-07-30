@@ -34,6 +34,14 @@ void main() {
     );
   });
 
+  test('role output splitting defaults off and round trips', () {
+    expect(const AppSettings().splitRoleMessages, isFalse);
+    final restored = AppSettings.fromJson(
+      const AppSettings(splitRoleMessages: true).toJson(),
+    );
+    expect(restored.splitRoleMessages, isTrue);
+  });
+
   test('character list card opacity defaults and clamps', () {
     expect(const AppSettings().characterListCardOpacity, 1);
     expect(

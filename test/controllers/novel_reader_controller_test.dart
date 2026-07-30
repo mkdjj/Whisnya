@@ -15,7 +15,11 @@ void main() {
     );
 
     expect(controller.safeChapterIndex, 0);
-    expect(controller.bookForChapter(99).chapterIndex, 1);
+    expect(controller.readProgress, 0.4);
+    expect(controller.offsetForMaxExtent(250), 100);
+    final nextChapter = controller.bookForChapter(99);
+    expect(nextChapter.chapterIndex, 1);
+    expect(nextChapter.readingProgress, 0);
     final bookmarked = controller.bookWithToggledCurrentBookmark();
     expect(bookmarked.bookmarkedChapterIndexes, [0, 2]);
 
@@ -25,6 +29,7 @@ void main() {
 
     expect(controller.updateReadProgress(pixels: 50, maxExtent: 100), isTrue);
     expect(controller.readProgress, 0.5);
+    expect(controller.bookWithReadProgress().readingProgress, 0.5);
     expect(
       controller.updateReadProgress(pixels: 50.5, maxExtent: 100),
       isFalse,
@@ -38,6 +43,7 @@ final _book = NovelBook(
   textPath: 'book.txt',
   readingMode: 1,
   chapterIndex: -3,
+  readingProgress: 0.4,
   bookmarkedChapterIndexes: const [2],
   createdAt: DateTime(2026),
   updatedAt: DateTime(2026),

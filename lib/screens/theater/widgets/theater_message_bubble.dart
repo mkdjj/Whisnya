@@ -6,6 +6,11 @@ class _TheaterMessageBubble extends StatelessWidget {
     required this.participant,
     required this.appearance,
     required this.chatTextColor,
+    required this.isHighlighted,
+    required this.searchQuery,
+    required this.splitRoleMessages,
+    this.showHeader = true,
+    this.showFooter = true,
     required this.onCopy,
     this.onDelete,
     this.onMute,
@@ -17,6 +22,11 @@ class _TheaterMessageBubble extends StatelessWidget {
   final TheaterParticipant? participant;
   final ChatBubbleAppearance appearance;
   final int? chatTextColor;
+  final bool isHighlighted;
+  final String searchQuery;
+  final bool splitRoleMessages;
+  final bool showHeader;
+  final bool showFooter;
   final VoidCallback onCopy;
   final VoidCallback? onDelete;
   final VoidCallback? onMute;
@@ -25,6 +35,33 @@ class _TheaterMessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final segments = roleMessageSegments(
+      message.content,
+      enabled: splitRoleMessages,
+    );
+    if (segments.length > 1) {
+      return Column(
+        children: [
+          for (var index = 0; index < segments.length; index++)
+            _TheaterMessageBubble(
+              message: message.copyWith(content: segments[index]),
+              participant: participant,
+              appearance: appearance,
+              chatTextColor: chatTextColor,
+              isHighlighted: isHighlighted,
+              searchQuery: searchQuery,
+              splitRoleMessages: false,
+              showHeader: index == 0,
+              showFooter: index == segments.length - 1,
+              onCopy: onCopy,
+              onDelete: onDelete,
+              onMute: onMute,
+              onSpeakAgain: onSpeakAgain,
+              onRetry: onRetry,
+            ),
+        ],
+      );
+    }
     final isUser = message.isUser;
     final maxWidth = isCompactWidth(MediaQuery.sizeOf(context).width)
         ? MediaQuery.sizeOf(context).width * 0.86
@@ -33,6 +70,7 @@ class _TheaterMessageBubble extends StatelessWidget {
       isUser: isUser,
       appearance: appearance,
       isError: message.isError,
+      highlighted: isHighlighted,
       fallbackTextColor: chatTextColor,
       maxWidth: maxWidth,
       child: Builder(
@@ -42,109 +80,117 @@ class _TheaterMessageBubble extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _TheaterAvatar(
-                    participant: participant,
-                    name: message.speakerName,
-                  ),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    fit: FlexFit.loose,
-                    child: Wrap(
-                      spacing: 4,
-                      runSpacing: 2,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        Text(
-                          message.speakerName,
-                          style: theme.textTheme.labelLarge,
-                        ),
-                        if (message.speakerType == TheaterSpeakerType.role) ...[
-                          TextButton.icon(
-                            style: TextButton.styleFrom(
-                              visualDensity: VisualDensity.compact,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                              ),
-                            ),
-                            onPressed: onMute,
-                            icon: Icon(
-                              participant?.isMuted == true
-                                  ? Icons.volume_off_outlined
-                                  : Icons.volume_up_outlined,
-                              size: 17,
-                            ),
-                            label: Text(
-                              context.t(
-                                participant?.isMuted == true ? '已禁言' : '未禁言',
-                              ),
-                            ),
+              if (showHeader) ...[
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _TheaterAvatar(
+                      participant: participant,
+                      name: message.speakerName,
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      fit: FlexFit.loose,
+                      child: Wrap(
+                        spacing: 4,
+                        runSpacing: 2,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(
+                            message.speakerName,
+                            style: theme.textTheme.labelLarge,
                           ),
-                          Tooltip(
-                            message: context.t('只让当前角色回复一次'),
-                            child: TextButton.icon(
-                              key: ValueKey('theater-reply-once-${message.id}'),
+                          if (message.speakerType ==
+                              TheaterSpeakerType.role) ...[
+                            TextButton.icon(
                               style: TextButton.styleFrom(
                                 visualDensity: VisualDensity.compact,
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 8,
                                 ),
                               ),
-                              onPressed: onSpeakAgain,
-                              icon: const Icon(Icons.reply, size: 17),
-                              label: Text(context.t('让TA回复')),
+                              onPressed: onMute,
+                              icon: Icon(
+                                participant?.isMuted == true
+                                    ? Icons.volume_off_outlined
+                                    : Icons.volume_up_outlined,
+                                size: 17,
+                              ),
+                              label: Text(
+                                context.t(
+                                  participant?.isMuted == true ? '已禁言' : '未禁言',
+                                ),
+                              ),
                             ),
-                          ),
+                            Tooltip(
+                              message: context.t('只让当前角色回复一次'),
+                              child: TextButton.icon(
+                                key: ValueKey(
+                                  'theater-reply-once-${message.id}',
+                                ),
+                                style: TextButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                  ),
+                                ),
+                                onPressed: onSpeakAgain,
+                                icon: const Icon(Icons.reply, size: 17),
+                                label: Text(context.t('让TA回复')),
+                              ),
+                            ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
+                  ],
+                ),
+                const SizedBox(height: 8),
+              ],
               MessageContent(
                 text: message.content,
+                highlightQuery: searchQuery,
                 textColor: message.isError
                     ? null
                     : appearance.textColor ?? chatTextColor,
               ),
-              const SizedBox(height: 4),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    _formatDate(message.time),
-                    style: theme.textTheme.labelSmall,
-                  ),
-                  if (message.model.isNotEmpty) ...[
-                    const SizedBox(width: 6),
-                    Flexible(
-                      child: Text(
-                        message.model,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.labelSmall,
+              if (showFooter) ...[
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _formatDate(message.time),
+                      style: theme.textTheme.labelSmall,
+                    ),
+                    if (message.model.isNotEmpty) ...[
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          message.model,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelSmall,
+                        ),
                       ),
+                    ],
+                    ...messageBubbleActions(
+                      context,
+                      onCopy: onCopy,
+                      onDelete: onDelete,
                     ),
+                    if (onRetry != null)
+                      TextButton.icon(
+                        onPressed: onRetry,
+                        icon: const Icon(Icons.refresh, size: 16),
+                        label: Text(context.t('重试')),
+                      ),
                   ],
-                  ...messageBubbleActions(
-                    context,
-                    onCopy: onCopy,
-                    onDelete: onDelete,
-                  ),
-                  if (onRetry != null)
-                    TextButton.icon(
-                      onPressed: onRetry,
-                      icon: const Icon(Icons.refresh, size: 16),
-                      label: Text(context.t('重试')),
-                    ),
-                ],
-              ),
-              if (message.isError &&
-                  message.errorMessage.isNotEmpty &&
-                  message.errorMessage.trim() != message.content.trim())
-                Text(message.errorMessage, style: theme.textTheme.labelSmall),
+                ),
+                if (message.isError &&
+                    message.errorMessage.isNotEmpty &&
+                    message.errorMessage.trim() != message.content.trim())
+                  Text(message.errorMessage, style: theme.textTheme.labelSmall),
+              ],
             ],
           );
         },

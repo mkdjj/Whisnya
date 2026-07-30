@@ -47,6 +47,78 @@ void main() {
     );
   });
 
+  testWidgets('character role output can render as continuous bubbles', (
+    tester,
+  ) async {
+    final storage = _ApiStorage(
+      _config(model: 'model', apiKey: 'key'),
+      chat: [
+        ChatMessage(
+          role: 'assistant',
+          content: 'love\n(hug)\nbaby',
+          time: DateTime(2026),
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChatScreen(
+          storage: storage,
+          aiService: _RecordingGateway(),
+          character: AppCharacter.fromJson({
+            'id': 'character',
+            'name': 'Character',
+            'roleBubblePresetId': builtInBubblePresetId(ChatBubbleStyle.square),
+          }),
+          settings: const AppSettings(splitRoleMessages: true),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('chat-bubble-square')), findsNWidgets(3));
+  });
+
+  testWidgets('character background slider maps transparency to opacity', (
+    tester,
+  ) async {
+    final storage = _ApiStorage(_config(model: 'model', apiKey: 'key'));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChatScreen(
+          storage: storage,
+          aiService: _RecordingGateway(),
+          character: AppCharacter.fromJson({
+            'id': 'character',
+            'name': 'Character',
+            'backgroundImageOpacity': 0.25,
+          }),
+          settings: const AppSettings(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.settings_outlined));
+    await tester.pumpAndSettle();
+    final setting = find.byKey(
+      const ValueKey('chat-background-transparency-setting'),
+    );
+    await tester.scrollUntilVisible(
+      setting,
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
+    final slider = tester.widget<Slider>(
+      find.descendant(of: setting, matching: find.byType(Slider)),
+    );
+    expect(slider.value, 0.75);
+    slider.onChanged!(1);
+    slider.onChangeEnd!(1);
+    await tester.pump();
+    expect(storage.savedCharacters.last.backgroundImageOpacity, 0);
+  });
+
   testWidgets('character top bar follows opacity and exposes transparency', (
     tester,
   ) async {
@@ -136,6 +208,7 @@ void main() {
         ValueKey('chat-role-bubble-transparency-setting'),
         ValueKey('chat-user-bubble-preset-setting'),
         ValueKey('chat-user-bubble-transparency-setting'),
+        ValueKey('chat-export-history-setting'),
         ValueKey('chat-clear-history-setting'),
       ]),
     );

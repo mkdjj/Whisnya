@@ -33,6 +33,9 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   String? _loadError;
   var _isGenerating = false;
   var _isSummarizing = false;
+  var _searchQuery = '';
+  var _searchResults = <int>[];
+  var _activeSearchResult = 0;
   var _generationId = 0;
   AiCancelToken? _cancelToken;
   final _streamFlushers = <void Function()>{};
@@ -492,7 +495,16 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
       );
       if (!mounted) return;
     }
-    setState(() => _chat.removeMessage(id));
+    setState(() {
+      _chat.removeMessage(id);
+      _searchResults = findChatSearchResults(
+        _messages.map((message) => message.content),
+        _searchQuery,
+      );
+      _activeSearchResult = _searchResults.isEmpty
+          ? 0
+          : _activeSearchResult.clamp(0, _searchResults.length - 1);
+    });
     await _saveMessages();
   }
 
@@ -761,7 +773,66 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
         updatedAt: DateTime.now(),
       ),
     );
-    if (mounted) setState(_chat.clearMessages);
+    if (mounted) {
+      setState(() {
+        _chat.clearMessages();
+        _searchQuery = '';
+        _searchResults = [];
+        _activeSearchResult = 0;
+      });
+    }
+  }
+
+  Future<void> _exportHistory() async {
+    if (_messages.every((message) => message.content.trim().isEmpty)) {
+      context.showSnack('当前没有可导出的聊天记录');
+      return;
+    }
+    final systemName = context.t('系统');
+    final dialogTitle = context.t('保存聊天记录');
+    try {
+      final saved = await exportChatText(
+        dialogTitle: dialogTitle,
+        title: _session.title,
+        entries: [
+          for (final message in _messages)
+            (
+              time: message.time,
+              speaker: message.speakerName.trim().isEmpty
+                  ? systemName
+                  : message.speakerName,
+              content: message.content,
+            ),
+        ],
+      );
+      if (saved && mounted) context.showSnack('聊天记录已导出');
+    } catch (error) {
+      if (mounted) context.showSnack(error.toString());
+    }
+  }
+
+  Future<void> _showSearchDialog() async {
+    if (_messages.isEmpty) {
+      context.showSnack('当前没有可搜索的聊天记录');
+      return;
+    }
+    await showChatSearchDialog(
+      context: context,
+      contents: _messages.map((message) => message.content).toList(),
+      initialQuery: _searchQuery,
+      initialActiveIndex: _activeSearchResult,
+      onChanged: (update) {
+        if (!mounted) return;
+        setState(() {
+          _searchQuery = update.query;
+          _searchResults = update.results;
+          _activeSearchResult = update.activeIndex;
+        });
+        if (update.results.isNotEmpty) {
+          _scrollToSearchResult(update.results[update.activeIndex]);
+        }
+      },
+    );
   }
 
   Future<void> _showSummaryDialog() async {
@@ -912,6 +983,9 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
                   ),
                   const SizedBox(height: 14),
                   SettingSlider.transparency(
+                    key: const ValueKey(
+                      'theater-chat-background-transparency-setting',
+                    ),
                     label: '背景图透明度',
                     opacity: draft.backgroundImageOpacity,
                     onChanged: (opacity) => preview(
@@ -1016,6 +1090,18 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
                     height: 26,
                     displayWidth: 52,
                   ),
+                  ListTile(
+                    key: const ValueKey('theater-chat-export-history-setting'),
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.download_outlined),
+                    title: Text(context.t('导出聊天记录')),
+                    subtitle: Text(context.t('导出为 UTF-8 TXT')),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      unawaited(_exportHistory());
+                    },
+                  ),
                   const SizedBox(height: 16),
                   OutlinedButton.icon(
                     onPressed: () {
@@ -1089,6 +1175,31 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     context.showSnack('已复制消息');
   }
 
+  void _scrollToSearchResult(int messageIndex) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients || _messages.isEmpty) return;
+      final showTyping =
+          _isGenerating &&
+          (_messages.isEmpty ||
+              _messages.last.speakerType != TheaterSpeakerType.role);
+      final listIndex =
+          _messages.length - 1 - messageIndex + (showTyping ? 1 : 0);
+      final target = (listIndex * 180.0)
+          .clamp(
+            _scrollController.position.minScrollExtent,
+            _scrollController.position.maxScrollExtent,
+          )
+          .toDouble();
+      unawaited(
+        _scrollController.animateTo(
+          target,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+        ),
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -1135,6 +1246,11 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
             ),
             actions: [
               IconButton(
+                tooltip: context.t('搜索聊天'),
+                onPressed: _showSearchDialog,
+                icon: const Icon(Icons.search),
+              ),
+              IconButton(
                 tooltip: context.t('群聊总结'),
                 onPressed: _showSummaryDialog,
                 icon: const Icon(Icons.summarize_outlined),
@@ -1179,6 +1295,11 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     final participants = {
       for (final item in _session.participants) item.id: item,
     };
+    final highlightedIndex = _searchResults.isEmpty
+        ? -1
+        : _searchResults[_activeSearchResult
+              .clamp(0, _searchResults.length - 1)
+              .toInt()];
     final showTyping =
         _isGenerating &&
         (_messages.isEmpty ||
@@ -1217,6 +1338,10 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
                   ? _userBubbleAppearance
                   : _roleBubbleAppearance,
               chatTextColor: widget.settings.chatTextColor,
+              isHighlighted: messageIndex == highlightedIndex,
+              searchQuery: _searchQuery,
+              splitRoleMessages:
+                  widget.settings.splitRoleMessages && canControlRole,
               onCopy: () => _copy(message),
               onDelete: _isGenerating
                   ? null

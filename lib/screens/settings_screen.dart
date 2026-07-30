@@ -840,6 +840,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _applySettings(_settings.copyWith(streamResponses: value)),
             ),
             SwitchListTile(
+              key: const ValueKey('show-reasoning-setting'),
               contentPadding: const EdgeInsets.symmetric(horizontal: 20),
               secondary: const Icon(Icons.psychology_alt_outlined),
               title: Text(context.t('显示思考过程')),
@@ -848,6 +849,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onChanged: (value) => _applySettings(
                 _settings.copyWith(showReasoningContent: value),
               ),
+            ),
+            SwitchListTile(
+              key: const ValueKey('split-role-messages-setting'),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+              secondary: const Icon(Icons.format_line_spacing),
+              title: Text(context.t('连续气泡输出')),
+              subtitle: Text(context.t('按非空行拆分角色回复')),
+              value: _settings.splitRoleMessages,
+              onChanged: (value) =>
+                  _applySettings(_settings.copyWith(splitRoleMessages: value)),
             ),
             _tile(
               icon: Icons.language,

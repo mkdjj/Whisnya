@@ -20,10 +20,13 @@ import '../../services/chat/chat_summary_service.dart';
 import '../../services/local_storage_service.dart';
 import '../../utils/app_i18n.dart';
 import '../../utils/chat_context_policy.dart';
+import '../../utils/chat_search.dart';
+import '../../utils/chat_text_export.dart';
 import '../../utils/confirm_dialog.dart';
 import '../../utils/page_layout.dart';
 import '../../utils/snack.dart';
 import '../../utils/stream_text_buffer.dart';
+import '../../utils/role_message_segments.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/chat_bubble.dart';
 import '../../widgets/chat_bubble_preset_picker.dart';
@@ -455,129 +458,59 @@ class _ChatScreenState extends State<ChatScreen> {
     context.showSnack('聊天记录已清空');
   }
 
+  Future<void> _exportHistory() async {
+    if (_messages.every((message) => message.content.trim().isEmpty)) {
+      context.showSnack('当前没有可导出的聊天记录');
+      return;
+    }
+    final userName = context.t('我');
+    final systemName = context.t('系统');
+    final dialogTitle = context.t('保存聊天记录');
+    try {
+      final saved = await exportChatText(
+        dialogTitle: dialogTitle,
+        title: _character.name,
+        entries: [
+          for (final message in _messages)
+            (
+              time: message.time,
+              speaker: message.isUser
+                  ? userName
+                  : message.isAssistant
+                  ? _character.name
+                  : systemName,
+              content: message.content,
+            ),
+        ],
+      );
+      if (saved && mounted) context.showSnack('聊天记录已导出');
+    } catch (error) {
+      if (mounted) context.showSnack(error.toString());
+    }
+  }
+
   Future<void> _showSearchDialog() async {
     if (_messages.isEmpty) {
       context.showSnack('当前没有可搜索的聊天记录');
       return;
     }
-
-    final controller = TextEditingController(text: _searchQuery);
-    var query = _searchQuery;
-    var results = _findSearchResults(query);
-    var active = results.isEmpty
-        ? 0
-        : _activeSearchResult.clamp(0, results.length - 1).toInt();
-
-    void applySearch(String nextQuery, List<int> nextResults, int nextActive) {
-      final safeActive = nextResults.isEmpty
-          ? 0
-          : nextActive.clamp(0, nextResults.length - 1).toInt();
-      setState(() {
-        _searchQuery = nextQuery;
-        _searchResults = nextResults;
-        _activeSearchResult = safeActive;
-      });
-      if (nextResults.isNotEmpty) {
-        _scrollToSearchResult(nextResults[safeActive]);
-      }
-    }
-
-    await showDialog<void>(
+    await showChatSearchDialog(
       context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          void runSearch() {
-            final nextQuery = controller.text;
-            final nextResults = _findSearchResults(nextQuery);
-            setDialogState(() {
-              query = nextQuery;
-              results = nextResults;
-              active = 0;
-            });
-            applySearch(nextQuery, nextResults, 0);
-          }
-
-          void move(int delta) {
-            if (results.isEmpty) return;
-            final nextActive =
-                (active + delta + results.length) % results.length;
-            setDialogState(() => active = nextActive);
-            applySearch(query, results, nextActive);
-          }
-
-          final status = query.trim().isEmpty
-              ? context.t('输入关键词开始搜索')
-              : results.isEmpty
-              ? context.t('没有找到结果')
-              : context.t('第 ${active + 1} / ${results.length} 个结果');
-
-          return AlertDialog(
-            title: Text(context.t('搜索聊天记录')),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: controller,
-                  autofocus: true,
-                  decoration: InputDecoration(
-                    hintText: context.t('输入关键词'),
-                    prefixIcon: const Icon(Icons.search),
-                  ),
-                  onSubmitted: (_) => runSearch(),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    IconButton(
-                      tooltip: context.t('上一个'),
-                      onPressed: results.isEmpty ? null : () => move(-1),
-                      icon: const Icon(Icons.keyboard_arrow_up),
-                    ),
-                    Expanded(child: Text(status, textAlign: TextAlign.center)),
-                    IconButton(
-                      tooltip: context.t('下一个'),
-                      onPressed: results.isEmpty ? null : () => move(1),
-                      icon: const Icon(Icons.keyboard_arrow_down),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  setState(() {
-                    _searchQuery = '';
-                    _searchResults = [];
-                    _activeSearchResult = 0;
-                  });
-                  Navigator.of(dialogContext).pop();
-                },
-                child: Text(context.t('关闭')),
-              ),
-              FilledButton(onPressed: runSearch, child: Text(context.t('搜索'))),
-            ],
-          );
-        },
-      ),
+      contents: _messages.map((message) => message.content).toList(),
+      initialQuery: _searchQuery,
+      initialActiveIndex: _activeSearchResult,
+      onChanged: (update) {
+        if (!mounted) return;
+        setState(() {
+          _searchQuery = update.query;
+          _searchResults = update.results;
+          _activeSearchResult = update.activeIndex;
+        });
+        if (update.results.isNotEmpty) {
+          _scrollToSearchResult(update.results[update.activeIndex]);
+        }
+      },
     );
-    controller.dispose();
-  }
-
-  List<int> _findSearchResults(String query) {
-    final needle = query.trim().toLowerCase();
-    if (needle.isEmpty) {
-      return const [];
-    }
-
-    final results = <int>[];
-    for (var i = 0; i < _messages.length; i++) {
-      if (_messages[i].content.toLowerCase().contains(needle)) {
-        results.add(i);
-      }
-    }
-    return results;
   }
 
   List<Map<String, String>> _buildChatRequestMessages(UserProfile userProfile) {
@@ -849,6 +782,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 ],
                 const Divider(),
                 SettingSlider.transparency(
+                  key: const ValueKey('chat-background-transparency-setting'),
                   label: '背景图透明度',
                   opacity: draft.backgroundImageOpacity,
                   onChanged: (opacity) {
@@ -944,6 +878,18 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
                 const Divider(),
                 ListTile(
+                  key: const ValueKey('chat-export-history-setting'),
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.download_outlined),
+                  title: Text(context.t('导出聊天记录')),
+                  subtitle: Text(context.t('导出为 UTF-8 TXT')),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    unawaited(_exportHistory());
+                  },
+                ),
+                const Divider(),
+                ListTile(
                   key: const ValueKey('chat-clear-history-setting'),
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(
@@ -1024,7 +970,10 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!mounted) return;
     }
     setState(() {
-      _searchResults = _findSearchResults(_searchQuery);
+      _searchResults = findChatSearchResults(
+        _messages.map((message) => message.content),
+        _searchQuery,
+      );
       _activeSearchResult = _searchResults.isEmpty
           ? 0
           : _activeSearchResult.clamp(0, _searchResults.length - 1);
@@ -1242,6 +1191,8 @@ class _ChatScreenState extends State<ChatScreen> {
             chatTextColor: widget.settings.chatTextColor,
             isHighlighted: messageIndex == highlightedIndex,
             searchQuery: _searchQuery,
+            splitRoleMessages:
+                widget.settings.splitRoleMessages && message.isAssistant,
             onCopy: () => _copyMessage(message),
             onDelete: _isSending ? null : () => _deleteMessage(messageIndex),
           );
@@ -1343,6 +1294,8 @@ class _MessageBubble extends StatelessWidget {
     required this.chatTextColor,
     required this.isHighlighted,
     required this.searchQuery,
+    required this.splitRoleMessages,
+    this.showFooter = true,
     required this.onCopy,
     this.onDelete,
   });
@@ -1352,11 +1305,35 @@ class _MessageBubble extends StatelessWidget {
   final int? chatTextColor;
   final bool isHighlighted;
   final String searchQuery;
+  final bool splitRoleMessages;
+  final bool showFooter;
   final VoidCallback onCopy;
   final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
+    final segments = roleMessageSegments(
+      message.content,
+      enabled: splitRoleMessages,
+    );
+    if (segments.length > 1) {
+      return Column(
+        children: [
+          for (var index = 0; index < segments.length; index++)
+            _MessageBubble(
+              message: message.copyWith(content: segments[index]),
+              appearance: appearance,
+              chatTextColor: chatTextColor,
+              isHighlighted: isHighlighted,
+              searchQuery: searchQuery,
+              splitRoleMessages: false,
+              showFooter: index == segments.length - 1,
+              onCopy: onCopy,
+              onDelete: onDelete,
+            ),
+        ],
+      );
+    }
     final isUser = message.isUser;
     final screenWidth = MediaQuery.sizeOf(context).width;
     final maxBubbleWidth = isCompactWidth(screenWidth)
@@ -1380,31 +1357,32 @@ class _MessageBubble extends StatelessWidget {
                 textColor: appearance.textColor ?? chatTextColor,
                 highlightQuery: searchQuery,
               ),
-              const SizedBox(height: 4),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    _formatTime(message.time),
-                    style: theme.textTheme.labelSmall,
-                  ),
-                  if (message.model != null) ...[
-                    const SizedBox(width: 6),
-                    Flexible(
-                      child: Text(
-                        message.model!,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.labelSmall,
+              if (showFooter) const SizedBox(height: 4),
+              if (showFooter)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _formatTime(message.time),
+                      style: theme.textTheme.labelSmall,
+                    ),
+                    if (message.model != null) ...[
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          message.model!,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelSmall,
+                        ),
                       ),
+                    ],
+                    ...messageBubbleActions(
+                      context,
+                      onCopy: onCopy,
+                      onDelete: onDelete,
                     ),
                   ],
-                  ...messageBubbleActions(
-                    context,
-                    onCopy: onCopy,
-                    onDelete: onDelete,
-                  ),
-                ],
-              ),
+                ),
             ],
           );
         },

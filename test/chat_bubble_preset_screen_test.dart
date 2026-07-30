@@ -33,6 +33,40 @@ void main() {
     expect(find.text('聊天气泡'), findsNothing);
   });
 
+  testWidgets('continuous role output switch follows reasoning switch', (
+    tester,
+  ) async {
+    final storage = _MemoryStorage();
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        home: Scaffold(
+          body: SettingsScreen(
+            storage: storage,
+            settings: const AppSettings(),
+            onSettingsChanged: () async {},
+          ),
+        ),
+      ),
+    );
+
+    final reasoning = find.byKey(const ValueKey('show-reasoning-setting'));
+    final continuous = find.byKey(
+      const ValueKey('split-role-messages-setting'),
+    );
+    expect(reasoning, findsOneWidget);
+    expect(continuous, findsOneWidget);
+    expect(
+      tester.getTopLeft(continuous).dy,
+      greaterThan(tester.getTopLeft(reasoning).dy),
+    );
+
+    await tester.tap(continuous);
+    await tester.pump();
+    expect(storage.savedSettings.last.splitRoleMessages, isTrue);
+  });
   testWidgets('preset picker offers only ten built-ins', (tester) async {
     tester.view.physicalSize = const Size(800, 1400);
     tester.view.devicePixelRatio = 1;
@@ -114,6 +148,8 @@ void main() {
 }
 
 final class _MemoryStorage extends LocalStorageService {
+  final savedSettings = <AppSettings>[];
+
   @override
   Future<ApiConfig> loadApiConfig() async => ApiConfig();
 
@@ -122,4 +158,9 @@ final class _MemoryStorage extends LocalStorageService {
 
   @override
   Future<List<NovelBook>> loadNovels() async => const [];
+
+  @override
+  Future<void> saveSettings(AppSettings settings) async {
+    savedSettings.add(settings);
+  }
 }

@@ -49,13 +49,18 @@ class NovelBook {
     this.isLocked = false,
     this.readingMode = 0,
     this.chapterIndex = 0,
+    double readingProgress = 0,
     this.fontSize = 18,
     this.lineHeight = 1.65,
     this.manualChapterTitles = const [],
     this.readerTheme = 0,
     this.bookmarkedChapterIndexes = const [],
     this.lastOpenedAt,
-  });
+  }) : readingProgress = readingProgress < 0
+           ? 0
+           : readingProgress > 1
+           ? 1
+           : readingProgress;
 
   final String id;
   final String title;
@@ -66,6 +71,7 @@ class NovelBook {
   final bool isLocked;
   final int readingMode;
   final int chapterIndex;
+  final double readingProgress;
   final double fontSize;
   final double lineHeight;
   final List<String> manualChapterTitles;
@@ -87,6 +93,7 @@ class NovelBook {
     bool? isLocked,
     int? readingMode,
     int? chapterIndex,
+    double? readingProgress,
     double? fontSize,
     double? lineHeight,
     List<String>? manualChapterTitles,
@@ -106,6 +113,7 @@ class NovelBook {
       isLocked: isLocked ?? this.isLocked,
       readingMode: readingMode ?? this.readingMode,
       chapterIndex: chapterIndex ?? this.chapterIndex,
+      readingProgress: readingProgress ?? this.readingProgress,
       fontSize: fontSize ?? this.fontSize,
       lineHeight: lineHeight ?? this.lineHeight,
       manualChapterTitles: manualChapterTitles ?? this.manualChapterTitles,
@@ -137,6 +145,7 @@ class NovelBook {
       isLocked: json['isLocked'] as bool? ?? false,
       readingMode: json['readingMode'] as int? ?? 0,
       chapterIndex: json['chapterIndex'] as int? ?? 0,
+      readingProgress: jsonDouble(json['readingProgress'], 0),
       fontSize: jsonDouble(json['fontSize'], 18),
       lineHeight: jsonDouble(json['lineHeight'], 1.65),
       manualChapterTitles: _readStringList(json['manualChapterTitles']),
@@ -159,6 +168,7 @@ class NovelBook {
       'isLocked': isLocked,
       'readingMode': readingMode,
       'chapterIndex': chapterIndex,
+      'readingProgress': readingProgress,
       'fontSize': fontSize,
       'lineHeight': lineHeight,
       'manualChapterTitles': manualChapterTitles,

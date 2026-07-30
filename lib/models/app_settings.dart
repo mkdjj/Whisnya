@@ -18,6 +18,7 @@ class AppSettings {
     this.userProfile = const UserProfile(),
     this.streamResponses = true,
     this.showReasoningContent = false,
+    this.splitRoleMessages = false,
     this.useCustomChatSummaryItems = false,
     this.customChatSummaryItems = defaultChatSummaryItems,
     this.useCustomTheaterSummaryItems = false,
@@ -43,6 +44,7 @@ class AppSettings {
   final UserProfile userProfile;
   final bool streamResponses;
   final bool showReasoningContent;
+  final bool splitRoleMessages;
   final bool useCustomChatSummaryItems;
   final List<String> customChatSummaryItems;
   final bool useCustomTheaterSummaryItems;
@@ -78,6 +80,7 @@ class AppSettings {
     UserProfile? userProfile,
     bool? streamResponses,
     bool? showReasoningContent,
+    bool? splitRoleMessages,
     bool? useCustomChatSummaryItems,
     List<String>? customChatSummaryItems,
     bool? useCustomTheaterSummaryItems,
@@ -113,6 +116,7 @@ class AppSettings {
       userProfile: userProfile ?? this.userProfile,
       streamResponses: streamResponses ?? this.streamResponses,
       showReasoningContent: showReasoningContent ?? this.showReasoningContent,
+      splitRoleMessages: splitRoleMessages ?? this.splitRoleMessages,
       useCustomChatSummaryItems:
           useCustomChatSummaryItems ?? this.useCustomChatSummaryItems,
       customChatSummaryItems: customChatSummaryItems == null
@@ -161,6 +165,7 @@ class AppSettings {
       ),
       streamResponses: json?['streamResponses'] as bool? ?? true,
       showReasoningContent: json?['showReasoningContent'] as bool? ?? false,
+      splitRoleMessages: json?['splitRoleMessages'] as bool? ?? false,
       useCustomChatSummaryItems:
           json?['useCustomChatSummaryItems'] as bool? ?? false,
       customChatSummaryItems: cleanChatSummaryItems(
@@ -197,6 +202,7 @@ class AppSettings {
       'userProfile': userProfile.toJson(),
       'streamResponses': streamResponses,
       'showReasoningContent': showReasoningContent,
+      'splitRoleMessages': splitRoleMessages,
       'useCustomChatSummaryItems': useCustomChatSummaryItems,
       'customChatSummaryItems': customChatSummaryItems,
       'useCustomTheaterSummaryItems': useCustomTheaterSummaryItems,

@@ -11,19 +11,21 @@ final class NovelReaderSearchResult {
 }
 
 final class NovelReaderController {
-  NovelReaderController(this._book);
+  NovelReaderController(this._book) : _readProgress = _book.readingProgress;
 
   NovelBook _book;
   var _readChunks = <String>[];
   var _chapters = <NovelChapter>[];
   var _searchQuery = '';
-  var _readProgress = 0.0;
+  double _readProgress;
 
   NovelBook get book => _book;
   List<String> get readChunks => _readChunks;
   List<NovelChapter> get chapters => _chapters;
   String get searchQuery => _searchQuery;
   double get readProgress => _readProgress;
+  double offsetForMaxExtent(double maxExtent) =>
+      maxExtent <= 0 ? 0 : maxExtent * _readProgress;
 
   int get safeChapterIndex => _chapters.isEmpty
       ? 0
@@ -49,7 +51,11 @@ final class NovelReaderController {
     chapterIndex: _chapters.isEmpty
         ? 0
         : index.clamp(0, _chapters.length - 1).toInt(),
+    readingProgress: 0,
   );
+
+  NovelBook bookWithReadProgress() =>
+      _book.copyWith(readingProgress: _readProgress);
 
   NovelBook bookWithToggledCurrentBookmark() {
     final bookmarks = _book.bookmarkedChapterIndexes.toSet();

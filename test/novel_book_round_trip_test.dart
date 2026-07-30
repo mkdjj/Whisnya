@@ -9,6 +9,7 @@ void main() {
       textPath: 'book.txt',
       readingMode: 1,
       chapterIndex: 3,
+      readingProgress: 0.64,
       fontSize: 22,
       lineHeight: 1.9,
       manualChapterTitles: const ['一', '二'],

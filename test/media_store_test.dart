@@ -42,4 +42,41 @@ void main() {
     expect(await fresh.exists(), isTrue);
     expect(await avatar.exists(), isTrue);
   });
+
+  test(
+    'cleans unused media while preserving referenced files and temp',
+    () async {
+      final root = await Directory.systemTemp.createTemp('media_references_');
+      addTearDown(() => root.delete(recursive: true));
+      final media = Directory('${root.path}${Platform.pathSeparator}media');
+      final avatars = Directory(
+        '${media.path}${Platform.pathSeparator}avatars',
+      );
+      final backgrounds = Directory(
+        '${media.path}${Platform.pathSeparator}backgrounds',
+      );
+      final temp = Directory('${media.path}${Platform.pathSeparator}temp');
+      await Future.wait([
+        avatars.create(recursive: true),
+        backgrounds.create(recursive: true),
+        temp.create(recursive: true),
+      ]);
+      final referenced = await File(
+        '${avatars.path}${Platform.pathSeparator}kept.png',
+      ).create();
+      final unused = await File(
+        '${backgrounds.path}${Platform.pathSeparator}unused.png',
+      ).create();
+      final temporary = await File(
+        '${temp.path}${Platform.pathSeparator}picked.png',
+      ).create();
+
+      final deleted = await cleanupUnusedMedia(root, {referenced.path});
+
+      expect(deleted, 1);
+      expect(await referenced.exists(), isTrue);
+      expect(await unused.exists(), isFalse);
+      expect(await temporary.exists(), isTrue);
+    },
+  );
 }
