@@ -79,7 +79,7 @@ void main() {
     expect(find.byKey(const ValueKey('chat-bubble-square')), findsNWidgets(3));
   });
 
-  testWidgets('character background slider maps transparency to opacity', (
+  testWidgets('character background slider maps opacity directly', (
     tester,
   ) async {
     final storage = _ApiStorage(_config(model: 'model', apiKey: 'key'));
@@ -112,9 +112,14 @@ void main() {
     final slider = tester.widget<Slider>(
       find.descendant(of: setting, matching: find.byType(Slider)),
     );
-    expect(slider.value, 0.75);
+    expect(slider.value, 0.25);
     slider.onChanged!(1);
     slider.onChangeEnd!(1);
+    await tester.pump();
+    expect(storage.savedCharacters.last.backgroundImageOpacity, 1);
+
+    slider.onChanged!(0);
+    slider.onChangeEnd!(0);
     await tester.pump();
     expect(storage.savedCharacters.last.backgroundImageOpacity, 0);
   });

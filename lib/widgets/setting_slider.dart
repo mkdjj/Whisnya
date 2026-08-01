@@ -45,6 +45,33 @@ class SettingSlider extends StatelessWidget {
     );
   }
 
+  factory SettingSlider.opacity({
+    required String label,
+    required double opacity,
+    required ValueChanged<double> onChanged,
+    ValueChanged<double>? onChangeEnd,
+    double height = 32,
+    double displayWidth = 48,
+    Key? key,
+  }) {
+    final normalizedOpacity = opacity.clamp(0, 1).toDouble();
+    return SettingSlider(
+      key: key,
+      label: label,
+      value: normalizedOpacity,
+      min: 0,
+      max: 1,
+      divisions: 100,
+      display: '${(normalizedOpacity * 100).round()}%',
+      onChanged: (value) => onChanged(value.clamp(0, 1).toDouble()),
+      onChangeEnd: onChangeEnd == null
+          ? null
+          : (value) => onChangeEnd(value.clamp(0, 1).toDouble()),
+      height: height,
+      displayWidth: displayWidth,
+    );
+  }
+
   final String label;
   final double value;
   final double min;

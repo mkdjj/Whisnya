@@ -11,12 +11,17 @@ import '../../models/app_settings.dart';
 import '../../models/chat_bubble_preset.dart';
 import '../../models/chat_bubble_theme.dart';
 import '../../models/chat_message.dart';
+import '../../models/chat_reply_variant.dart';
+import '../../models/chat_session.dart';
 import '../../models/chat_summary.dart';
+import '../../models/character_memory_entry.dart';
 import '../../models/user_profile.dart';
+import '../../models/world_book.dart';
 import '../../prompts/prompt_builder.dart';
 import '../../services/ai/ai_gateway.dart';
 import '../../services/ai_service.dart';
 import '../../services/chat/chat_summary_service.dart';
+import '../../services/chat/memory_context_service.dart';
 import '../../services/local_storage_service.dart';
 import '../../utils/app_i18n.dart';
 import '../../utils/chat_context_policy.dart';
@@ -31,10 +36,14 @@ import '../../widgets/app_background.dart';
 import '../../widgets/chat_bubble.dart';
 import '../../widgets/chat_bubble_preset_picker.dart';
 import '../../widgets/chat_input_composer.dart';
+import '../../widgets/chat_variant_controls.dart';
 import '../../widgets/endpoint_picker.dart';
 import '../../widgets/message_content.dart';
 import '../../widgets/message_bubble_parts.dart';
 import '../../widgets/setting_slider.dart';
+import 'chat_session_list_screen.dart';
+import 'memory_edit_screen.dart';
+import 'memory_manager_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({
@@ -42,6 +51,7 @@ class ChatScreen extends StatefulWidget {
     required this.aiService,
     required this.character,
     required this.settings,
+    this.session,
     super.key,
   });
 
@@ -49,6 +59,7 @@ class ChatScreen extends StatefulWidget {
   final AiGateway aiService;
   final AppCharacter character;
   final AppSettings settings;
+  final ChatSession? session;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -62,6 +73,8 @@ class _ChatScreenState extends State<ChatScreen> {
   var _apiConfig = ApiConfig();
   late AppCharacter _character;
   late final ChatConversationController _conversation;
+  ChatSession? _session;
+  ChatSession get _currentSession => _session!;
   List<ChatMessage> get _messages => _conversation.messages;
   ChatSummary get _summary => _conversation.summary;
   var _selectedEndpointId = '';
@@ -73,6 +86,7 @@ class _ChatScreenState extends State<ChatScreen> {
   var _searchResults = <int>[];
   var _activeSearchResult = 0;
   var _generationId = 0;
+  int? _variantGenerationIndex;
   AiCancelToken? _cancelToken;
   StreamTextBuffer? _streamBuffer;
   String? _loadError;
@@ -115,8 +129,18 @@ class _ChatScreenState extends State<ChatScreen> {
 
     try {
       final apiConfig = await widget.storage.loadApiConfig();
-      final summary = await widget.storage.loadSummary(_character.id);
-      final chat = await widget.storage.loadChat(_character.id);
+      final session =
+          _session ??
+          widget.session ??
+          (widget.storage.usesSessionStorage
+              ? await widget.storage.getOrCreateRecentChatSession(_character.id)
+              : _compatibilitySession());
+      final summary = widget.storage.usesSessionStorage
+          ? await widget.storage.loadSummaryBySession(session)
+          : await widget.storage.loadSummary(_character.id);
+      final chat = widget.storage.usesSessionStorage
+          ? await widget.storage.loadChatBySession(session)
+          : await widget.storage.loadChat(_character.id);
       final selectedEndpointId =
           apiConfig.effectiveEndpoint(_character.defaultEndpointId)?.id ?? '';
       var messages = [...chat];
@@ -131,12 +155,17 @@ class _ChatScreenState extends State<ChatScreen> {
             endpointName: apiConfig.endpointById(selectedEndpointId)?.name,
           ),
         ];
-        await widget.storage.saveChat(_character.id, messages);
+        if (widget.storage.usesSessionStorage) {
+          await widget.storage.saveChatBySession(session, messages);
+        } else {
+          await widget.storage.saveChat(_character.id, messages);
+        }
       }
 
       if (!mounted) return;
       setState(() {
         _apiConfig = apiConfig;
+        _session = session;
         _selectedEndpointId = selectedEndpointId;
         _conversation.load(messages: messages, summary: summary);
         _isLoading = false;
@@ -147,6 +176,38 @@ class _ChatScreenState extends State<ChatScreen> {
         _loadError = error.toString();
         _isLoading = false;
       });
+    }
+  }
+
+  ChatSession _compatibilitySession() {
+    final now = DateTime.now();
+    return ChatSession(
+      id: 'legacy_runtime_${_character.id}',
+      characterId: _character.id,
+      title: '默认对话',
+      createdAt: now,
+      updatedAt: now,
+      lastUsedAt: now,
+    );
+  }
+
+  Future<void> _saveCurrentChat() async {
+    if (widget.storage.usesSessionStorage) {
+      await widget.storage.saveChatBySession(_currentSession, _messages);
+    } else {
+      await widget.storage.saveChat(_character.id, _messages);
+    }
+  }
+
+  Future<void> _saveCurrentSummary() async {
+    await _saveSummary(_summary);
+  }
+
+  Future<void> _saveSummary(ChatSummary summary) async {
+    if (widget.storage.usesSessionStorage) {
+      await widget.storage.saveSummaryBySession(summary);
+    } else {
+      await widget.storage.saveSummary(summary);
     }
   }
 
@@ -174,7 +235,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollToEnd();
 
     try {
-      await widget.storage.saveChat(_character.id, _messages);
+      await _saveCurrentChat();
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -210,20 +271,60 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Future<void> _requestAssistantReply(AiEndpointConfig endpoint) async {
+  Future<void> _requestAssistantReply(
+    AiEndpointConfig endpoint, {
+    int? variantAt,
+  }) async {
     final generationId = ++_generationId;
+    final sessionId = _currentSession.id;
     final cancelToken = AiCancelToken();
     _cancelToken = cancelToken;
     try {
-      final summaryUpdated = await _updateRollingSummary(
-        endpoint,
-        generationId,
-        cancelToken,
-      );
-      if (!mounted || generationId != _generationId || !_isSending) return;
+      final summaryUpdated = variantAt == null
+          ? await _updateRollingSummary(endpoint, generationId, cancelToken)
+          : false;
+      if (!_isCurrentGeneration(generationId, sessionId)) return;
 
-      final userProfile = (await widget.storage.loadSettings()).userProfile;
-      final requestMessages = _buildChatRequestMessages(userProfile);
+      final chatSettings = await widget.storage.loadSettings();
+      final userProfile = chatSettings.userProfile;
+      final memories = widget.storage.usesSessionStorage
+          ? await widget.storage.loadCharacterMemories(_character.id)
+          : const <CharacterMemoryEntry>[];
+      if (widget.storage.usesSessionStorage) {
+        final refreshedCharacter = (await widget.storage.loadCharacters())
+            .where((character) => character.id == _character.id)
+            .firstOrNull;
+        if (refreshedCharacter != null) {
+          _character = refreshedCharacter;
+        }
+      }
+      final worldBooks = widget.storage.usesSessionStorage
+          ? await widget.storage.loadWorldBooks()
+          : const <WorldBook>[];
+      final worldBookEntries = <WorldBookEntry>[];
+      for (final worldBook in worldBooks) {
+        worldBookEntries.addAll(
+          await widget.storage.loadWorldBookEntries(worldBook.id),
+        );
+      }
+      if (!_isCurrentGeneration(generationId, sessionId)) return;
+      final context = const MemoryContextService().build(
+        entries: memories,
+        characterId: _character.id,
+        sessionId: sessionId,
+        messages: _messages,
+        maxCharacters: chatSettings.memoryContextMaxCharacters,
+        worldBooks: worldBooks,
+        worldBookEntries: worldBookEntries,
+        worldBookIds: _character.worldBookIds,
+      );
+      final requestMessages = _buildChatRequestMessages(
+        userProfile,
+        memoryPrompt: context.memoryPrompt,
+        messages: variantAt == null
+            ? _messages
+            : _messages.take(variantAt).toList(),
+      );
       final streamResponses = widget.settings.streamResponses;
       final assistantMessage = ChatMessage(
         role: 'assistant',
@@ -233,7 +334,7 @@ class _ChatScreenState extends State<ChatScreen> {
         endpointName: endpoint.name,
         model: endpoint.model,
       );
-      if (streamResponses) {
+      if (streamResponses && variantAt == null) {
         setState(() {
           _conversation.append(assistantMessage);
         });
@@ -244,16 +345,16 @@ class _ChatScreenState extends State<ChatScreen> {
         onFlush: (delta) {
           reply += delta;
           if (!streamResponses ||
-              !mounted ||
-              generationId != _generationId ||
-              !_isSending) {
+              !_isCurrentGeneration(generationId, sessionId)) {
             return;
           }
-          setState(() {
-            _conversation.replaceLast(
-              assistantMessage.copyWith(content: reply),
-            );
-          });
+          if (variantAt == null) {
+            setState(() {
+              _conversation.replaceLast(
+                assistantMessage.copyWith(content: reply),
+              );
+            });
+          }
         },
       );
       _streamBuffer = streamBuffer;
@@ -266,7 +367,9 @@ class _ChatScreenState extends State<ChatScreen> {
         includeReasoning: widget.settings.showReasoningContent,
         onUsage: (usage) => unawaited(
           widget.storage.recordAiUsage(
-            requestType: 'characterChat',
+            requestType: variantAt == null
+                ? 'characterChat'
+                : 'characterChatVariant',
             model: endpoint.model,
             usage: usage,
             messages: requestMessages,
@@ -274,28 +377,43 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ),
       )) {
-        if (!mounted || generationId != _generationId || !_isSending) return;
+        if (!_isCurrentGeneration(generationId, sessionId)) return;
         streamBuffer.add(chunk);
       }
       streamBuffer.flush();
       if (reply.trim().isEmpty) {
         throw AiException('API 没有返回可用回复。');
       }
-      if (!mounted || generationId != _generationId || !_isSending) return;
+      if (!_isCurrentGeneration(generationId, sessionId)) return;
       setState(() {
         final finalMessage = assistantMessage.copyWith(content: reply);
-        if (streamResponses) {
+        if (variantAt != null) {
+          _conversation.addAssistantVariant(
+            variantAt,
+            ChatReplyVariant(
+              content: reply,
+              time: DateTime.now(),
+              endpointId: endpoint.id,
+              endpointName: endpoint.name,
+              model: endpoint.model,
+            ),
+          );
+        } else if (streamResponses) {
           _conversation.replaceLast(finalMessage);
         } else {
           _conversation.append(finalMessage);
         }
         _isSending = false;
       });
-      await widget.storage.saveChat(_character.id, _messages);
+      await _saveCurrentChat();
     } catch (error) {
-      if (!mounted || generationId != _generationId) return;
+      if (!mounted ||
+          generationId != _generationId ||
+          _session?.id != sessionId) {
+        return;
+      }
       setState(() {
-        _conversation.dropEmptyAssistantTail();
+        if (variantAt == null) _conversation.dropEmptyAssistantTail();
         _isSending = false;
       });
       context.showSnack(error.toString());
@@ -307,7 +425,147 @@ class _ChatScreenState extends State<ChatScreen> {
         if (identical(_streamBuffer, streamBuffer)) _streamBuffer = null;
       }
       if (identical(_cancelToken, cancelToken)) _cancelToken = null;
+      if (mounted && _variantGenerationIndex == variantAt) {
+        setState(() => _variantGenerationIndex = null);
+      }
     }
+  }
+
+  bool _isCurrentGeneration(int generationId, String sessionId) =>
+      mounted &&
+      generationId == _generationId &&
+      _isSending &&
+      _session?.id == sessionId;
+
+  Future<void> _regenerateAssistantVariant(int messageIndex) async {
+    if (_isSending || !_conversation.canRegenerateAssistantAt(messageIndex)) {
+      return;
+    }
+    final endpoint = await _reloadEndpoint();
+    if (endpoint == null) return;
+    setState(() {
+      _isSending = true;
+      _variantGenerationIndex = messageIndex;
+    });
+    await _requestAssistantReply(endpoint, variantAt: messageIndex);
+  }
+
+  Future<void> _openSessionList() async {
+    final selected = await Navigator.of(context).push<ChatSession>(
+      MaterialPageRoute(
+        builder: (_) => ChatSessionListScreen(
+          storage: widget.storage,
+          character: _character,
+          selectedSessionId: _session?.id,
+        ),
+      ),
+    );
+    if (selected == null || !mounted || selected.id == _session?.id) return;
+    _stopGeneration();
+    _session = selected;
+    await _load();
+  }
+
+  Future<void> _openMemoryManager() async {
+    final session = _session;
+    if (session == null) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => MemoryManagerScreen(
+          storage: widget.storage,
+          aiService: widget.aiService,
+          character: _character,
+          session: session,
+          selectedEndpointId: _selectedEndpointId,
+        ),
+      ),
+    );
+    try {
+      final refreshed = (await widget.storage.loadCharacters())
+          .where((character) => character.id == _character.id)
+          .firstOrNull;
+      if (refreshed != null && mounted) {
+        setState(() => _character = refreshed);
+      }
+    } catch (_) {
+      // The chat remains usable with the in-memory character if refresh fails.
+    }
+  }
+
+  Future<void> _addMessageToMemory(ChatMessage message) async {
+    final session = _session;
+    if (session == null) return;
+    final scope = await showModalBottomSheet<MemoryScope>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.person_outline),
+              title: Text(context.t('长期记忆')),
+              onTap: () => Navigator.pop(context, MemoryScope.character),
+            ),
+            ListTile(
+              leading: const Icon(Icons.chat_outlined),
+              title: Text(context.t('当前对话记忆')),
+              onTap: () => Navigator.pop(context, MemoryScope.session),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (scope == null || !mounted) return;
+    final entry = await Navigator.of(context).push(
+      MaterialPageRoute<CharacterMemoryEntry>(
+        builder: (_) => MemoryEditScreen(
+          character: _character,
+          session: session,
+          initialContent: message.effectiveContent,
+          fixedScope: scope,
+        ),
+      ),
+    );
+    if (entry == null) return;
+    try {
+      await widget.storage.saveCharacterMemory(entry);
+      if (mounted) context.showSnack('记忆已保存');
+    } catch (error) {
+      if (mounted) context.showSnack(error.toString());
+    }
+  }
+
+  Future<void> _selectAssistantVariant(
+    int messageIndex,
+    int variantIndex,
+  ) async {
+    final message = _messages[messageIndex];
+    if (variantIndex == message.selectedVariantIndex || _isSending) return;
+    if (_conversation.hasMessagesAfter(messageIndex)) {
+      final confirmed = await showConfirmDialog(
+        context: context,
+        title: '切换候选回复',
+        content: context.t('切换此候选将删除它之后的消息，并可能清空历史总结，是否继续？'),
+        confirmLabel: '继续',
+      );
+      if (!confirmed) return;
+    }
+    if (!_conversation.selectAssistantVariant(messageIndex, variantIndex)) {
+      return;
+    }
+    if (_conversation.hasMessagesAfter(messageIndex)) {
+      _conversation.truncateAfter(messageIndex);
+    }
+    setState(() {
+      _searchResults = findChatSearchResults(
+        _messages.map((item) => item.effectiveContent),
+        _searchQuery,
+      );
+      _activeSearchResult = _searchResults.isEmpty
+          ? 0
+          : _activeSearchResult.clamp(0, _searchResults.length - 1).toInt();
+    });
+    await _saveCurrentChat();
+    await _saveCurrentSummary();
   }
 
   Future<void> _retryLastUserMessage() async {
@@ -348,7 +606,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _isSending = true;
     });
     try {
-      await widget.storage.saveChat(_character.id, _messages);
+      await _saveCurrentChat();
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -370,9 +628,10 @@ class _ChatScreenState extends State<ChatScreen> {
     _generationId++;
     setState(() {
       _conversation.dropEmptyAssistantTail();
+      _variantGenerationIndex = null;
       _isSending = false;
     });
-    unawaited(widget.storage.saveChat(_character.id, _messages));
+    unawaited(_saveCurrentChat());
     context.showSnack('已停止生成');
   }
 
@@ -418,11 +677,12 @@ class _ChatScreenState extends State<ChatScreen> {
 
       final nextSummary = ChatSummary(
         characterId: _character.id,
+        sessionId: _currentSession.id,
         summary: PromptBuilder.limitSummary(summaryText, 1500),
         updatedAt: DateTime.now(),
         summarizedMessageCount: messages.length,
       );
-      await widget.storage.saveSummary(nextSummary);
+      await _saveSummary(nextSummary);
 
       if (!mounted) return;
       setState(() {
@@ -441,13 +701,17 @@ class _ChatScreenState extends State<ChatScreen> {
     final shouldClear = await showConfirmDialog(
       context: context,
       title: '清空聊天',
-      content: context.t('确定清空当前角色的聊天记录吗？历史总结不会被删除。'),
+      content: context.t('确定清空当前对话的聊天记录吗？历史总结不会被删除。'),
       confirmLabel: '清空',
     );
 
     if (!shouldClear) return;
 
-    await widget.storage.clearChat(_character.id);
+    if (widget.storage.usesSessionStorage) {
+      await widget.storage.saveChatBySession(_currentSession, const []);
+    } else {
+      await widget.storage.clearChat(_character.id);
+    }
     if (!mounted) return;
     setState(() {
       _conversation.clearMessages();
@@ -459,7 +723,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _exportHistory() async {
-    if (_messages.every((message) => message.content.trim().isEmpty)) {
+    if (_messages.every((message) => message.effectiveContent.trim().isEmpty)) {
       context.showSnack('当前没有可导出的聊天记录');
       return;
     }
@@ -469,17 +733,17 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       final saved = await exportChatText(
         dialogTitle: dialogTitle,
-        title: _character.name,
+        title: '${_character.name} - ${_currentSession.title}',
         entries: [
           for (final message in _messages)
             (
-              time: message.time,
+              time: message.effectiveTime,
               speaker: message.isUser
                   ? userName
                   : message.isAssistant
                   ? _character.name
                   : systemName,
-              content: message.content,
+              content: message.effectiveContent,
             ),
         ],
       );
@@ -496,7 +760,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     await showChatSearchDialog(
       context: context,
-      contents: _messages.map((message) => message.content).toList(),
+      contents: _messages.map((message) => message.effectiveContent).toList(),
       initialQuery: _searchQuery,
       initialActiveIndex: _activeSearchResult,
       onChanged: (update) {
@@ -513,13 +777,18 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  List<Map<String, String>> _buildChatRequestMessages(UserProfile userProfile) {
+  List<Map<String, String>> _buildChatRequestMessages(
+    UserProfile userProfile, {
+    required String memoryPrompt,
+    required List<ChatMessage> messages,
+  }) {
     return PromptBuilder.buildChatRequestMessages(
       character: _character,
       userProfile: userProfile,
+      memoryPrompt: memoryPrompt,
       historySummary: _summary.summary,
       summarizedMessageCount: _summary.summarizedMessageCount,
-      messages: _messages,
+      messages: messages,
       useFullContext: _character.useFullChatContext,
     );
   }
@@ -530,6 +799,7 @@ class _ChatScreenState extends State<ChatScreen> {
     AiCancelToken cancelToken,
   ) async {
     if (_character.useFullChatContext) return false;
+    final sessionId = _currentSession.id;
 
     setState(() => _isSummarizing = true);
     try {
@@ -553,8 +823,9 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       );
       if (nextSummary == null) return false;
-      await widget.storage.saveSummary(nextSummary);
-      if (!mounted || generationId != _generationId || !_isSending) {
+      if (!_isCurrentGeneration(generationId, sessionId)) return false;
+      await _saveSummary(nextSummary);
+      if (!_isCurrentGeneration(generationId, sessionId)) {
         return true;
       }
       setState(() => _conversation.setSummary(nextSummary));
@@ -601,8 +872,11 @@ class _ChatScreenState extends State<ChatScreen> {
                             confirmLabel: '删除',
                           );
                           if (!confirmed || !mounted) return;
-                          final nextSummary = ChatSummary.empty(_character.id);
-                          await widget.storage.saveSummary(nextSummary);
+                          final nextSummary = ChatSummary.empty(
+                            _character.id,
+                            _currentSession.id,
+                          );
+                          await _saveSummary(nextSummary);
                           if (!mounted) return;
                           setState(() => _conversation.setSummary(nextSummary));
                           navigator.pop();
@@ -632,6 +906,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     if (!confirmed || !mounted) return;
                     final nextSummary = ChatSummary(
                       characterId: _character.id,
+                      sessionId: _currentSession.id,
                       summary: nextText,
                       updatedAt: DateTime.now(),
                       summarizedMessageCount:
@@ -642,7 +917,7 @@ class _ChatScreenState extends State<ChatScreen> {
                             )
                           : _summary.summarizedMessageCount,
                     );
-                    await widget.storage.saveSummary(nextSummary);
+                    await _saveSummary(nextSummary);
                     if (!mounted) return;
                     setState(() => _conversation.setSummary(nextSummary));
                     navigator.pop();
@@ -781,7 +1056,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                 ],
                 const Divider(),
-                SettingSlider.transparency(
+                SettingSlider.opacity(
                   key: const ValueKey('chat-background-transparency-setting'),
                   label: '背景图透明度',
                   opacity: draft.backgroundImageOpacity,
@@ -949,16 +1224,21 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _copyMessage(ChatMessage message) async {
-    await Clipboard.setData(ClipboardData(text: message.content));
+    await Clipboard.setData(ClipboardData(text: message.effectiveContent));
     if (!mounted) return;
     context.showSnack('已复制消息');
   }
 
   Future<void> _deleteMessage(int index) async {
+    if (index < 0 || index >= _messages.length) return;
+    final message = _messages[index];
+    final deletingVariant = message.isAssistant && message.variantCount > 1;
     final confirmed = await showConfirmDialog(
       context: context,
-      title: '删除消息',
-      content: context.t('确定删除这条消息吗？'),
+      title: context.t(deletingVariant ? '删除候选回复' : '删除消息'),
+      content: context.t(
+        deletingVariant ? '确定删除当前候选回复吗？' : '确定删除这条消息吗？',
+      ),
       confirmLabel: '删除',
     );
     if (!confirmed) return;
@@ -966,19 +1246,19 @@ class _ChatScreenState extends State<ChatScreen> {
     final deletion = _conversation.deleteAt(index);
     if (deletion == ChatMessageDeletion.ignored) return;
     if (deletion == ChatMessageDeletion.summaryInvalidated) {
-      await widget.storage.saveSummary(_summary);
+      await _saveCurrentSummary();
       if (!mounted) return;
     }
     setState(() {
       _searchResults = findChatSearchResults(
-        _messages.map((message) => message.content),
+        _messages.map((message) => message.effectiveContent),
         _searchQuery,
       );
       _activeSearchResult = _searchResults.isEmpty
           ? 0
           : _activeSearchResult.clamp(0, _searchResults.length - 1);
     });
-    await widget.storage.saveChat(_character.id, _messages);
+    await _saveCurrentChat();
   }
 
   void _scrollToEnd() {
@@ -1049,8 +1329,28 @@ class _ChatScreenState extends State<ChatScreen> {
         scrolledUnderElevation: 0,
         surfaceTintColor: Colors.transparent,
         systemOverlayStyle: appSystemOverlayStyle(context),
-        title: Text(_character.name),
+        title: InkWell(
+          onTap: _isLoading ? null : _openSessionList,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(_character.name),
+              if (_session != null)
+                Text(
+                  _session!.title,
+                  style: Theme.of(context).textTheme.labelSmall,
+                  overflow: TextOverflow.ellipsis,
+                ),
+            ],
+          ),
+        ),
         actions: [
+          IconButton(
+            tooltip: context.t('对话管理'),
+            onPressed: _isLoading ? null : _openSessionList,
+            icon: const Icon(Icons.forum_outlined),
+          ),
           IconButton(
             tooltip: context.t('搜索聊天'),
             onPressed: _showSearchDialog,
@@ -1065,6 +1365,11 @@ class _ChatScreenState extends State<ChatScreen> {
             tooltip: context.t('聊天设置'),
             onPressed: _showChatSettings,
             icon: const Icon(Icons.settings_outlined),
+          ),
+          IconButton(
+            tooltip: context.t('记忆与世界书'),
+            onPressed: _isLoading ? null : _openMemoryManager,
+            icon: const Icon(Icons.menu_book_outlined),
           ),
         ],
       ),
@@ -1164,7 +1469,10 @@ class _ChatScreenState extends State<ChatScreen> {
               .toInt()];
 
     final showTyping =
-        _isSending && (_messages.isEmpty || !_messages.last.isAssistant);
+        _isSending &&
+        (_variantGenerationIndex != null ||
+            _messages.isEmpty ||
+            !_messages.last.isAssistant);
 
     return AdaptivePage(
       child: ListView.builder(
@@ -1193,6 +1501,13 @@ class _ChatScreenState extends State<ChatScreen> {
             searchQuery: _searchQuery,
             splitRoleMessages:
                 widget.settings.splitRoleMessages && message.isAssistant,
+            isGenerating: _isSending,
+            onSelectVariant: (variantIndex) =>
+                _selectAssistantVariant(messageIndex, variantIndex),
+            onRegenerate: _conversation.canRegenerateAssistantAt(messageIndex)
+                ? () => _regenerateAssistantVariant(messageIndex)
+                : null,
+            onAddMemory: () => _addMessageToMemory(message),
             onCopy: () => _copyMessage(message),
             onDelete: _isSending ? null : () => _deleteMessage(messageIndex),
           );
@@ -1295,7 +1610,12 @@ class _MessageBubble extends StatelessWidget {
     required this.isHighlighted,
     required this.searchQuery,
     required this.splitRoleMessages,
+    required this.isGenerating,
+    required this.onSelectVariant,
+    this.onRegenerate,
+    required this.onAddMemory,
     this.showFooter = true,
+    this.controlMessage,
     required this.onCopy,
     this.onDelete,
   });
@@ -1306,14 +1626,19 @@ class _MessageBubble extends StatelessWidget {
   final bool isHighlighted;
   final String searchQuery;
   final bool splitRoleMessages;
+  final bool isGenerating;
+  final ValueChanged<int> onSelectVariant;
+  final VoidCallback? onRegenerate;
+  final VoidCallback onAddMemory;
   final bool showFooter;
+  final ChatMessage? controlMessage;
   final VoidCallback onCopy;
   final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
     final segments = roleMessageSegments(
-      message.content,
+      message.effectiveContent,
       enabled: splitRoleMessages,
     );
     if (segments.length > 1) {
@@ -1321,13 +1646,21 @@ class _MessageBubble extends StatelessWidget {
         children: [
           for (var index = 0; index < segments.length; index++)
             _MessageBubble(
-              message: message.copyWith(content: segments[index]),
+              message: message.copyWith(
+                content: segments[index],
+                variants: const [],
+              ),
               appearance: appearance,
               chatTextColor: chatTextColor,
               isHighlighted: isHighlighted,
               searchQuery: searchQuery,
               splitRoleMessages: false,
               showFooter: index == segments.length - 1,
+              controlMessage: controlMessage ?? message,
+              isGenerating: isGenerating,
+              onSelectVariant: onSelectVariant,
+              onRegenerate: onRegenerate,
+              onAddMemory: onAddMemory,
               onCopy: onCopy,
               onDelete: onDelete,
             ),
@@ -1335,6 +1668,7 @@ class _MessageBubble extends StatelessWidget {
       );
     }
     final isUser = message.isUser;
+    final controls = controlMessage ?? message;
     final screenWidth = MediaQuery.sizeOf(context).width;
     final maxBubbleWidth = isCompactWidth(screenWidth)
         ? screenWidth * 0.82
@@ -1353,7 +1687,7 @@ class _MessageBubble extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               MessageContent(
-                text: message.content,
+                text: message.effectiveContent,
                 textColor: appearance.textColor ?? chatTextColor,
                 highlightQuery: searchQuery,
               ),
@@ -1363,14 +1697,14 @@ class _MessageBubble extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      _formatTime(message.time),
+                      _formatTime(message.effectiveTime),
                       style: theme.textTheme.labelSmall,
                     ),
-                    if (message.model != null) ...[
+                    if (message.effectiveModel != null) ...[
                       const SizedBox(width: 6),
                       Flexible(
                         child: Text(
-                          message.model!,
+                          message.effectiveModel!,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.labelSmall,
                         ),
@@ -1380,8 +1714,23 @@ class _MessageBubble extends StatelessWidget {
                       context,
                       onCopy: onCopy,
                       onDelete: onDelete,
+                      onAddMemory: onAddMemory,
                     ),
                   ],
+                ),
+              if (showFooter && controls.isAssistant)
+                ChatVariantControls(
+                  selectedIndex: controls.selectedVariantIndex,
+                  variantCount: controls.variantCount,
+                  isGenerating: isGenerating,
+                  onPrevious: controls.selectedVariantIndex > 0
+                      ? () => onSelectVariant(controls.selectedVariantIndex - 1)
+                      : null,
+                  onNext:
+                      controls.selectedVariantIndex + 1 < controls.variantCount
+                      ? () => onSelectVariant(controls.selectedVariantIndex + 1)
+                      : null,
+                  onRegenerate: onRegenerate,
                 ),
             ],
           );

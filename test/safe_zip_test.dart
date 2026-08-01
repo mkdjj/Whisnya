@@ -6,21 +6,40 @@ import 'package:whisnya/utils/safe_zip.dart';
 
 void main() {
   test('validates archive paths and size limits before extraction', () {
-    expect(decodeSafeZip(_zip({'folder/data.json': [1, 2]})).files, hasLength(1));
+    expect(
+      decodeSafeZip(
+        _zip({
+          'folder/data.json': [1, 2],
+        }),
+      ).files,
+      hasLength(1),
+    );
 
     for (final name in ['../escape', '/absolute', r'C:\absolute']) {
       expect(
-        () => decodeSafeZip(_zip({name: [1]})),
+        () => decodeSafeZip(
+          _zip({
+            name: [1],
+          }),
+        ),
         throwsA(isA<SafeZipException>()),
       );
     }
     expect(
-      () => decodeSafeZip(_zip({'large': [1, 2, 3]}), maxFileBytes: 2),
+      () => decodeSafeZip(
+        _zip({
+          'large': [1, 2, 3],
+        }),
+        maxFileBytes: 2,
+      ),
       throwsA(isA<SafeZipException>()),
     );
     expect(
       () => decodeSafeZip(
-        _zip({'one': [1, 2], 'two': [3, 4]}),
+        _zip({
+          'one': [1, 2],
+          'two': [3, 4],
+        }),
         maxExpandedBytes: 3,
       ),
       throwsA(isA<SafeZipException>()),

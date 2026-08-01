@@ -159,7 +159,7 @@ void main() {
     );
   });
 
-  testWidgets('theater background slider maps transparency to opacity', (
+  testWidgets('theater background slider maps opacity directly', (
     tester,
   ) async {
     final session = _session.copyWith(backgroundImageOpacity: 0.25);
@@ -189,9 +189,14 @@ void main() {
     final slider = tester.widget<Slider>(
       find.descendant(of: setting, matching: find.byType(Slider)),
     );
-    expect(slider.value, 0.75);
+    expect(slider.value, 0.25);
     slider.onChanged!(1);
     slider.onChangeEnd!(1);
+    await tester.pump();
+    expect(storage.savedSessions.last.backgroundImageOpacity, 1);
+
+    slider.onChanged!(0);
+    slider.onChangeEnd!(0);
     await tester.pump();
     expect(storage.savedSessions.last.backgroundImageOpacity, 0);
   });

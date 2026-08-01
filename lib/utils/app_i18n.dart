@@ -26,6 +26,8 @@ final _connectedPattern = RegExp(r'^(.+) 连接成功：(.+)$');
 final _incompleteConfigPattern = RegExp(r'^(.+) 配置不完整，请先到设置里配置 API。$');
 final _apiErrorPattern = RegExp(r'^API 返回错误 (\d+)：(.+)$');
 final _novelRoleCountPattern = RegExp(r'^共 (\d+) 个角色$');
+final _memoryContextLimitPattern = RegExp(r'^每次最多注入 (\d+) 个字符$');
+final _savedMemoriesPattern = RegExp(r'^已保存 (\d+) 条记忆$');
 
 const _dynamicPrefixes = {
   '设置文件异常': 'Settings file is invalid',
@@ -112,6 +114,12 @@ String? _dynamicEn(String text) {
 
   match = _novelRoleCountPattern.firstMatch(text);
   if (match != null) return '${match[1]} novel roles';
+
+  match = _memoryContextLimitPattern.firstMatch(text);
+  if (match != null) return 'Inject at most ${match[1]} characters each time';
+
+  match = _savedMemoriesPattern.firstMatch(text);
+  if (match != null) return 'Saved ${match[1]} memories';
 
   for (final entry in _dynamicPrefixes.entries) {
     final prefix = '${entry.key}：';
@@ -489,7 +497,77 @@ const _en = {
   '阅读行距': 'Reading line height',
   '总结小说并生成角色': 'Summarize novel and generate roles',
   '首次生成': 'First generation',
-  '重新生成': 'Regenerate',
+  '对话管理': 'Chat sessions',
+  '新建对话': 'New chat',
+  '对话标题': 'Chat title',
+  '重命名对话': 'Rename chat',
+  '进行中的对话': 'Active chats',
+  '已归档': 'Archived',
+  '消息数': 'Messages',
+  '复制对话': 'Duplicate chat',
+  '归档对话': 'Archive chat',
+  '取消归档': 'Unarchive chat',
+  '删除对话': 'Delete chat',
+  '确定删除这个对话及其聊天记录吗？': 'Delete this chat and its history?',
+  '确定清空当前对话的聊天记录吗？历史总结不会被删除。':
+      'Clear this chat history? Its saved summary will not be deleted.',
+  '切换候选回复': 'Switch reply variant',
+  '切换此候选将删除它之后的消息，并可能清空历史总结，是否继续？':
+      'Switching this variant will remove all following messages and may clear the summary. Continue?',
+  '删除候选回复': 'Delete reply variant',
+  '确定删除当前候选回复吗？': 'Delete the current reply variant?',
+  '记忆与世界书': 'Memory and world book',
+  '加入记忆': 'Add to memory',
+  '记忆已保存': 'Memory saved',
+  '新建记忆': 'New memory',
+  '编辑记忆': 'Edit memory',
+  '标题': 'Title',
+  '内容': 'Content',
+  '范围': 'Scope',
+  '长期记忆': 'Long-term memory',
+  '当前对话记忆': 'Current chat memory',
+  '关键词': 'Keywords',
+  '用逗号或换行分隔；留空则始终生效':
+      'Separate with commas or new lines; leave empty to always apply',
+  '使用逗号或换行分隔关键词': 'Separate keywords with commas or new lines',
+  '优先级': 'Priority',
+  '启用记忆': 'Enable memory',
+  '禁用记忆': 'Disable memory',
+  '请填写标题和内容': 'Enter a title and content',
+  '关键词世界书': 'Keyword world book',
+  '添加长期记忆': 'Add long-term memory',
+  '添加当前对话记忆': 'Add current chat memory',
+  '添加世界书': 'Add world book',
+  '引用已有世界书': 'Reference existing world book',
+  '新建世界书': 'Create world book',
+  '取消引用': 'Remove reference',
+  '添加词条': 'Add entry',
+  '编辑世界书': 'Edit world book',
+  '删除世界书': 'Delete world book',
+  '确定删除这本世界书吗？': 'Delete this world book?',
+  '角色引用数量': 'Roles referencing this book',
+  '世界书名称': 'World book name',
+  '启用世界书': 'Enable world book',
+  '禁用世界书': 'Disable world book',
+  '启用世界书词条': 'Enable world book entry',
+  '禁用世界书词条': 'Disable world book entry',
+  '这本世界书还没有关键词词条': 'This world book has no keyword entries yet',
+  '至少填写一个关键词': 'Enter at least one keyword',
+  '当前角色还没有长期记忆': 'This character has no long-term memories yet',
+  '当前对话还没有记忆': 'This chat has no memories yet',
+  '当前角色还没有引用世界书':
+      'This character does not reference any world books yet',
+  '保存引用': 'Save references',
+  '还没有世界书': 'No world books yet',
+  '有效词条': 'active entries',
+  '筛选': 'Filter',
+  '还没有记忆': 'No memories yet',
+  '始终生效': 'Always active',
+  '删除记忆': 'Delete memory',
+  '确定删除这条记忆吗？': 'Delete this memory?',
+  'AI 提取记忆': 'Extract memories with AI',
+  '审核提取记忆': 'Review extracted memories',
+  '保存选中项': 'Save selected',
   '重新开始': 'Start over',
   '继续上次总结': 'Continue previous summary',
   '清理总结缓存': 'Clear summary cache',
@@ -590,7 +668,11 @@ const _en = {
   '边返回边显示': 'Show text as it arrives',
   '显示思考过程': 'Show thinking process',
   '把 reasoning_content 显示在回复里': 'Show reasoning_content in replies',
+  '记忆上下文上限': 'Memory context limit',
   '连续气泡输出': 'Continuous bubble output',
+  '上一个候选': 'Previous variant',
+  '下一个候选': 'Next variant',
+  '重新生成': 'Regenerate',
   '按非空行拆分角色回复': 'Split role replies by non-empty lines',
   '角色聊天总结': 'Character chat summary',
   '聊天总结': 'Chat summary',

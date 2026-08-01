@@ -860,6 +860,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onChanged: (value) =>
                   _applySettings(_settings.copyWith(splitRoleMessages: value)),
             ),
+            KeyedSubtree(
+              key: const ValueKey('memory-context-limit-setting'),
+              child: _tile(
+                icon: Icons.memory_outlined,
+                title: context.t('记忆上下文上限'),
+                subtitle: context.t(
+                  '每次最多注入 ${_settings.memoryContextMaxCharacters} 个字符',
+                ),
+                child: _compactSlider(
+                  value: _settings.memoryContextMaxCharacters.toDouble(),
+                  min: 500,
+                  max: 12000,
+                  divisions: 23,
+                  onChanged: (value) => _previewSettings(
+                    _settings.copyWith(
+                      memoryContextMaxCharacters: value.round(),
+                    ),
+                  ),
+                  onChangeEnd: (value) => _applySettings(
+                    _settings.copyWith(
+                      memoryContextMaxCharacters: value.round(),
+                    ),
+                  ),
+                ),
+              ),
+            ),
             _tile(
               icon: Icons.language,
               title: context.t('语言'),

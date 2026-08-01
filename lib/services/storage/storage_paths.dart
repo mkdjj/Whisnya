@@ -11,8 +11,16 @@ class StoragePaths {
   File get characters => _file('characters.json');
   File get novels => _file('novels.json');
   File get theaterSessions => _file('theater_sessions.json');
+  File get chatSessions => _file('chat_sessions.json');
   File chat(String id) => _file('chats', '$id.json');
   File summary(String id) => _file('summaries', '$id.json');
+  File chatBySession(String sessionId) => chat(sessionId);
+  File summaryBySession(String sessionId) => summary(sessionId);
+  File characterMemories(String characterId) =>
+      _file('memories', '$characterId.json');
+  File get worldBooks => _file('worldbooks.json');
+  File worldBookEntries(String worldBookId) =>
+      _file('worldbook_entries', '$worldBookId.json');
   File novelText(String id) => _file('novels', '$id.txt');
   File novelSummaryCache(String id) => _file('novel_summary_cache', '$id.json');
   File theaterMessages(String id) => _file('theater_messages', '$id.json');

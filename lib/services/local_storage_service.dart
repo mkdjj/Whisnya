@@ -12,13 +12,17 @@ import '../models/ai_usage.dart';
 import '../models/app_character.dart';
 import '../models/app_settings.dart';
 import '../models/chat_message.dart';
+import '../models/chat_session.dart';
 import '../models/chat_summary.dart';
+import '../models/character_memory_entry.dart';
 import '../models/novel_book.dart';
 import '../models/theater.dart';
+import '../models/world_book.dart';
 import '../utils/password_lock.dart';
 import '../utils/role_import_parser.dart';
 import '../utils/safe_zip.dart';
 import 'storage/json_file_store.dart';
+import 'chat/chat_session_service.dart';
 import 'storage/media_store.dart' as media_store;
 import 'storage/storage_paths.dart';
 
@@ -106,6 +110,7 @@ Future<void> validateBackupDirectory(Directory directory) async {
     (value) => value is Map<String, dynamic>,
   );
   await optionalJson('characters.json', (value) => value is List);
+  await optionalJson('chat_sessions.json', (value) => value is List);
   await optionalJson('novels.json', (value) => value is List);
   await optionalJson('theater_sessions.json', (value) => value is List);
 }
@@ -137,7 +142,12 @@ class LocalStorageService {
   final JsonFileStore jsonStore;
   Directory? _appDataDirectory;
   Future<Directory>? _appDataDirectoryFuture;
+  Future<ChatSessionService>? _chatSessionServiceFuture;
   final _recoveryMessages = <String>[];
+
+  // Test and embedder subclasses from pre-session releases can continue to
+  // provide loadChat/saveChat without being forced to implement session files.
+  bool get usesSessionStorage => runtimeType == LocalStorageService;
 
   List<String> takeRecoveryMessages() {
     final messages = List<String>.from(_recoveryMessages);
@@ -149,6 +159,11 @@ class LocalStorageService {
       _appDataDirectoryFuture ??= _prepareAppDataDirectory();
 
   Future<StoragePaths> get _paths async => StoragePaths(await appDataDirectory);
+
+  Future<ChatSessionService> get _chatSessions =>
+      _chatSessionServiceFuture ??= appDataDirectory.then(
+        (root) => ChatSessionService(root: root, jsonStore: jsonStore),
+      );
 
   Future<Directory> _prepareAppDataDirectory() async {
     final directory =
@@ -178,6 +193,8 @@ class LocalStorageService {
       'novels',
       'novel_summary_cache',
       'theater_messages',
+      'memories',
+      'worldbook_entries',
     ]) {
       await Directory(
         '${directory.path}${Platform.pathSeparator}$name',
@@ -388,17 +405,189 @@ class LocalStorageService {
       characters.removeWhere((character) => character.id == characterId);
       return characters;
     });
-    final paths = await _paths;
-    final chat = paths.chat(characterId);
-    if (await chat.exists()) {
-      await chat.delete();
-    }
-    final summary = paths.summary(characterId);
-    if (await summary.exists()) {
-      await summary.delete();
-    }
+    await (await _chatSessions).deleteCharacterSessions(characterId);
     await cleanupUnusedMedia();
   }
+
+  Future<List<ChatSession>> loadChatSessions(String characterId) async =>
+      (await _chatSessions).loadChatSessions(characterId);
+
+  Future<ChatSession> getOrCreateRecentChatSession(String characterId) async =>
+      (await _chatSessions).getOrCreateRecentChatSession(characterId);
+
+  Future<ChatSession> createChatSession(
+    String characterId, {
+    String? title,
+  }) async =>
+      (await _chatSessions).createChatSession(characterId, title: title);
+
+  Future<void> saveChatSession(ChatSession session) async =>
+      (await _chatSessions).saveChatSession(session);
+
+  Future<ChatSession> duplicateChatSession(ChatSession source) async =>
+      (await _chatSessions).duplicateChatSession(source);
+
+  Future<void> deleteChatSession(ChatSession session) async =>
+      (await _chatSessions).deleteChatSession(session);
+
+  Future<void> archiveChatSession(ChatSession session) async =>
+      (await _chatSessions).archiveChatSession(session);
+
+  Future<void> unarchiveChatSession(ChatSession session) async =>
+      (await _chatSessions).unarchiveChatSession(session);
+
+  Future<List<ChatMessage>> loadChatBySession(ChatSession session) async =>
+      (await _chatSessions).loadChatBySession(session);
+
+  Future<void> saveChatBySession(
+    ChatSession session,
+    List<ChatMessage> messages,
+  ) async => (await _chatSessions).saveChatBySession(session, messages);
+
+  Future<ChatSummary> loadSummaryBySession(ChatSession session) async =>
+      (await _chatSessions).loadSummaryBySession(session);
+
+  Future<void> saveSummaryBySession(ChatSummary summary) async =>
+      (await _chatSessions).saveSummaryBySession(summary);
+
+  Future<List<CharacterMemoryEntry>> loadCharacterMemories(
+    String characterId,
+  ) async {
+    final service = await _chatSessions;
+    final memories = await service.loadCharacterMemories(characterId);
+    final legacy = memories.where((memory) => memory.keywords.isNotEmpty).toList();
+    if (legacy.isEmpty) return memories;
+
+    final character = (await loadCharacters())
+        .where((item) => item.id == characterId)
+        .firstOrNull;
+    if (character == null) return memories;
+
+    final worldBookId = 'legacy_worldbook_${_safeWorldBookPart(characterId)}';
+    final books = await service.loadWorldBooks();
+    var worldBook = books.where((book) => book.id == worldBookId).firstOrNull;
+    final now = DateTime.now();
+    if (worldBook == null) {
+      worldBook = WorldBook(
+        id: worldBookId,
+        name: '${character.name.trim().isEmpty ? characterId : character.name.trim()} - 旧关键词世界书',
+        description: '从旧版关键词记忆迁移',
+        createdAt: now,
+        updatedAt: now,
+      );
+      await service.saveWorldBook(worldBook);
+    }
+
+    final existing = await service.loadWorldBookEntries(worldBookId);
+    final existingIds = existing.map((entry) => entry.id).toSet();
+    for (final memory in legacy) {
+      final entryId =
+          'legacy_worldbook_entry_${_safeWorldBookPart(memory.id)}';
+      if (existingIds.contains(entryId)) continue;
+      await service.saveWorldBookEntry(
+        WorldBookEntry(
+          id: entryId,
+          worldBookId: worldBookId,
+          title: memory.title,
+          content: memory.content,
+          keywords: memory.keywords,
+          priority: memory.priority,
+          enabled: memory.enabled,
+          createdAt: memory.createdAt,
+          updatedAt: memory.updatedAt,
+        ),
+      );
+    }
+
+    if (!character.worldBookIds.contains(worldBookId)) {
+      await updateCharacterWorldBookReferences(
+        characterId,
+        [...character.worldBookIds, worldBookId],
+      );
+    }
+    for (final memory in legacy) {
+      await service.deleteCharacterMemory(characterId, memory.id);
+    }
+    return service.loadCharacterMemories(characterId);
+  }
+
+  static String _safeWorldBookPart(String value) {
+    final cleaned = value.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    return cleaned.isEmpty ? 'legacy' : cleaned;
+  }
+
+  Future<List<WorldBook>> loadWorldBooks() async =>
+      (await _chatSessions).loadWorldBooks();
+
+  Future<void> saveWorldBook(WorldBook worldBook) async =>
+      (await _chatSessions).saveWorldBook(worldBook);
+
+  Future<void> deleteWorldBook(String worldBookId) async {
+    await (await _chatSessions).deleteWorldBook(worldBookId);
+    await _updateCharacters((characters) {
+      for (var index = 0; index < characters.length; index++) {
+        final character = characters[index];
+        if (character.worldBookIds.contains(worldBookId)) {
+          characters[index] = character.copyWith(
+            worldBookIds: character.worldBookIds
+                .where((id) => id != worldBookId)
+                .toList(),
+          );
+        }
+      }
+      return characters;
+    });
+  }
+
+  Future<List<WorldBookEntry>> loadWorldBookEntries(String worldBookId) async =>
+      (await _chatSessions).loadWorldBookEntries(worldBookId);
+
+  Future<void> saveWorldBookEntry(WorldBookEntry entry) async =>
+      (await _chatSessions).saveWorldBookEntry(entry);
+
+  Future<void> deleteWorldBookEntry(String worldBookId, String entryId) async =>
+      (await _chatSessions).deleteWorldBookEntry(worldBookId, entryId);
+
+  Future<void> updateCharacterWorldBookReferences(
+    String characterId,
+    List<String> worldBookIds,
+  ) async {
+    await _updateCharacters((characters) {
+      final index = characters.indexWhere(
+        (character) => character.id == characterId,
+      );
+      if (index >= 0) {
+        characters[index] = characters[index].copyWith(
+          worldBookIds: worldBookIds,
+        );
+      }
+      return characters;
+    });
+  }
+
+  Future<void> saveCharacterMemory(CharacterMemoryEntry entry) async =>
+      (await _chatSessions).saveCharacterMemory(entry);
+
+  Future<void> deleteCharacterMemory(
+    String characterId,
+    String memoryId,
+  ) async => (await _chatSessions).deleteCharacterMemory(characterId, memoryId);
+
+  Future<void> deleteSessionMemories(
+    String characterId,
+    String sessionId,
+  ) async =>
+      (await _chatSessions).deleteSessionMemories(characterId, sessionId);
+
+  Future<List<CharacterMemoryEntry>> duplicateSessionMemories(
+    String characterId,
+    String sourceSessionId,
+    String targetSessionId,
+  ) async => (await _chatSessions).duplicateSessionMemories(
+    characterId,
+    sourceSessionId,
+    targetSessionId,
+  );
 
   Future<List<ChatMessage>> loadChat(String characterId) async {
     final file = (await _paths).chat(characterId);
@@ -691,7 +880,7 @@ class LocalStorageService {
         'backup_manifest.json',
         const JsonEncoder.withIndent('  ').convert({
           'format': 1,
-          'schemaVersion': 2,
+          'schemaVersion': 3,
           'appDataPath': directory.path,
         }),
       ),

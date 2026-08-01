@@ -42,6 +42,28 @@ void main() {
     expect(restored.splitRoleMessages, isTrue);
   });
 
+  test('memory context character limit defaults, clamps, and round trips', () {
+    expect(const AppSettings().memoryContextMaxCharacters, 4000);
+    expect(
+      AppSettings.fromJson({
+        'memoryContextMaxCharacters': 100,
+      }).memoryContextMaxCharacters,
+      500,
+    );
+    expect(
+      AppSettings.fromJson({
+        'memoryContextMaxCharacters': 20000,
+      }).memoryContextMaxCharacters,
+      12000,
+    );
+    expect(
+      const AppSettings()
+          .copyWith(memoryContextMaxCharacters: 6500)
+          .toJson()['memoryContextMaxCharacters'],
+      6500,
+    );
+  });
+
   test('character list card opacity defaults and clamps', () {
     expect(const AppSettings().characterListCardOpacity, 1);
     expect(

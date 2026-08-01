@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../models/app_character.dart';
 import '../models/app_settings.dart';
+import '../models/chat_session.dart';
 import '../services/ai_service.dart';
 import '../services/local_storage_service.dart';
 import '../utils/app_i18n.dart';
@@ -17,6 +18,7 @@ import '../utils/snack.dart';
 import '../widgets/app_background.dart';
 import 'character_edit_screen.dart';
 import 'chat/chat_screen.dart';
+import 'chat/chat_session_list_screen.dart';
 import 'novel/novel_screens.dart';
 import 'settings_screen.dart';
 import 'theater/theater_screens.dart';
@@ -151,6 +153,23 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
     if (!mounted) return;
+    ChatSession session;
+    try {
+      session = widget.storage.usesSessionStorage
+          ? await widget.storage.getOrCreateRecentChatSession(opened.id)
+          : ChatSession(
+              id: 'legacy_runtime_${opened.id}',
+              characterId: opened.id,
+              title: '默认对话',
+              createdAt: DateTime.now(),
+              updatedAt: DateTime.now(),
+              lastUsedAt: DateTime.now(),
+            );
+    } catch (error) {
+      if (mounted) context.showSnack(error.toString());
+      return;
+    }
+    if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ChatScreen(
@@ -158,6 +177,33 @@ class _HomeScreenState extends State<HomeScreen> {
           aiService: widget.aiService,
           character: opened,
           settings: widget.settings,
+          session: session,
+        ),
+      ),
+    );
+    await _load();
+  }
+
+  Future<void> _manageSessions(AppCharacter character) async {
+    if (!await _verifyCharacterOperation(character, '对话管理')) return;
+    if (!mounted) return;
+    final selected = await Navigator.of(context).push<ChatSession>(
+      MaterialPageRoute(
+        builder: (_) => ChatSessionListScreen(
+          storage: widget.storage,
+          character: character,
+        ),
+      ),
+    );
+    if (selected == null || !mounted) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => ChatScreen(
+          storage: widget.storage,
+          aiService: widget.aiService,
+          character: character,
+          settings: widget.settings,
+          session: selected,
         ),
       ),
     );
@@ -572,6 +618,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                 case _CharacterAction.lock:
                                   unawaited(_toggleLock(character));
                                   break;
+                                case _CharacterAction.sessions:
+                                  unawaited(_manageSessions(character));
+                                  break;
                                 case _CharacterAction.delete:
                                   unawaited(_deleteCharacter(character));
                                   break;
@@ -616,6 +665,13 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                               ),
                               PopupMenuItem(
+                                value: _CharacterAction.sessions,
+                                child: ListTile(
+                                  leading: const Icon(Icons.forum_outlined),
+                                  title: Text(context.t('对话管理')),
+                                ),
+                              ),
+                              PopupMenuItem(
                                 value: _CharacterAction.lock,
                                 child: ListTile(
                                   leading: Icon(
@@ -650,7 +706,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-enum _CharacterAction { edit, pin, hide, lock, delete }
+enum _CharacterAction { edit, pin, hide, sessions, lock, delete }
 
 class _CharacterAvatar extends StatelessWidget {
   const _CharacterAvatar({required this.character});

@@ -19,6 +19,7 @@ class AppSettings {
     this.streamResponses = true,
     this.showReasoningContent = false,
     this.splitRoleMessages = false,
+    this.memoryContextMaxCharacters = 4000,
     this.useCustomChatSummaryItems = false,
     this.customChatSummaryItems = defaultChatSummaryItems,
     this.useCustomTheaterSummaryItems = false,
@@ -45,6 +46,7 @@ class AppSettings {
   final bool streamResponses;
   final bool showReasoningContent;
   final bool splitRoleMessages;
+  final int memoryContextMaxCharacters;
   final bool useCustomChatSummaryItems;
   final List<String> customChatSummaryItems;
   final bool useCustomTheaterSummaryItems;
@@ -81,6 +83,7 @@ class AppSettings {
     bool? streamResponses,
     bool? showReasoningContent,
     bool? splitRoleMessages,
+    int? memoryContextMaxCharacters,
     bool? useCustomChatSummaryItems,
     List<String>? customChatSummaryItems,
     bool? useCustomTheaterSummaryItems,
@@ -117,6 +120,11 @@ class AppSettings {
       streamResponses: streamResponses ?? this.streamResponses,
       showReasoningContent: showReasoningContent ?? this.showReasoningContent,
       splitRoleMessages: splitRoleMessages ?? this.splitRoleMessages,
+      memoryContextMaxCharacters:
+          (memoryContextMaxCharacters ?? this.memoryContextMaxCharacters).clamp(
+            500,
+            12000,
+          ),
       useCustomChatSummaryItems:
           useCustomChatSummaryItems ?? this.useCustomChatSummaryItems,
       customChatSummaryItems: customChatSummaryItems == null
@@ -166,6 +174,9 @@ class AppSettings {
       streamResponses: json?['streamResponses'] as bool? ?? true,
       showReasoningContent: json?['showReasoningContent'] as bool? ?? false,
       splitRoleMessages: json?['splitRoleMessages'] as bool? ?? false,
+      memoryContextMaxCharacters:
+          ((json?['memoryContextMaxCharacters'] as num?)?.toInt() ?? 4000)
+              .clamp(500, 12000),
       useCustomChatSummaryItems:
           json?['useCustomChatSummaryItems'] as bool? ?? false,
       customChatSummaryItems: cleanChatSummaryItems(
@@ -203,6 +214,7 @@ class AppSettings {
       'streamResponses': streamResponses,
       'showReasoningContent': showReasoningContent,
       'splitRoleMessages': splitRoleMessages,
+      'memoryContextMaxCharacters': memoryContextMaxCharacters,
       'useCustomChatSummaryItems': useCustomChatSummaryItems,
       'customChatSummaryItems': customChatSummaryItems,
       'useCustomTheaterSummaryItems': useCustomTheaterSummaryItems,

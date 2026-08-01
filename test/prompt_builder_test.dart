@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:whisnya/models/app_character.dart';
 import 'package:whisnya/models/app_settings.dart';
 import 'package:whisnya/models/chat_message.dart';
+import 'package:whisnya/models/chat_reply_variant.dart';
 import 'package:whisnya/models/theater.dart';
 import 'package:whisnya/models/user_profile.dart';
 import 'package:whisnya/prompts/prompt_builder.dart';
@@ -757,5 +758,84 @@ Two.
       contains('只输出 name、description、personality、background、speakingStyle'),
     );
     expect(prompt, contains('不要输出开场白、补充设定'));
+  });
+  test('uses the selected assistant variant in chat requests', () {
+    final request = PromptBuilder.buildChatRequestMessages(
+      character: AppCharacter.fromJson(const {'id': 'character', 'name': 'A'}),
+      historySummary: '',
+      summarizedMessageCount: 0,
+      useFullContext: true,
+      messages: [
+        ChatMessage(
+          role: 'assistant',
+          content: 'old reply',
+          time: DateTime(2026),
+          variants: [
+            ChatReplyVariant(content: 'old reply', time: DateTime(2026)),
+            ChatReplyVariant(content: 'selected reply', time: DateTime(2026)),
+          ],
+          selectedVariantIndex: 1,
+        ),
+      ],
+    );
+
+    expect(request.last['content'], 'selected reply');
+  });
+
+  test('orders memory before summary and omits an empty memory prompt', () {
+    final character = AppCharacter.fromJson(const {
+      'id': 'character',
+      'name': 'A',
+    });
+    final messages = [
+      ChatMessage(role: 'user', content: 'hello', time: DateTime(2026)),
+    ];
+    final request = PromptBuilder.buildChatRequestMessages(
+      character: character,
+      memoryPrompt: '【长期记忆】\n- 称呼：宝宝',
+      historySummary: '旧总结',
+      summarizedMessageCount: 0,
+      useFullContext: false,
+      messages: messages,
+    );
+
+    expect(request[1]['content'], startsWith('【长期记忆】'));
+    expect(request[2]['content'], contains('旧总结'));
+    expect(request[3], {'role': 'user', 'content': 'hello'});
+    expect(
+      PromptBuilder.buildChatRequestMessages(
+        character: character,
+        historySummary: '',
+        summarizedMessageCount: 0,
+        useFullContext: true,
+        messages: messages,
+      ),
+      hasLength(2),
+    );
+  });
+
+  test('uses the selected assistant variant in summaries', () {
+    final message = ChatMessage(
+      role: 'assistant',
+      content: 'old reply',
+      time: DateTime(2026),
+      variants: [
+        ChatReplyVariant(content: 'old reply', time: DateTime(2026)),
+        ChatReplyVariant(content: 'selected reply', time: DateTime(2026)),
+      ],
+      selectedVariantIndex: 1,
+    );
+
+    expect(
+      PromptBuilder.buildSummaryPrompt([message]),
+      contains('selected reply'),
+    );
+    expect(
+      PromptBuilder.buildRollingSummaryPrompt(
+        previousSummary: 'history',
+        newMessages: [message],
+      ),
+      contains('selected reply'),
+    );
   });
 }

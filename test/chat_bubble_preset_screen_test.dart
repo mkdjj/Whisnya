@@ -67,6 +67,36 @@ void main() {
     await tester.pump();
     expect(storage.savedSettings.last.splitRoleMessages, isTrue);
   });
+
+  testWidgets('settings exposes the memory context character limit', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        home: Scaffold(
+          body: SettingsScreen(
+            storage: _MemoryStorage(),
+            settings: const AppSettings(),
+            onSettingsChanged: () async {},
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      find.byKey(const ValueKey('memory-context-limit-setting')),
+      findsOneWidget,
+    );
+    expect(find.text('记忆上下文上限'), findsOneWidget);
+    expect(find.text('每次最多注入 4000 个字符'), findsOneWidget);
+  });
   testWidgets('preset picker offers only ten built-ins', (tester) async {
     tester.view.physicalSize = const Size(800, 1400);
     tester.view.devicePixelRatio = 1;

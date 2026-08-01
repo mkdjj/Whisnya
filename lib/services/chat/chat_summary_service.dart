@@ -28,7 +28,7 @@ ChatSummary chatSummaryAfterMessageDeletion({
       .where((message) => message.isUser || message.isAssistant)
       .length;
   return chatIndex < summary.summarizedMessageCount
-      ? ChatSummary.empty(summary.characterId)
+      ? ChatSummary.empty(summary.characterId, summary.sessionId)
       : summary;
 }
 
@@ -78,6 +78,7 @@ Future<ChatSummary?> updateChatSummary(
   );
   return ChatSummary(
     characterId: characterId,
+    sessionId: current.sessionId,
     summary: PromptBuilder.limitSummary(text, 1500),
     updatedAt: DateTime.now(),
     summarizedMessageCount: end,

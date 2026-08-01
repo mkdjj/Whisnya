@@ -8,6 +8,7 @@ List<Widget> messageBubbleActions(
   BuildContext context, {
   required VoidCallback onCopy,
   VoidCallback? onDelete,
+  VoidCallback? onAddMemory,
 }) => [
   IconButton(
     tooltip: context.t('复制消息'),
@@ -20,6 +21,12 @@ List<Widget> messageBubbleActions(
     visualDensity: VisualDensity.compact,
     onPressed: onDelete,
     icon: const Icon(Icons.delete_outline, size: 16),
+  ),
+  IconButton(
+    tooltip: context.t('加入记忆'),
+    visualDensity: VisualDensity.compact,
+    onPressed: onAddMemory,
+    icon: const Icon(Icons.bookmark_add_outlined, size: 16),
   ),
 ];
 

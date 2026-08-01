@@ -1,4 +1,5 @@
 import '../models/chat_message.dart';
+import '../models/chat_reply_variant.dart';
 import '../models/chat_summary.dart';
 import '../services/chat/chat_summary_service.dart';
 
@@ -45,6 +46,90 @@ final class ChatConversationController {
     _messages = [..._messages.take(_messages.length - 1), message];
   }
 
+  bool addAssistantVariant(int messageIndex, ChatReplyVariant variant) {
+    if (!_isAssistantIndex(messageIndex) || variant.content.trim().isEmpty) {
+      return false;
+    }
+    final message = _messages[messageIndex];
+    final variants = [
+      ...message.variants.where((item) => item.content.trim().isNotEmpty),
+    ];
+    if (variants.isEmpty && message.content.trim().isNotEmpty) {
+      variants.add(
+        ChatReplyVariant(
+          content: message.content,
+          time: message.time,
+          endpointId: message.endpointId,
+          endpointName: message.endpointName,
+          model: message.model,
+        ),
+      );
+    }
+    variants.add(variant);
+    _replaceAt(
+      messageIndex,
+      message.copyWith(
+        variants: variants,
+        selectedVariantIndex: variants.length - 1,
+      ),
+    );
+    return true;
+  }
+
+  bool selectAssistantVariant(int messageIndex, int variantIndex) {
+    if (!_isAssistantIndex(messageIndex)) return false;
+    final message = _messages[messageIndex];
+    final variants = message.variants
+        .where((variant) => variant.content.trim().isNotEmpty)
+        .toList();
+    if (variantIndex < 0 || variantIndex >= variants.length) return false;
+    _replaceAt(
+      messageIndex,
+      message.copyWith(variants: variants, selectedVariantIndex: variantIndex),
+    );
+    if (summaryIncludesMessageAt(messageIndex)) {
+      _summary = ChatSummary.empty(_summary.characterId, _summary.sessionId);
+    }
+    return true;
+  }
+
+  bool canRegenerateAssistantAt(int messageIndex) =>
+      messageIndex == _messages.length - 1 &&
+      _isAssistantIndex(messageIndex) &&
+      _messages[messageIndex].effectiveContent.trim().isNotEmpty;
+
+  bool hasMessagesAfter(int messageIndex) =>
+      messageIndex >= 0 && messageIndex < _messages.length - 1;
+
+  bool summaryIncludesMessageAt(int messageIndex) {
+    if (messageIndex < 0 || messageIndex >= _messages.length) return false;
+    if (_summary.summary.trim().isEmpty ||
+        _summary.summarizedMessageCount <= 0 ||
+        (!_messages[messageIndex].isUser &&
+            !_messages[messageIndex].isAssistant)) {
+      return false;
+    }
+    final chatIndex = _messages
+        .take(messageIndex)
+        .where((message) => message.isUser || message.isAssistant)
+        .length;
+    return chatIndex < _summary.summarizedMessageCount;
+  }
+
+  bool truncateAfter(int messageIndex) {
+    if (messageIndex < 0 || messageIndex >= _messages.length - 1) return false;
+    final nextMessages = _messages.take(messageIndex + 1).toList();
+    final retainedChatCount = nextMessages
+        .where((message) => message.isUser || message.isAssistant)
+        .length;
+    if (_summary.summary.trim().isNotEmpty &&
+        retainedChatCount < _summary.summarizedMessageCount) {
+      _summary = ChatSummary.empty(_summary.characterId, _summary.sessionId);
+    }
+    _messages = nextMessages;
+    return true;
+  }
+
   void editUserMessageAndTruncate(int index, String content, DateTime time) {
     if (index < 0 || index >= _messages.length || !_messages[index].isUser) {
       return;
@@ -58,7 +143,7 @@ final class ChatConversationController {
   bool dropEmptyAssistantTail() {
     if (_messages.isEmpty ||
         !_messages.last.isAssistant ||
-        _messages.last.content.trim().isNotEmpty) {
+        _messages.last.effectiveContent.trim().isNotEmpty) {
       return false;
     }
     _messages = _messages.sublist(0, _messages.length - 1);
@@ -69,13 +154,38 @@ final class ChatConversationController {
     if (index < 0 || index >= _messages.length) {
       return ChatMessageDeletion.ignored;
     }
+    final message = _messages[index];
+    if (message.isAssistant && message.variantCount > 1) {
+      final variants = message.variants
+          .where((variant) => variant.content.trim().isNotEmpty)
+          .toList();
+      final selectedIndex = message.selectedVariantIndex;
+      variants.removeAt(selectedIndex);
+      final summaryInvalidated = summaryIncludesMessageAt(index);
+      if (summaryInvalidated) {
+        _summary = ChatSummary.empty(_summary.characterId, _summary.sessionId);
+      }
+      final nextSelectedIndex = selectedIndex.clamp(0, variants.length - 1);
+      _replaceAt(
+        index,
+        message.copyWith(
+          variants: variants,
+          selectedVariantIndex: nextSelectedIndex,
+        ),
+      );
+      return summaryInvalidated
+          ? ChatMessageDeletion.summaryInvalidated
+          : ChatMessageDeletion.removed;
+    }
     final nextSummary = chatSummaryAfterMessageDeletion(
       summary: _summary,
       messages: _messages,
       index: index,
     );
     final summaryInvalidated = !identical(nextSummary, _summary);
-    _summary = nextSummary;
+    _summary = summaryInvalidated
+        ? ChatSummary.empty(_summary.characterId, _summary.sessionId)
+        : nextSummary;
     _messages = [..._messages]..removeAt(index);
     return summaryInvalidated
         ? ChatMessageDeletion.summaryInvalidated
@@ -83,4 +193,11 @@ final class ChatConversationController {
   }
 
   void clearMessages() => _messages = [];
+
+  bool _isAssistantIndex(int index) =>
+      index >= 0 && index < _messages.length && _messages[index].isAssistant;
+
+  void _replaceAt(int index, ChatMessage message) {
+    _messages = [..._messages]..[index] = message;
+  }
 }

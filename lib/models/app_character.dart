@@ -24,6 +24,7 @@ class AppCharacter {
     required this.openingMessage,
     required this.extraPrompt,
     this.defaultEndpointId = '',
+    this.worldBookIds = const [],
     this.useFullChatContext = true,
     this.chatSummaryMessageLimit = defaultChatSummaryMessageLimit,
     this.sourceType = '',
@@ -63,6 +64,7 @@ class AppCharacter {
   final String openingMessage;
   final String extraPrompt;
   final String defaultEndpointId;
+  final List<String> worldBookIds;
   final bool useFullChatContext;
   final int chatSummaryMessageLimit;
   final String sourceType;
@@ -100,6 +102,7 @@ class AppCharacter {
     String? openingMessage,
     String? extraPrompt,
     String? defaultEndpointId,
+    List<String>? worldBookIds,
     bool? useFullChatContext,
     int? chatSummaryMessageLimit,
     String? sourceType,
@@ -141,6 +144,7 @@ class AppCharacter {
       openingMessage: openingMessage ?? this.openingMessage,
       extraPrompt: extraPrompt ?? this.extraPrompt,
       defaultEndpointId: defaultEndpointId ?? this.defaultEndpointId,
+      worldBookIds: _cleanWorldBookIds(worldBookIds ?? this.worldBookIds),
       useFullChatContext: useFullChatContext ?? this.useFullChatContext,
       chatSummaryMessageLimit: _clampSummaryLimit(
         chatSummaryMessageLimit ?? this.chatSummaryMessageLimit,
@@ -184,6 +188,9 @@ class AppCharacter {
       openingMessage: json['openingMessage'] as String? ?? '',
       extraPrompt: json['extraPrompt'] as String? ?? '',
       defaultEndpointId: (json['defaultEndpointId'] as String? ?? '').trim(),
+      worldBookIds: _cleanWorldBookIds(
+        (json['worldBookIds'] as List?)?.whereType<String>() ?? const [],
+      ),
       useFullChatContext: json['useFullChatContext'] as bool? ?? true,
       chatSummaryMessageLimit: _clampSummaryLimit(
         json['chatSummaryMessageLimit'] as int? ??
@@ -228,6 +235,7 @@ class AppCharacter {
       'openingMessage': openingMessage,
       'extraPrompt': extraPrompt,
       'defaultEndpointId': defaultEndpointId,
+      'worldBookIds': worldBookIds,
       'useFullChatContext': useFullChatContext,
       'chatSummaryMessageLimit': chatSummaryMessageLimit,
       'sourceType': sourceType,
@@ -246,4 +254,9 @@ class AppCharacter {
   static int _clampSummaryLimit(int value) {
     return value.clamp(minChatSummaryMessageLimit, maxChatSummaryMessageLimit);
   }
+
+  static List<String> _cleanWorldBookIds(Iterable<String> ids) => {
+    for (final id in ids)
+      if (id.trim().isNotEmpty) id.trim(),
+  }.toList();
 }

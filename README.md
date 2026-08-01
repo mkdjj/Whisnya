@@ -1,5 +1,13 @@
 # Whisnya
 
+## 1.4.0
+
+- A character can now have multiple independent chat sessions. Sessions support renaming, duplication, archiving, and deletion.
+- Assistant replies can keep multiple variants. The selected variant is used consistently for prompts, search, copy, summaries, and TXT export.
+- Added character memory, session memory, and keyword-triggered world-book entries with a configurable context budget and reviewed AI extraction.
+- Existing `chats/{characterId}.json` and `summaries/{characterId}.json` files migrate lazily on first session access. Migration writes the new files and index before removing legacy files; a failed migration leaves the legacy data intact.
+- Full backups use manifest schema version 3 and include sessions, variants, and memories. Older schema versions remain importable.
+
 [简体中文](README.zh-CN.md)
 
 Whisnya is a local-first Android and Windows AI role chat and TXT novel reader app built with Flutter.
@@ -51,8 +59,7 @@ The APK will be generated at:
 build/app/outputs/flutter-apk/app-release.apk
 ```
 
-Current release version is `1.3.9+17`. Keep both `versionName` and
-`versionCode` increasing for every public release. The Android package name is
+Current release version is `1.4.0`. Keep both `versionName` and `versionCode` increasing for every public release. The Android package name is
 `com.mkdjj.whisnya`.
 
 For public distribution, configure your own Android signing key first:
@@ -68,7 +75,7 @@ Then edit `android/key.properties` with your real passwords. Both
 Recommended release asset name:
 
 ```text
-Whisnya-android-v1.3.9-release.apk
+Whisnya-android-v1.4.0-release.apk
 ```
 
 ## Other Platforms
@@ -90,7 +97,7 @@ Ship the whole `Release` folder, not only the `.exe`.
 Recommended Windows release asset name:
 
 ```text
-Whisnya-windows-x64-v1.3.9.zip
+Whisnya-windows-x64-v1.4.0.zip
 ```
 
 Generate iOS or macOS platform files, then build on macOS with Xcode installed:

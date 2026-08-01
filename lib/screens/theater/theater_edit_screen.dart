@@ -802,7 +802,7 @@ class _TheaterEditScreenState extends State<TheaterEditScreen> {
           trailing: const Icon(Icons.chevron_right),
           onTap: _pickBackground,
         ),
-        SettingSlider.transparency(
+        SettingSlider.opacity(
           label: '背景图透明度',
           opacity: _backgroundImageOpacity,
           onChanged: (opacity) {

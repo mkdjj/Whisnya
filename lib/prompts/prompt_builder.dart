@@ -83,6 +83,7 @@ ${historySummary.trim().isEmpty ? '暂无。' : historySummary.trim()}
   static List<Map<String, String>> buildChatRequestMessages({
     required AppCharacter character,
     UserProfile userProfile = const UserProfile(),
+    String memoryPrompt = '',
     required String historySummary,
     required int summarizedMessageCount,
     required List<ChatMessage> messages,
@@ -103,10 +104,12 @@ ${historySummary.trim().isEmpty ? '暂无。' : historySummary.trim()}
         'role': 'system',
         'content': buildSystemPrompt(character, userProfile: userProfile),
       },
+      if (memoryPrompt.trim().isNotEmpty)
+        {'role': 'system', 'content': memoryPrompt.trim()},
       if (!useFullContext)
         {'role': 'system', 'content': buildChatMemoryPrompt(historySummary)},
       for (final message in requestMessages)
-        {'role': message.role, 'content': message.content},
+        {'role': message.role, 'content': message.effectiveContent},
     ];
   }
 
@@ -151,7 +154,7 @@ ${historySummary.trim().isEmpty ? '暂无。' : historySummary.trim()}
     final transcript = messages
         .map((message) {
           final roleLabel = message.isUser ? '用户' : '角色';
-          return '$roleLabel：${message.content}';
+          return '$roleLabel：${message.effectiveContent}';
         })
         .join('\n\n');
     final items = _summaryItemsText(
@@ -195,7 +198,7 @@ $transcript
         .where((message) => message.isUser || message.isAssistant)
         .map((message) {
           final roleLabel = message.isUser ? '用户' : '角色';
-          return '$roleLabel：${message.content}';
+          return '$roleLabel：${message.effectiveContent}';
         })
         .join('\n\n');
     final items = _summaryItemsText(

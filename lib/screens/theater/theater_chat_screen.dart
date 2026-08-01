@@ -982,7 +982,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
                     ],
                   ),
                   const SizedBox(height: 14),
-                  SettingSlider.transparency(
+                  SettingSlider.opacity(
                     key: const ValueKey(
                       'theater-chat-background-transparency-setting',
                     ),
