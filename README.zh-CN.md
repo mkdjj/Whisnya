@@ -1,6 +1,6 @@
 # Whisnya
 
-## 1.4.0+18
+## 1.4.1+19
 
 - 一个角色现在可以拥有多个独立对话，支持重命名、复制、归档、取消归档和删除。
 - 助手回复支持保存多个候选版本。当前选中的候选会统一用于提示词、搜索、复制、总结和 TXT 导出。
@@ -58,7 +58,7 @@ APK 会生成在：
 build/app/outputs/flutter-apk/app-release.apk
 ```
 
-当前发布版本是 `1.4.0+18`。每次公开发版都要同时递增 `versionName`
+当前发布版本是 `1.4.1+19`。每次公开发版都要同时递增 `versionName`
 和 `versionCode`。Android 包名是 `com.mkdjj.whisnya`。
 
 如果要公开分发，请先配置自己的 Android 签名文件：
@@ -74,7 +74,7 @@ Copy-Item android/key.properties.example android/key.properties
 推荐发布文件名：
 
 ```text
-Whisnya-android-v1.4.0-release.apk
+Whisnya-android-v1.4.1-release.apk
 ```
 
 ## 其他平台
@@ -96,7 +96,7 @@ build/windows/x64/runner/Release/
 推荐 Windows 发布文件名：
 
 ```text
-Whisnya-windows-x64-v1.4.0.zip
+Whisnya-windows-x64-v1.4.1.zip
 ```
 
 iOS 或 macOS 需要先生成平台文件，然后在安装了 Xcode 的 macOS 上打包：
