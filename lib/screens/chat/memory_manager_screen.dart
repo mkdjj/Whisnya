@@ -118,7 +118,8 @@ class _MemoryManagerScreenState extends State<MemoryManagerScreen>
   Future<void> _editMemory({
     CharacterMemoryEntry? entry,
     String? content,
-    MemoryScope? fixedScope,
+    MemoryScope? initialScope,
+    bool allowScopeChange = false,
   }) async {
     final result = await Navigator.of(context).push<CharacterMemoryEntry>(
       MaterialPageRoute(
@@ -127,7 +128,8 @@ class _MemoryManagerScreenState extends State<MemoryManagerScreen>
           session: widget.session,
           entry: entry,
           initialContent: content,
-          fixedScope: fixedScope,
+          initialScope: initialScope,
+          allowScopeChange: allowScopeChange,
         ),
       ),
     );
@@ -335,7 +337,7 @@ class _MemoryManagerScreenState extends State<MemoryManagerScreen>
               ? _emptyAction(
                   emptyText,
                   addText,
-                  () => _editMemory(fixedScope: scope),
+                  () => _editMemory(initialScope: scope),
                 )
               : ListView.builder(
                   padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
@@ -359,7 +361,7 @@ class _MemoryManagerScreenState extends State<MemoryManagerScreen>
       leading: Icon(
         entry.enabled ? Icons.check_circle_outline : Icons.pause_circle_outline,
       ),
-      onTap: () => _editMemory(entry: entry, fixedScope: entry.scope),
+      onTap: () => _editMemory(entry: entry, initialScope: entry.scope),
       trailing: PopupMenuButton<_MemoryAction>(
         onSelected: (action) {
           switch (action) {
@@ -519,7 +521,7 @@ class _MemoryManagerScreenState extends State<MemoryManagerScreen>
               onPressed: _tabIndex == 2
                   ? _addWorldBook
                   : () => _editMemory(
-                      fixedScope: _tabIndex == 0
+                      initialScope: _tabIndex == 0
                           ? MemoryScope.character
                           : MemoryScope.session,
                     ),
@@ -582,7 +584,7 @@ class _MemoryReviewScreenState extends State<_MemoryReviewScreen> {
               setState(() => _selected[index] = value ?? false),
           title: Text(entry.title),
           subtitle: Text(
-            '${entry.content}\n${entry.scope.name} · ${entry.priority}',
+            '${entry.content}\n${context.t(entry.scope == MemoryScope.character ? '长期记忆' : '当前对话记忆')} · ${entry.priority}',
           ),
           isThreeLine: true,
           secondary: IconButton(
@@ -596,7 +598,8 @@ class _MemoryReviewScreenState extends State<_MemoryReviewScreen> {
                         character: widget.character,
                         session: widget.session,
                         entry: entry,
-                        fixedScope: entry.scope,
+                        initialScope: entry.scope,
+                        allowScopeChange: true,
                       ),
                     ),
                   );

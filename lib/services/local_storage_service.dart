@@ -452,6 +452,11 @@ class LocalStorageService {
     List<ChatMessage> messages,
   ) async => (await _chatSessions).saveChatBySession(session, messages);
 
+  Future<bool> saveChatBySessionIfExists(
+    ChatSession session,
+    List<ChatMessage> messages,
+  ) async => (await _chatSessions).saveChatBySessionIfExists(session, messages);
+
   Future<ChatSummary> loadSummaryBySession(ChatSession session) async =>
       (await _chatSessions).loadSummaryBySession(session);
 

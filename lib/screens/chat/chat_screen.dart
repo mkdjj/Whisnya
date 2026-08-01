@@ -81,15 +81,33 @@ class _ChatScreenState extends State<ChatScreen> {
   var _isLoading = true;
   var _isSending = false;
   var _isSummarizing = false;
+  var _isCancellingGeneration = false;
+  var _isOpeningSessionList = false;
   var _showToolBar = false;
   var _searchQuery = '';
   var _searchResults = <int>[];
   var _activeSearchResult = 0;
   var _generationId = 0;
+  var _summaryOperationId = 0;
   int? _variantGenerationIndex;
   AiCancelToken? _cancelToken;
+  AiCancelToken? _summaryCancelToken;
+  Future<void>? _generationCancellationFuture;
   StreamTextBuffer? _streamBuffer;
   String? _loadError;
+
+  bool get _hasActiveChatOperation =>
+      _isLoading ||
+      _isSending ||
+      _isSummarizing ||
+      _isCancellingGeneration ||
+      _isOpeningSessionList;
+  bool get _canMutateConversation =>
+      !_isLoading &&
+      !_isSending &&
+      !_isSummarizing &&
+      !_isCancellingGeneration &&
+      !_isOpeningSessionList;
 
   ChatBubbleAppearance get _roleBubbleAppearance => resolveBubbleAppearance(
     presetId: _character.roleBubblePresetId,
@@ -113,7 +131,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    _generationId++;
+    _invalidateSummaryOperations();
     _cancelToken?.cancel();
+    _summaryCancelToken?.cancel();
     _streamBuffer?.dispose();
     _toolBarTimer?.cancel();
     _inputController.dispose();
@@ -219,11 +240,24 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _saveCurrentChat() async {
+    final session = _currentSession;
+    final messages = List<ChatMessage>.of(_messages);
     if (widget.storage.usesSessionStorage) {
-      await widget.storage.saveChatBySession(_currentSession, _messages);
+      await widget.storage.saveChatBySession(session, messages);
     } else {
-      await widget.storage.saveChat(_character.id, _messages);
+      await widget.storage.saveChat(_character.id, messages);
     }
+  }
+
+  Future<bool> _saveChatSnapshotIfSessionExists(
+    ChatSession session,
+    List<ChatMessage> messages,
+  ) async {
+    if (widget.storage.usesSessionStorage) {
+      return widget.storage.saveChatBySessionIfExists(session, messages);
+    }
+    await widget.storage.saveChat(_character.id, messages);
+    return true;
   }
 
   Future<void> _saveCurrentSummary() async {
@@ -240,13 +274,15 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _send() async {
     final text = _inputController.text.trim();
-    if (text.isEmpty || _isSending) {
+    if (text.isEmpty || !_canMutateConversation) {
       return;
     }
 
+    _invalidateSummaryOperations();
     final endpoint = await _reloadEndpoint();
-    if (endpoint == null) return;
+    if (endpoint == null || !_canMutateConversation) return;
 
+    final sessionId = _currentSession.id;
     final userMessage = ChatMessage(
       role: 'user',
       content: text,
@@ -273,6 +309,8 @@ class _ChatScreenState extends State<ChatScreen> {
       context.showSnack(error.toString());
       return;
     }
+
+    if (!mounted || !_isSending || _session?.id != sessionId) return;
 
     await _requestAssistantReply(endpoint);
   }
@@ -438,9 +476,13 @@ class _ChatScreenState extends State<ChatScreen> {
         } else {
           _conversation.append(finalMessage);
         }
-        _isSending = false;
       });
-      await _saveCurrentChat();
+      final session = _currentSession;
+      final messages = List<ChatMessage>.of(_messages);
+      await _saveChatSnapshotIfSessionExists(session, messages);
+      if (_isCurrentGeneration(generationId, sessionId)) {
+        setState(() => _isSending = false);
+      }
     } catch (error) {
       if (!mounted ||
           generationId != _generationId ||
@@ -474,12 +516,23 @@ class _ChatScreenState extends State<ChatScreen> {
       _isSending &&
       _session?.id == sessionId;
 
+  int _beginSummaryOperation() => ++_summaryOperationId;
+
+  void _invalidateSummaryOperations() => _summaryOperationId++;
+
+  bool _isCurrentSummaryOperation(int operationId, String sessionId) =>
+      mounted &&
+      operationId == _summaryOperationId &&
+      _session?.id == sessionId;
+
   Future<void> _regenerateAssistantVariant(int messageIndex) async {
-    if (_isSending || !_conversation.canRegenerateAssistantAt(messageIndex)) {
+    if (!_canMutateConversation ||
+        !_conversation.canRegenerateAssistantAt(messageIndex)) {
       return;
     }
+    _invalidateSummaryOperations();
     final endpoint = await _reloadEndpoint();
-    if (endpoint == null) return;
+    if (endpoint == null || !_canMutateConversation) return;
     setState(() {
       _isSending = true;
       _variantGenerationIndex = messageIndex;
@@ -488,39 +541,53 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _openSessionList() async {
-    final beforeId = _session?.id;
-    final selected = await Navigator.of(context).push<ChatSession>(
-      MaterialPageRoute(
-        builder: (_) => ChatSessionListScreen(
-          storage: widget.storage,
-          character: _character,
-          selectedSessionId: _session?.id,
+    if (_isLoading || _isOpeningSessionList) return;
+    setState(() => _isOpeningSessionList = true);
+    try {
+      _cancelActiveSummary();
+      await _cancelActiveGeneration(showMessage: false);
+      if (!mounted) return;
+      final beforeId = _session?.id;
+      final selected = await Navigator.of(context).push<ChatSession>(
+        MaterialPageRoute(
+          builder: (_) => ChatSessionListScreen(
+            storage: widget.storage,
+            character: _character,
+            selectedSessionId: _session?.id,
+          ),
         ),
-      ),
-    );
-    if (!mounted) return;
+      );
+      if (!mounted) return;
 
-    final sessions = await widget.storage.loadChatSessions(_character.id);
-    ChatSession? target;
-    if (selected != null) {
-      target = sessions
-          .where((session) => session.id == selected.id)
+      final sessions = await widget.storage.loadChatSessions(_character.id);
+      ChatSession? target;
+      if (selected != null) {
+        target = sessions
+            .where((session) => session.id == selected.id)
+            .firstOrNull;
+      }
+      target ??= sessions
+          .where((session) => session.id == beforeId)
           .firstOrNull;
-    }
-    target ??= sessions.where((session) => session.id == beforeId).firstOrNull;
-    target ??= await widget.storage.getOrCreateRecentChatSession(_character.id);
-    if (!mounted) return;
+      target ??= await widget.storage.getOrCreateRecentChatSession(
+        _character.id,
+      );
+      if (!mounted) return;
 
-    if (target.id != beforeId) {
-      _cancelActiveGeneration(showMessage: false);
-      _session = target;
-      await _load();
-      return;
+      if (target.id != beforeId) {
+        _invalidateSummaryOperations();
+        _session = target;
+        await _load();
+        return;
+      }
+      setState(() => _session = target);
+    } finally {
+      if (mounted) setState(() => _isOpeningSessionList = false);
     }
-    setState(() => _session = target);
   }
 
   Future<void> _openMemoryManager() async {
+    if (!_canMutateConversation) return;
     final session = _session;
     if (session == null) return;
     await Navigator.of(context).push<void>(
@@ -547,6 +614,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _addMessageToMemory(ChatMessage message) async {
+    if (!_canMutateConversation) return;
     final session = _session;
     if (session == null) return;
     final scope = await showModalBottomSheet<MemoryScope>(
@@ -575,7 +643,8 @@ class _ChatScreenState extends State<ChatScreen> {
           character: _character,
           session: session,
           initialContent: message.effectiveContent,
-          fixedScope: scope,
+          initialScope: scope,
+          allowScopeChange: false,
         ),
       ),
     );
@@ -593,7 +662,10 @@ class _ChatScreenState extends State<ChatScreen> {
     int variantIndex,
   ) async {
     final message = _messages[messageIndex];
-    if (variantIndex == message.selectedVariantIndex || _isSending) return;
+    if (variantIndex == message.selectedVariantIndex ||
+        !_canMutateConversation) {
+      return;
+    }
     if (_conversation.hasMessagesAfter(messageIndex)) {
       final confirmed = await showConfirmDialog(
         context: context,
@@ -623,16 +695,22 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _retryLastUserMessage() async {
-    if (_isSending || _messages.isEmpty || !_messages.last.isUser) return;
+    if (!_canMutateConversation ||
+        _messages.isEmpty ||
+        !_messages.last.isUser) {
+      return;
+    }
+    _invalidateSummaryOperations();
     final endpoint = await _reloadEndpoint();
-    if (endpoint == null) return;
+    if (endpoint == null || !_canMutateConversation) return;
     setState(() => _isSending = true);
     _scrollToEnd();
     await _requestAssistantReply(endpoint);
   }
 
   Future<void> _editLastUserMessageAndResend() async {
-    if (_isSending) return;
+    if (!_canMutateConversation) return;
+    _invalidateSummaryOperations();
     final index = _conversation.lastUserMessageIndex;
     if (index == -1) {
       context.showSnack('没有可编辑的用户消息。');
@@ -650,10 +728,12 @@ class _ChatScreenState extends State<ChatScreen> {
     );
     if (!mounted) return;
     if (edited == null || edited.isEmpty) return;
+    if (!_canMutateConversation) return;
 
     final endpoint = await _reloadEndpoint();
-    if (endpoint == null) return;
+    if (endpoint == null || !_canMutateConversation) return;
 
+    final sessionId = _currentSession.id;
     final previousMessages = [..._messages];
     setState(() {
       _conversation.editUserMessageAndTruncate(index, edited, DateTime.now());
@@ -670,39 +750,100 @@ class _ChatScreenState extends State<ChatScreen> {
       context.showSnack(error.toString());
       return;
     }
+    if (!mounted || !_isSending || _session?.id != sessionId) return;
     _scrollToEnd();
     await _requestAssistantReply(endpoint);
   }
 
-  void _stopGeneration() => _cancelActiveGeneration();
+  void _stopGeneration() => unawaited(_cancelActiveGeneration());
 
-  void _cancelActiveGeneration({bool showMessage = true}) {
-    if (!_isSending) return;
+  void _cancelActiveSummary() {
+    if (!_isSummarizing) return;
+    _summaryCancelToken?.cancel();
+    _summaryCancelToken = null;
+    _invalidateSummaryOperations();
+    if (mounted) setState(() => _isSummarizing = false);
+  }
+
+  Future<void> _cancelActiveGeneration({
+    bool showMessage = true,
+    bool persistPartialReply = true,
+  }) {
+    final active = _generationCancellationFuture;
+    if (active != null) return active;
+    if (!_isSending) return Future<void>.value();
+
+    late final Future<void> owned;
+    owned =
+        _performGenerationCancellation(
+          showMessage: showMessage,
+          persistPartialReply: persistPartialReply,
+        ).whenComplete(() {
+          if (!identical(_generationCancellationFuture, owned)) return;
+          _generationCancellationFuture = null;
+          if (mounted) setState(() => _isCancellingGeneration = false);
+        });
+    _generationCancellationFuture = owned;
+    return owned;
+  }
+
+  Future<void> _performGenerationCancellation({
+    required bool showMessage,
+    required bool persistPartialReply,
+  }) async {
     _streamBuffer?.flush();
     _cancelToken?.cancel();
     _cancelToken = null;
     _generationId++;
+    _invalidateSummaryOperations();
+    final session = _currentSession;
     setState(() {
       _conversation.dropEmptyAssistantTail();
       _variantGenerationIndex = null;
       _isSending = false;
+      _isSummarizing = false;
+      _isCancellingGeneration = true;
     });
-    unawaited(_saveCurrentChat());
-    if (showMessage) context.showSnack('已停止生成');
+    final messages = List<ChatMessage>.of(_messages);
+    if (persistPartialReply) {
+      try {
+        await _saveChatSnapshotIfSessionExists(session, messages);
+      } catch (error) {
+        if (mounted) context.showSnack(error.toString());
+      }
+    }
+    if (showMessage && mounted) context.showSnack('已停止生成');
   }
 
   Future<void> _summarize() async {
-    if (_messages.isEmpty || _isSummarizing) {
+    if (_messages.isEmpty) {
       context.showSnack('当前没有可总结的聊天记录。');
       return;
     }
+    if (!_canMutateConversation) return;
+
+    final session = _currentSession;
+    final sessionId = session.id;
+    final messages = List<ChatMessage>.of(_conversation.chatMessagesOnly);
+    final operationId = _beginSummaryOperation();
+    final cancelToken = AiCancelToken();
+    _summaryCancelToken = cancelToken;
+    var showSummaryDialog = false;
+    setState(() => _isSummarizing = true);
 
     final endpoint = await _reloadEndpoint();
-    if (endpoint == null) return;
+    if (endpoint == null ||
+        !_isCurrentSummaryOperation(operationId, sessionId)) {
+      if (identical(_summaryCancelToken, cancelToken)) {
+        _summaryCancelToken = null;
+      }
+      if (_isCurrentSummaryOperation(operationId, sessionId)) {
+        setState(() => _isSummarizing = false);
+      }
+      return;
+    }
 
-    setState(() => _isSummarizing = true);
     try {
-      final messages = _conversation.chatMessagesOnly;
       final prompt = PromptBuilder.buildSummaryPrompt(
         messages,
         useCustomItems: widget.settings.useCustomChatSummaryItems,
@@ -717,6 +858,7 @@ class _ChatScreenState extends State<ChatScreen> {
           {'role': 'user', 'content': prompt},
         ],
         temperature: 0.2,
+        cancelToken: cancelToken,
         onUsage: (usage) => unawaited(
           widget.storage.recordAiUsage(
             requestType: 'characterSummary',
@@ -731,29 +873,36 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       );
 
+      if (!_isCurrentSummaryOperation(operationId, sessionId)) return;
       final nextSummary = ChatSummary(
         characterId: _character.id,
-        sessionId: _currentSession.id,
+        sessionId: sessionId,
         summary: PromptBuilder.limitSummary(summaryText, 1500),
         updatedAt: DateTime.now(),
         summarizedMessageCount: messages.length,
       );
       await _saveSummary(nextSummary);
 
-      if (!mounted) return;
-      setState(() {
-        _conversation.setSummary(nextSummary);
-        _isSummarizing = false;
-      });
-      unawaited(_showSummaryDialog());
+      if (!_isCurrentSummaryOperation(operationId, sessionId)) return;
+      setState(() => _conversation.setSummary(nextSummary));
+      showSummaryDialog = true;
     } catch (error) {
-      if (!mounted) return;
-      setState(() => _isSummarizing = false);
-      context.showSnack(error.toString());
+      if (mounted && _isCurrentSummaryOperation(operationId, sessionId)) {
+        context.showSnack(error.toString());
+      }
+    } finally {
+      if (identical(_summaryCancelToken, cancelToken)) {
+        _summaryCancelToken = null;
+      }
+      if (_isCurrentSummaryOperation(operationId, sessionId)) {
+        setState(() => _isSummarizing = false);
+        if (showSummaryDialog) unawaited(_showSummaryDialog());
+      }
     }
   }
 
   Future<void> _clearChat() async {
+    if (!_canMutateConversation) return;
     final shouldClear = await showConfirmDialog(
       context: context,
       title: '清空聊天',
@@ -761,7 +910,7 @@ class _ChatScreenState extends State<ChatScreen> {
       confirmLabel: '清空',
     );
 
-    if (!shouldClear) return;
+    if (!shouldClear || !_canMutateConversation) return;
 
     if (widget.storage.usesSessionStorage) {
       await widget.storage.saveChatBySession(_currentSession, const []);
@@ -856,14 +1005,17 @@ class _ChatScreenState extends State<ChatScreen> {
   ) async {
     if (_character.useFullChatContext) return false;
     final sessionId = _currentSession.id;
+    final messages = List<ChatMessage>.of(_messages);
+    final summary = _summary;
+    final operationId = _beginSummaryOperation();
 
     setState(() => _isSummarizing = true);
     try {
       final nextSummary = await updateChatSummary(
         widget.aiService,
         characterId: _character.id,
-        current: _summary,
-        messages: _messages,
+        current: summary,
+        messages: messages,
         summaryLimit: _character.chatSummaryMessageLimit,
         settings: widget.settings,
         endpoint: endpoint,
@@ -879,22 +1031,40 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       );
       if (nextSummary == null) return false;
-      if (!_isCurrentGeneration(generationId, sessionId)) return false;
+      if (!_isCurrentGeneration(generationId, sessionId) ||
+          !_isCurrentSummaryOperation(operationId, sessionId)) {
+        return false;
+      }
       await _saveSummary(nextSummary);
-      if (!_isCurrentGeneration(generationId, sessionId)) {
+      if (!_isCurrentGeneration(generationId, sessionId) ||
+          !_isCurrentSummaryOperation(operationId, sessionId)) {
         return true;
       }
       setState(() => _conversation.setSummary(nextSummary));
       return true;
     } finally {
-      if (mounted) setState(() => _isSummarizing = false);
+      if (_isCurrentSummaryOperation(operationId, sessionId)) {
+        setState(() => _isSummarizing = false);
+      }
     }
   }
 
   Future<void> _showSummaryDialog() async {
-    final text = _summary.summary.trim();
+    if (_isLoading || _isSending || _isSummarizing) return;
+    final sessionId = _currentSession.id;
+    final initialSummary = _summary;
+    final messageCount = _conversation.chatMessagesOnly.length;
+    final text = initialSummary.summary.trim();
     final controller = TextEditingController(text: text);
     final hasSummary = text.isNotEmpty;
+
+    bool closeIfSessionChanged(NavigatorState navigator) {
+      if (!mounted) return true;
+      if (_session?.id == sessionId) return false;
+      navigator.pop();
+      context.showSnack('当前对话已切换，请重新打开历史总结');
+      return true;
+    }
 
     await showDialog<void>(
       context: context,
@@ -921,6 +1091,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   onPressed: hasSummary
                       ? () async {
                           final navigator = Navigator.of(dialogContext);
+                          if (closeIfSessionChanged(navigator)) return;
                           final confirmed = await showConfirmDialog(
                             context: context,
                             title: '删除历史总结',
@@ -928,12 +1099,14 @@ class _ChatScreenState extends State<ChatScreen> {
                             confirmLabel: '删除',
                           );
                           if (!confirmed || !mounted) return;
+                          if (closeIfSessionChanged(navigator)) return;
                           final nextSummary = ChatSummary.empty(
                             _character.id,
-                            _currentSession.id,
+                            sessionId,
                           );
                           await _saveSummary(nextSummary);
                           if (!mounted) return;
+                          if (closeIfSessionChanged(navigator)) return;
                           setState(() => _conversation.setSummary(nextSummary));
                           navigator.pop();
                           context.showSnack('历史总结已删除');
@@ -944,6 +1117,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 FilledButton(
                   onPressed: () async {
                     final navigator = Navigator.of(dialogContext);
+                    if (closeIfSessionChanged(navigator)) return;
                     final nextText = controller.text.trim();
                     if (nextText.isEmpty) {
                       context.showSnack('总结内容不能为空，想删除请点删除历史总结');
@@ -960,21 +1134,20 @@ class _ChatScreenState extends State<ChatScreen> {
                       confirmLabel: '保存',
                     );
                     if (!confirmed || !mounted) return;
+                    if (closeIfSessionChanged(navigator)) return;
                     final nextSummary = ChatSummary(
                       characterId: _character.id,
-                      sessionId: _currentSession.id,
+                      sessionId: sessionId,
                       summary: nextText,
                       updatedAt: DateTime.now(),
                       summarizedMessageCount:
-                          _summary.summarizedMessageCount == 0
-                          ? manualSummaryBoundary(
-                              messageCount:
-                                  _conversation.chatMessagesOnly.length,
-                            )
-                          : _summary.summarizedMessageCount,
+                          initialSummary.summarizedMessageCount == 0
+                          ? manualSummaryBoundary(messageCount: messageCount)
+                          : initialSummary.summarizedMessageCount,
                     );
                     await _saveSummary(nextSummary);
                     if (!mounted) return;
+                    if (closeIfSessionChanged(navigator)) return;
                     setState(() => _conversation.setSummary(nextSummary));
                     navigator.pop();
                     context.showSnack('历史总结已保存');
@@ -995,6 +1168,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _showChatSettings() async {
+    if (!_canMutateConversation) return;
     var draft = _character;
     await showModalBottomSheet<void>(
       context: context,
@@ -1286,20 +1460,34 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _deleteMessage(int index) async {
-    if (index < 0 || index >= _messages.length) return;
+    if (!_canMutateConversation || index < 0 || index >= _messages.length) {
+      return;
+    }
     final message = _messages[index];
     final deletingVariant = message.isAssistant && message.variantCount > 1;
+    final hasFollowingMessages = _conversation.hasMessagesAfter(index);
     final confirmed = await showConfirmDialog(
       context: context,
       title: context.t(deletingVariant ? '删除候选回复' : '删除消息'),
-      content: context.t(deletingVariant ? '确定删除当前候选回复吗？' : '确定删除这条消息吗？'),
+      content: context.t(
+        deletingVariant && hasFollowingMessages
+            ? '删除当前候选后将自动切换到其他候选，并删除它之后的消息，同时可能清空历史总结。是否继续？'
+            : deletingVariant
+            ? '确定删除当前候选回复吗？'
+            : '确定删除这条消息吗？',
+      ),
       confirmLabel: '删除',
     );
-    if (!confirmed) return;
+    if (!confirmed || !_canMutateConversation) return;
 
     final deletion = _conversation.deleteAt(index);
     if (deletion == ChatMessageDeletion.ignored) return;
-    if (deletion == ChatMessageDeletion.summaryInvalidated) {
+    final truncatedTimeline = deletingVariant && hasFollowingMessages;
+    if (truncatedTimeline) {
+      _conversation.truncateAfter(index);
+    }
+    if (truncatedTimeline ||
+        deletion == ChatMessageDeletion.summaryInvalidated) {
       await _saveCurrentSummary();
       if (!mounted) return;
     }
@@ -1384,7 +1572,7 @@ class _ChatScreenState extends State<ChatScreen> {
         surfaceTintColor: Colors.transparent,
         systemOverlayStyle: appSystemOverlayStyle(context),
         title: InkWell(
-          onTap: _isLoading ? null : _openSessionList,
+          onTap: _isLoading || _isOpeningSessionList ? null : _openSessionList,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
@@ -1402,7 +1590,9 @@ class _ChatScreenState extends State<ChatScreen> {
         actions: [
           IconButton(
             tooltip: context.t('对话管理'),
-            onPressed: _isLoading ? null : _openSessionList,
+            onPressed: _isLoading || _isOpeningSessionList
+                ? null
+                : _openSessionList,
             icon: const Icon(Icons.forum_outlined),
           ),
           IconButton(
@@ -1412,17 +1602,17 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           IconButton(
             tooltip: context.t('查看历史总结'),
-            onPressed: _showSummaryDialog,
+            onPressed: _hasActiveChatOperation ? null : _showSummaryDialog,
             icon: const Icon(Icons.summarize_outlined),
           ),
           IconButton(
             tooltip: context.t('聊天设置'),
-            onPressed: _showChatSettings,
+            onPressed: _canMutateConversation ? _showChatSettings : null,
             icon: const Icon(Icons.settings_outlined),
           ),
           IconButton(
             tooltip: context.t('记忆与世界书'),
-            onPressed: _isLoading ? null : _openMemoryManager,
+            onPressed: _canMutateConversation ? _openMemoryManager : null,
             icon: const Icon(Icons.menu_book_outlined),
           ),
         ],
@@ -1460,6 +1650,7 @@ class _ChatScreenState extends State<ChatScreen> {
               ChatInputComposer(
                 controller: _inputController,
                 isGenerating: _isSending,
+                enabled: _canMutateConversation,
                 hasBackground: _character.backgroundImage.trim().isNotEmpty,
                 inputOpacity: _character.inputOpacity,
                 onSend: _send,
@@ -1490,6 +1681,8 @@ class _ChatScreenState extends State<ChatScreen> {
                     endpoints: _apiConfig.enabledEndpoints,
                     selectedEndpointId: _selectedEndpointId,
                     isSummarizing: _isSummarizing,
+                    canSummarize:
+                        !_isSending && !_isSummarizing && _messages.isNotEmpty,
                     hasBackground: _character.backgroundImage.trim().isNotEmpty,
                     onEndpointChanged: (endpointId) {
                       if (endpointId != null) {
@@ -1555,15 +1748,23 @@ class _ChatScreenState extends State<ChatScreen> {
             searchQuery: _searchQuery,
             splitRoleMessages:
                 widget.settings.splitRoleMessages && message.isAssistant,
-            isGenerating: _isSending,
-            onSelectVariant: (variantIndex) =>
-                _selectAssistantVariant(messageIndex, variantIndex),
-            onRegenerate: _conversation.canRegenerateAssistantAt(messageIndex)
+            isBusy: _isSending || _isSummarizing,
+            onSelectVariant: _canMutateConversation
+                ? (variantIndex) =>
+                      _selectAssistantVariant(messageIndex, variantIndex)
+                : null,
+            onRegenerate:
+                _canMutateConversation &&
+                    _conversation.canRegenerateAssistantAt(messageIndex)
                 ? () => _regenerateAssistantVariant(messageIndex)
                 : null,
-            onAddMemory: () => _addMessageToMemory(message),
+            onAddMemory: _canMutateConversation
+                ? () => _addMessageToMemory(message)
+                : null,
             onCopy: () => _copyMessage(message),
-            onDelete: _isSending ? null : () => _deleteMessage(messageIndex),
+            onDelete: _canMutateConversation
+                ? () => _deleteMessage(messageIndex)
+                : null,
           );
         },
       ),
@@ -1580,6 +1781,7 @@ class _TopBar extends StatelessWidget {
     required this.endpoints,
     required this.selectedEndpointId,
     required this.isSummarizing,
+    required this.canSummarize,
     required this.hasBackground,
     required this.onEndpointChanged,
     required this.onSummarize,
@@ -1588,6 +1790,7 @@ class _TopBar extends StatelessWidget {
   final List<AiEndpointConfig> endpoints;
   final String selectedEndpointId;
   final bool isSummarizing;
+  final bool canSummarize;
   final bool hasBackground;
   final ValueChanged<String?> onEndpointChanged;
   final VoidCallback onSummarize;
@@ -1637,7 +1840,7 @@ class _TopBar extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   FilledButton.icon(
-                    onPressed: isSummarizing ? null : onSummarize,
+                    onPressed: canSummarize ? onSummarize : null,
                     icon: isSummarizing
                         ? const SizedBox.square(
                             dimension: 18,
@@ -1664,10 +1867,10 @@ class _MessageBubble extends StatelessWidget {
     required this.isHighlighted,
     required this.searchQuery,
     required this.splitRoleMessages,
-    required this.isGenerating,
+    required this.isBusy,
     required this.onSelectVariant,
     this.onRegenerate,
-    required this.onAddMemory,
+    this.onAddMemory,
     this.showFooter = true,
     this.controlMessage,
     required this.onCopy,
@@ -1680,10 +1883,10 @@ class _MessageBubble extends StatelessWidget {
   final bool isHighlighted;
   final String searchQuery;
   final bool splitRoleMessages;
-  final bool isGenerating;
-  final ValueChanged<int> onSelectVariant;
+  final bool isBusy;
+  final ValueChanged<int>? onSelectVariant;
   final VoidCallback? onRegenerate;
-  final VoidCallback onAddMemory;
+  final VoidCallback? onAddMemory;
   final bool showFooter;
   final ChatMessage? controlMessage;
   final VoidCallback onCopy;
@@ -1711,7 +1914,7 @@ class _MessageBubble extends StatelessWidget {
               splitRoleMessages: false,
               showFooter: index == segments.length - 1,
               controlMessage: controlMessage ?? message,
-              isGenerating: isGenerating,
+              isBusy: isBusy,
               onSelectVariant: onSelectVariant,
               onRegenerate: onRegenerate,
               onAddMemory: onAddMemory,
@@ -1776,13 +1979,17 @@ class _MessageBubble extends StatelessWidget {
                 ChatVariantControls(
                   selectedIndex: controls.selectedVariantIndex,
                   variantCount: controls.variantCount,
-                  isGenerating: isGenerating,
+                  isGenerating: isBusy,
                   onPrevious: controls.selectedVariantIndex > 0
-                      ? () => onSelectVariant(controls.selectedVariantIndex - 1)
+                      ? () => onSelectVariant?.call(
+                          controls.selectedVariantIndex - 1,
+                        )
                       : null,
                   onNext:
                       controls.selectedVariantIndex + 1 < controls.variantCount
-                      ? () => onSelectVariant(controls.selectedVariantIndex + 1)
+                      ? () => onSelectVariant?.call(
+                          controls.selectedVariantIndex + 1,
+                        )
                       : null,
                   onRegenerate: onRegenerate,
                 ),

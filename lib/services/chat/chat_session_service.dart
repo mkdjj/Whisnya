@@ -247,6 +247,37 @@ class ChatSessionService {
     }
   }
 
+  Future<bool> saveChatBySessionIfExists(
+    ChatSession session,
+    List<ChatMessage> messages,
+  ) async {
+    _validateSession(session);
+    return _store.synchronized(_paths.chatSessions, () async {
+      final sessions = await _readSessionsNow();
+      final index = sessions.indexWhere(
+        (item) =>
+            item.id == session.id && item.characterId == session.characterId,
+      );
+      if (index < 0) return false;
+
+      await _store.write(_paths.chatBySession(session.id), {
+        'sessionId': session.id,
+        'characterId': session.characterId,
+        'messages': messages.map((message) => message.toJson()).toList(),
+      }, compact: true);
+      final now = DateTime.now();
+      sessions[index] = sessions[index].copyWith(
+        updatedAt: now,
+        lastUsedAt: now,
+      );
+      await _store.writeNow(
+        _paths.chatSessions,
+        sessions.map((item) => item.toJson()).toList(),
+      );
+      return true;
+    });
+  }
+
   Future<void> _touchChatSession({
     required String sessionId,
     required String characterId,

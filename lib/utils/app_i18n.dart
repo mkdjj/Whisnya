@@ -535,6 +535,7 @@ const _en = {
   '禁用记忆': 'Disable memory',
   '请填写标题和内容': 'Enter a title and content',
   '关键词世界书': 'Keyword world book',
+  '管理全局世界书和关键词词条': 'Manage global world books and keyword entries',
   '添加长期记忆': 'Add long-term memory',
   '添加当前对话记忆': 'Add current chat memory',
   '添加世界书': 'Add world book',

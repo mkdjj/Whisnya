@@ -7,6 +7,7 @@ class ChatInputComposer extends StatelessWidget {
   const ChatInputComposer({
     required this.controller,
     required this.isGenerating,
+    this.enabled = true,
     required this.hasBackground,
     required this.inputOpacity,
     required this.onSend,
@@ -20,6 +21,7 @@ class ChatInputComposer extends StatelessWidget {
 
   final TextEditingController controller;
   final bool isGenerating;
+  final bool enabled;
   final bool hasBackground;
   final double inputOpacity;
   final VoidCallback onSend;
@@ -54,12 +56,13 @@ class ChatInputComposer extends StatelessWidget {
                   if (onContinue != null)
                     IconButton(
                       tooltip: context.t('继续一轮'),
-                      onPressed: isGenerating ? null : onContinue,
+                      onPressed: !enabled || isGenerating ? null : onContinue,
                       icon: const Icon(Icons.play_arrow),
                     ),
                   Expanded(
                     child: TextField(
                       controller: controller,
+                      enabled: enabled && !isGenerating,
                       minLines: 1,
                       maxLines: 5,
                       textInputAction: TextInputAction.newline,
@@ -83,7 +86,7 @@ class ChatInputComposer extends StatelessWidget {
                   if (!isGenerating && onRetry != null) ...[
                     IconButton(
                       tooltip: context.t('重试上一条'),
-                      onPressed: onRetry,
+                      onPressed: enabled ? onRetry : null,
                       icon: const Icon(Icons.refresh),
                     ),
                     const SizedBox(width: 4),
@@ -91,7 +94,7 @@ class ChatInputComposer extends StatelessWidget {
                   if (!isGenerating && onEditResend != null) ...[
                     IconButton(
                       tooltip: context.t('编辑并重发'),
-                      onPressed: onEditResend,
+                      onPressed: enabled ? onEditResend : null,
                       icon: const Icon(Icons.edit_note),
                     ),
                     const SizedBox(width: 4),
@@ -102,6 +105,8 @@ class ChatInputComposer extends StatelessWidget {
                       tooltip: context.t(isGenerating ? '停止生成' : '发送'),
                       onPressed: isGenerating
                           ? onStop
+                          : !enabled
+                          ? null
                           : requireText && value.text.trim().isEmpty
                           ? null
                           : onSend,

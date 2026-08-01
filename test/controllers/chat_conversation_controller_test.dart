@@ -220,6 +220,42 @@ void main() {
     expect(controller.canRegenerateAssistantAt(1), isTrue);
   });
 
+  test('deleting candidate B then truncating removes its later timeline', () {
+    final controller = ChatConversationController(characterId: 'character');
+    controller.load(
+      messages: [
+        _message('user', 'question'),
+        ChatMessage(
+          role: 'assistant',
+          content: 'candidate A',
+          time: DateTime(2026),
+          variants: [
+            ChatReplyVariant(content: 'candidate A', time: DateTime(2026)),
+            ChatReplyVariant(content: 'candidate B', time: DateTime(2026, 2)),
+          ],
+          selectedVariantIndex: 1,
+        ),
+        _message('user', 'follow-up based on B'),
+        _message('assistant', 'answer based on B'),
+      ],
+      summary: ChatSummary(
+        characterId: 'character',
+        sessionId: 'session',
+        summary: 'summary including the later timeline',
+        updatedAt: DateTime(2026),
+        summarizedMessageCount: 4,
+      ),
+    );
+
+    controller.deleteAt(1);
+    expect(controller.truncateAfter(1), isTrue);
+
+    expect(controller.messages, hasLength(2));
+    expect(controller.messages.last.effectiveContent, 'candidate A');
+    expect(controller.summary.summary, isEmpty);
+    expect(controller.summary.sessionId, 'session');
+  });
+
   test('keeps an assistant tail with a selected reply variant', () {
     final controller = ChatConversationController(characterId: 'character');
     controller.append(

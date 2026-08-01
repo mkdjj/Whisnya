@@ -8,6 +8,107 @@ import '../../utils/app_i18n.dart';
 import '../../utils/confirm_dialog.dart';
 import '../../utils/snack.dart';
 
+class WorldBookManagerScreen extends StatefulWidget {
+  const WorldBookManagerScreen({required this.storage, super.key});
+
+  final LocalStorageService storage;
+
+  @override
+  State<WorldBookManagerScreen> createState() => _WorldBookManagerScreenState();
+}
+
+class _WorldBookManagerScreenState extends State<WorldBookManagerScreen> {
+  var _books = <WorldBook>[];
+  var _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  Future<void> _load() async {
+    try {
+      final books = await widget.storage.loadWorldBooks();
+      if (!mounted) return;
+      setState(() {
+        _books = books;
+        _loading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      context.showSnack(error.toString());
+    }
+  }
+
+  Future<void> _edit([WorldBook? book]) async {
+    final result = await Navigator.of(context).push<WorldBook>(
+      MaterialPageRoute(builder: (_) => WorldBookEditScreen(book: book)),
+    );
+    if (result == null) return;
+    await widget.storage.saveWorldBook(result);
+    await _load();
+  }
+
+  Future<void> _openEntries(WorldBook book) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) =>
+            WorldBookEntriesScreen(storage: widget.storage, book: book),
+      ),
+    );
+    await _load();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: Text(context.t('关键词世界书'))),
+    floatingActionButton: FloatingActionButton.extended(
+      onPressed: () => _edit(),
+      icon: const Icon(Icons.add),
+      label: Text(context.t('添加世界书')),
+    ),
+    body: _loading
+        ? const Center(child: CircularProgressIndicator())
+        : _books.isEmpty
+        ? Center(child: Text(context.t('还没有世界书')))
+        : ListView.builder(
+            padding: const EdgeInsets.all(12),
+            itemCount: _books.length,
+            itemBuilder: (context, index) {
+              final book = _books[index];
+              return Card(
+                child: ListTile(
+                  leading: Icon(
+                    book.enabled ? Icons.menu_book : Icons.menu_book_outlined,
+                  ),
+                  title: Text(book.name),
+                  subtitle: Text(book.description),
+                  onTap: () => _openEntries(book),
+                  trailing: PopupMenuButton<_WorldBookManagerAction>(
+                    onSelected: (action) {
+                      switch (action) {
+                        case _WorldBookManagerAction.edit:
+                          unawaited(_edit(book));
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      PopupMenuItem(
+                        value: _WorldBookManagerAction.edit,
+                        child: Text(context.t('编辑世界书')),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+  );
+}
+
+enum _WorldBookManagerAction { edit }
+
 class WorldBookEditScreen extends StatefulWidget {
   const WorldBookEditScreen({this.book, super.key});
 

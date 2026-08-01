@@ -1,5 +1,14 @@
 # Whisnya
 
+## 1.4.2+20
+
+- Isolated manual and rolling summaries by operation and session, preventing stale requests or dialogs from writing into another conversation.
+- Session management now stops active generation first, awaits partial-reply persistence, reports save failures, and avoids recreating deleted session files.
+- Deleting an earlier selected assistant candidate now warns before truncating all dependent later messages and invalidates affected summaries.
+- Conversation mutations are consistently disabled while generation or summarization owns the chat; controls recover when the operation finishes.
+- AI-extracted memories can switch between character and current-session scope during review, with correct session binding and no world-book keyword fields.
+- Global world books can now be created and edited from Settings below continuous bubble output.
+
 ## 1.4.1+19
 
 - A character can now have multiple independent chat sessions. Sessions support renaming, duplication, archiving, and deletion.
@@ -59,7 +68,7 @@ The APK will be generated at:
 build/app/outputs/flutter-apk/app-release.apk
 ```
 
-Current release version is `1.4.1+19`. Keep both `versionName` and `versionCode` increasing for every public release. The Android package name is
+Current release version is `1.4.2+20`. Keep both `versionName` and `versionCode` increasing for every public release. The Android package name is
 `com.mkdjj.whisnya`.
 
 For public distribution, configure your own Android signing key first:
@@ -75,7 +84,7 @@ Then edit `android/key.properties` with your real passwords. Both
 Recommended release asset name:
 
 ```text
-Whisnya-android-v1.4.1-release.apk
+Whisnya-android-v1.4.2-release.apk
 ```
 
 ## Other Platforms
@@ -97,7 +106,7 @@ Ship the whole `Release` folder, not only the `.exe`.
 Recommended Windows release asset name:
 
 ```text
-Whisnya-windows-x64-v1.4.1.zip
+Whisnya-windows-x64-v1.4.2.zip
 ```
 
 Generate iOS or macOS platform files, then build on macOS with Xcode installed:

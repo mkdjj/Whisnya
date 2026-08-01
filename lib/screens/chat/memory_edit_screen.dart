@@ -11,7 +11,8 @@ class MemoryEditScreen extends StatefulWidget {
     required this.session,
     this.entry,
     this.initialContent,
-    this.fixedScope,
+    this.initialScope,
+    this.allowScopeChange = true,
     super.key,
   });
 
@@ -19,7 +20,8 @@ class MemoryEditScreen extends StatefulWidget {
   final ChatSession session;
   final CharacterMemoryEntry? entry;
   final String? initialContent;
-  final MemoryScope? fixedScope;
+  final MemoryScope? initialScope;
+  final bool allowScopeChange;
 
   @override
   State<MemoryEditScreen> createState() => _MemoryEditScreenState();
@@ -28,7 +30,6 @@ class MemoryEditScreen extends StatefulWidget {
 class _MemoryEditScreenState extends State<MemoryEditScreen> {
   late final TextEditingController _title;
   late final TextEditingController _content;
-  late final TextEditingController _keywords;
   late MemoryScope _scope;
   late int _priority;
   late bool _enabled;
@@ -44,8 +45,7 @@ class _MemoryEditScreenState extends State<MemoryEditScreen> {
     _content = TextEditingController(
       text: entry?.content ?? widget.initialContent ?? '',
     );
-    _keywords = TextEditingController(text: entry?.keywords.join(', ') ?? '');
-    _scope = widget.fixedScope ?? entry?.scope ?? MemoryScope.character;
+    _scope = widget.initialScope ?? entry?.scope ?? MemoryScope.character;
     _priority = entry?.priority ?? 50;
     _enabled = entry?.enabled ?? true;
   }
@@ -54,7 +54,6 @@ class _MemoryEditScreenState extends State<MemoryEditScreen> {
   void dispose() {
     _title.dispose();
     _content.dispose();
-    _keywords.dispose();
     super.dispose();
   }
 
@@ -86,9 +85,7 @@ class _MemoryEditScreenState extends State<MemoryEditScreen> {
         sessionId: _scope == MemoryScope.session ? widget.session.id : null,
         title: title,
         content: content,
-        keywords: widget.fixedScope == null
-            ? _keywords.text.split(RegExp(r'[,，\n\r]+'))
-            : const [],
+        keywords: const [],
         priority: _priority,
         enabled: _enabled,
         createdAt: widget.entry?.createdAt ?? now,
@@ -122,7 +119,7 @@ class _MemoryEditScreenState extends State<MemoryEditScreen> {
             decoration: InputDecoration(labelText: context.t('内容')),
           ),
           const SizedBox(height: 12),
-          if (widget.fixedScope == null) ...[
+          if (widget.allowScopeChange) ...[
             DropdownButtonFormField<MemoryScope>(
               initialValue: _scope,
               decoration: InputDecoration(labelText: context.t('范围')),
@@ -139,16 +136,6 @@ class _MemoryEditScreenState extends State<MemoryEditScreen> {
               onChanged: _saving
                   ? null
                   : (value) => setState(() => _scope = value ?? _scope),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _keywords,
-              minLines: 2,
-              maxLines: 4,
-              decoration: InputDecoration(
-                labelText: context.t('关键词'),
-                hintText: context.t('用逗号或换行分隔；留空则始终生效'),
-              ),
             ),
           ],
           const SizedBox(height: 8),

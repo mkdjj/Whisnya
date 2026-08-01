@@ -264,6 +264,19 @@ void main() {
     expect(saved.isArchived, isTrue);
   });
 
+  test('safe chat save does not recreate a deleted session file', () async {
+    final deleted = await service.createChatSession('c1', title: 'Deleted');
+    await service.createChatSession('c1', title: 'Kept');
+    await service.deleteChatSession(deleted);
+
+    final saved = await service.saveChatBySessionIfExists(deleted, [
+      ChatMessage(role: 'assistant', content: 'partial', time: DateTime(2026)),
+    ]);
+
+    expect(saved, isFalse);
+    expect(await paths.chatBySession(deleted.id).exists(), isFalse);
+  });
+
   test(
     'opening initialization updates only the latest indexed session',
     () async {

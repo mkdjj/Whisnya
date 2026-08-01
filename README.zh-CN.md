@@ -1,5 +1,14 @@
 # Whisnya
 
+## 1.4.2+20
+
+- 手动总结和自动滚动总结现在同时绑定操作编号与会话，旧请求和旧编辑框不会把总结写入其他对话。
+- 进入对话管理前会先停止生成并等待部分回复保存；保存失败会明确提示，已删除会话也不会被旧请求重新创建文件。
+- 删除较早的当前候选时会先提示，并在确认后删除依赖该候选的全部后续消息，同时按规则清理历史总结。
+- 生成或总结期间会统一禁用会改动当前对话的入口，操作结束后自动恢复。
+- AI 提取记忆的审核编辑支持在长期记忆与当前对话记忆之间切换，正确处理会话归属，普通记忆编辑不再出现世界书关键词。
+- 设置页的“连续气泡输出”下方新增全局世界书创建和编辑入口。
+
 ## 1.4.1+19
 
 - 一个角色现在可以拥有多个独立对话，支持重命名、复制、归档、取消归档和删除。
@@ -58,7 +67,7 @@ APK 会生成在：
 build/app/outputs/flutter-apk/app-release.apk
 ```
 
-当前发布版本是 `1.4.1+19`。每次公开发版都要同时递增 `versionName`
+当前发布版本是 `1.4.2+20`。每次公开发版都要同时递增 `versionName`
 和 `versionCode`。Android 包名是 `com.mkdjj.whisnya`。
 
 如果要公开分发，请先配置自己的 Android 签名文件：
@@ -74,7 +83,7 @@ Copy-Item android/key.properties.example android/key.properties
 推荐发布文件名：
 
 ```text
-Whisnya-android-v1.4.1-release.apk
+Whisnya-android-v1.4.2-release.apk
 ```
 
 ## 其他平台
@@ -96,7 +105,7 @@ build/windows/x64/runner/Release/
 推荐 Windows 发布文件名：
 
 ```text
-Whisnya-windows-x64-v1.4.1.zip
+Whisnya-windows-x64-v1.4.2.zip
 ```
 
 iOS 或 macOS 需要先生成平台文件，然后在安装了 Xcode 的 macOS 上打包：

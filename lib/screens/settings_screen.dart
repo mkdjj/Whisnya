@@ -21,6 +21,7 @@ import '../utils/transparency.dart';
 import '../widgets/app_background.dart';
 import '../widgets/color_picker_dialog.dart';
 import 'api_settings_screen.dart';
+import 'chat/world_book_screens.dart';
 import 'image_crop_screen.dart';
 import 'user_profile_edit_screen.dart';
 
@@ -102,6 +103,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (profile != null && mounted) {
       _applySettings(_settings.copyWith(userProfile: profile));
     }
+  }
+
+  Future<void> _openWorldBookSettings() {
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => WorldBookManagerScreen(storage: widget.storage),
+      ),
+    );
   }
 
   Future<void> _pickBackground() async {
@@ -859,6 +868,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               value: _settings.splitRoleMessages,
               onChanged: (value) =>
                   _applySettings(_settings.copyWith(splitRoleMessages: value)),
+            ),
+            KeyedSubtree(
+              key: const ValueKey('world-book-settings-tile'),
+              child: _tile(
+                icon: Icons.menu_book_outlined,
+                title: context.t('关键词世界书'),
+                subtitle: context.t('管理全局世界书和关键词词条'),
+                onTap: _openWorldBookSettings,
+              ),
             ),
             KeyedSubtree(
               key: const ValueKey('memory-context-limit-setting'),
