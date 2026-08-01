@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whisnya/models/chat_message.dart';
+import 'package:whisnya/models/chat_session.dart';
 import 'package:whisnya/models/chat_summary.dart';
 import 'package:whisnya/models/character_memory_entry.dart';
 import 'package:whisnya/services/chat/chat_session_service.dart';
@@ -80,6 +81,7 @@ void main() {
         expect(await paths.chat('c1').exists(), isFalse);
         expect(await paths.summary('c1').exists(), isFalse);
         expect(await service.loadChatSessions('c1'), hasLength(1));
+        expect(session.toJson()['openingMessageInitialized'], fixture.chat);
       },
     );
   }
@@ -187,6 +189,103 @@ void main() {
 
     expect(await service.loadChatSessions('c1'), hasLength(8));
   });
+
+  test(
+    'duplicating a populated session keeps opening message initialized',
+    () async {
+      final source = await service.createChatSession('c1');
+      await service.saveChatBySession(source, [
+        ChatMessage(role: 'user', content: 'hello', time: DateTime(2026)),
+      ]);
+
+      final copy = await service.duplicateChatSession(source);
+
+      expect(copy.toJson()['openingMessageInitialized'], isTrue);
+    },
+  );
+
+  test(
+    'duplicating an initialized empty session does not reset its state',
+    () async {
+      final source = await service.createChatSession('c1');
+      await service.saveChatSession(
+        ChatSession.fromJson({
+          ...source.toJson(),
+          'openingMessageInitialized': true,
+        }),
+      );
+
+      final refreshed = (await service.loadChatSessions('c1')).single;
+      final copy = await service.duplicateChatSession(refreshed);
+
+      expect(copy.toJson()['openingMessageInitialized'], isTrue);
+    },
+  );
+
+  test(
+    'duplicating with a stale source uses the latest opening state',
+    () async {
+      final stale = await service.createChatSession('c1');
+      await service.saveChatSession(
+        stale.copyWith(openingMessageInitialized: true),
+      );
+
+      final copy = await service.duplicateChatSession(stale);
+
+      expect(copy.openingMessageInitialized, isTrue);
+    },
+  );
+
+  test('saving chat with a stale session preserves the latest title', () async {
+    final stale = await service.createChatSession('c1', title: 'Old');
+    await service.saveChatSession(stale.copyWith(title: 'New'));
+
+    await service.saveChatBySession(stale, [
+      ChatMessage(role: 'user', content: 'hello', time: DateTime(2026)),
+    ]);
+
+    final saved = (await service.loadChatSessions('c1')).single;
+    expect(saved.title, 'New');
+    expect(saved.createdAt, stale.createdAt);
+  });
+
+  test('saving chat with a stale session preserves archived state', () async {
+    final stale = await service.createChatSession('c1', title: 'Archived');
+    await service.createChatSession('c1', title: 'Active');
+    await service.archiveChatSession(stale);
+
+    await service.saveChatBySession(stale, [
+      ChatMessage(role: 'user', content: 'hello', time: DateTime(2026)),
+    ]);
+
+    final saved = (await service.loadChatSessions(
+      'c1',
+    )).singleWhere((session) => session.id == stale.id);
+    expect(saved.isArchived, isTrue);
+  });
+
+  test(
+    'opening initialization updates only the latest indexed session',
+    () async {
+      final stale = await service.createChatSession('c1', title: 'Old');
+      await service.createChatSession('c1', title: 'Active');
+      await service.saveChatSession(stale.copyWith(title: 'New'));
+      final current = (await service.loadChatSessions(
+        'c1',
+      )).singleWhere((session) => session.id == stale.id);
+      await service.archiveChatSession(current);
+
+      final updated = await service.markOpeningMessageInitialized(
+        sessionId: stale.id,
+        characterId: stale.characterId,
+      );
+
+      expect(updated.title, 'New');
+      expect(updated.isArchived, isTrue);
+      expect(updated.createdAt, stale.createdAt);
+      expect(updated.openingMessageInitialized, isTrue);
+    },
+  );
 
   test('deleting a character removes all its session data only', () async {
     final c1 = await service.createChatSession('c1');

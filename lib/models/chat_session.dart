@@ -7,6 +7,7 @@ class ChatSession {
     required this.updatedAt,
     required this.lastUsedAt,
     this.isArchived = false,
+    this.openingMessageInitialized = false,
   });
 
   final String id;
@@ -16,6 +17,7 @@ class ChatSession {
   final DateTime updatedAt;
   final DateTime lastUsedAt;
   final bool isArchived;
+  final bool openingMessageInitialized;
 
   ChatSession copyWith({
     String? id,
@@ -25,6 +27,7 @@ class ChatSession {
     DateTime? updatedAt,
     DateTime? lastUsedAt,
     bool? isArchived,
+    bool? openingMessageInitialized,
   }) {
     return ChatSession(
       id: id ?? this.id,
@@ -34,6 +37,8 @@ class ChatSession {
       updatedAt: updatedAt ?? this.updatedAt,
       lastUsedAt: lastUsedAt ?? this.lastUsedAt,
       isArchived: isArchived ?? this.isArchived,
+      openingMessageInitialized:
+          openingMessageInitialized ?? this.openingMessageInitialized,
     );
   }
 
@@ -53,6 +58,9 @@ class ChatSession {
       isArchived: json['isArchived'] is bool
           ? json['isArchived'] as bool
           : false,
+      openingMessageInitialized: json['openingMessageInitialized'] is bool
+          ? json['openingMessageInitialized'] as bool
+          : false,
     );
   }
 
@@ -64,6 +72,7 @@ class ChatSession {
     'updatedAt': updatedAt.toIso8601String(),
     'lastUsedAt': lastUsedAt.toIso8601String(),
     'isArchived': isArchived,
+    'openingMessageInitialized': openingMessageInitialized,
   };
 
   static String normalizedTitle(String? title) {

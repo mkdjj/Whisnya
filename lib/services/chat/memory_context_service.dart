@@ -38,20 +38,17 @@ class MemoryContextService {
         .map((message) => message.effectiveContent)
         .join('\n')
         .toLowerCase();
-    final memoryEntries = entries
-        .where((entry) {
-          if (!entry.enabled || entry.characterId != characterId) {
-            return false;
-          }
-          if (entry.scope == MemoryScope.session &&
-              entry.sessionId != sessionId) {
-            return false;
-          }
-          return entry.title.trim().isNotEmpty &&
-              entry.content.trim().isNotEmpty &&
-              entry.keywords.isEmpty;
-        })
-        .toList();
+    final memoryEntries = entries.where((entry) {
+      if (!entry.enabled || entry.characterId != characterId) {
+        return false;
+      }
+      if (entry.scope == MemoryScope.session && entry.sessionId != sessionId) {
+        return false;
+      }
+      return entry.title.trim().isNotEmpty &&
+          entry.content.trim().isNotEmpty &&
+          entry.keywords.isEmpty;
+    }).toList();
 
     final useWorldBookContext =
         worldBooks != null || worldBookEntries != null || worldBookIds != null;
@@ -59,32 +56,27 @@ class MemoryContextService {
       // Old callers and old tests can still render legacy keyword entries until
       // their storage is migrated. Production requests always pass the new
       // world-book arguments and therefore never use this branch.
-      final legacyEntries = entries
-          .where((entry) {
-            if (!entry.enabled || entry.characterId != characterId) {
-              return false;
-            }
-            if (entry.scope == MemoryScope.session &&
-                entry.sessionId != sessionId) {
-              return false;
-            }
-            return entry.title.trim().isNotEmpty &&
-                entry.content.trim().isNotEmpty &&
-                (entry.keywords.isEmpty ||
-                    entry.keywords.any(
-                      (keyword) => recentText.contains(keyword.toLowerCase()),
-                    ));
-      })
-        .toList();
+      final legacyEntries = entries.where((entry) {
+        if (!entry.enabled || entry.characterId != characterId) {
+          return false;
+        }
+        if (entry.scope == MemoryScope.session &&
+            entry.sessionId != sessionId) {
+          return false;
+        }
+        return entry.title.trim().isNotEmpty &&
+            entry.content.trim().isNotEmpty &&
+            (entry.keywords.isEmpty ||
+                entry.keywords.any(
+                  (keyword) => recentText.contains(keyword.toLowerCase()),
+                ));
+      }).toList();
       legacyEntries.sort(_compareMemoryEntries);
       final seenContent = <String>{};
       final uniqueLegacyEntries = legacyEntries
           .where((entry) => seenContent.add(entry.content))
           .toList();
-      final selected = _selectMemoryEntries(
-        uniqueLegacyEntries,
-        maxCharacters,
-      );
+      final selected = _selectMemoryEntries(uniqueLegacyEntries, maxCharacters);
       return MemoryContextResult(
         activeEntries: List.unmodifiable(
           selected.map((item) => item.item.memory!),
@@ -101,8 +93,8 @@ class MemoryContextService {
       for (final book in worldBooks ?? const <WorldBook>[]) book.id: book,
     };
     final referencedIds = (worldBookIds ?? const <String>[]).toSet();
-    final activeWorldEntries = (worldBookEntries ?? const <WorldBookEntry>[])
-        .where((entry) {
+    final activeWorldEntries =
+        (worldBookEntries ?? const <WorldBookEntry>[]).where((entry) {
           final book = booksById[entry.worldBookId];
           return book != null &&
               referencedIds.contains(entry.worldBookId) &&
@@ -114,30 +106,28 @@ class MemoryContextService {
               entry.keywords.any(
                 (keyword) => recentText.contains(keyword.toLowerCase()),
               );
-        })
-        .toList()
-      ..sort((a, b) {
-        final priority = b.priority.compareTo(a.priority);
-        if (priority != 0) return priority;
-        final book = a.worldBookId.compareTo(b.worldBookId);
-        return book == 0 ? a.id.compareTo(b.id) : book;
-      });
+        }).toList()..sort((a, b) {
+          final priority = b.priority.compareTo(a.priority);
+          if (priority != 0) return priority;
+          final book = a.worldBookId.compareTo(b.worldBookId);
+          return book == 0 ? a.id.compareTo(b.id) : book;
+        });
 
-    final sessionMemories = memoryEntries
-        .where((entry) => entry.scope == MemoryScope.session)
-        .toList()
-      ..sort(_compareMemoryEntries);
-    final characterMemories = memoryEntries
-        .where((entry) => entry.scope == MemoryScope.character)
-        .toList()
-      ..sort(_compareMemoryEntries);
+    final sessionMemories =
+        memoryEntries
+            .where((entry) => entry.scope == MemoryScope.session)
+            .toList()
+          ..sort(_compareMemoryEntries);
+    final characterMemories =
+        memoryEntries
+            .where((entry) => entry.scope == MemoryScope.character)
+            .toList()
+          ..sort(_compareMemoryEntries);
     final candidates = <_ContextItem>[
-      for (final entry in sessionMemories)
-        _ContextItem.memory(entry),
+      for (final entry in sessionMemories) _ContextItem.memory(entry),
       for (final entry in activeWorldEntries)
         _ContextItem.world(entry, booksById[entry.worldBookId]!.name),
-      for (final entry in characterMemories)
-        _ContextItem.memory(entry),
+      for (final entry in characterMemories) _ContextItem.memory(entry),
     ];
     final seenContent = <String>{};
     final unique = candidates
@@ -162,11 +152,7 @@ class MemoryContextService {
 }
 
 class _ContextItem {
-  const _ContextItem._({
-    this.memory,
-    this.worldBookEntry,
-    this.worldBookName,
-  });
+  const _ContextItem._({this.memory, this.worldBookEntry, this.worldBookName});
 
   factory _ContextItem.memory(CharacterMemoryEntry entry) =>
       _ContextItem._(memory: entry);
@@ -194,10 +180,9 @@ class _PromptEntry {
 List<_PromptEntry> _selectMemoryEntries(
   List<CharacterMemoryEntry> entries,
   int maxCharacters,
-) => _selectContextItems(
-  [for (final entry in entries) _ContextItem.memory(entry)],
-  maxCharacters,
-);
+) => _selectContextItems([
+  for (final entry in entries) _ContextItem.memory(entry),
+], maxCharacters);
 
 List<_PromptEntry> _selectContextItems(
   List<_ContextItem> candidates,
@@ -239,7 +224,9 @@ int _compareMemoryEntries(CharacterMemoryEntry a, CharacterMemoryEntry b) {
 
 String _formatLegacy(List<_PromptEntry> items) {
   final sections = <String>[];
-  final worldItems = items.where((item) => item.item.memory!.keywords.isNotEmpty);
+  final worldItems = items.where(
+    (item) => item.item.memory!.keywords.isNotEmpty,
+  );
   final longTerm = items.where(
     (item) =>
         item.item.memory!.keywords.isEmpty &&

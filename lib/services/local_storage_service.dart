@@ -424,6 +424,14 @@ class LocalStorageService {
   Future<void> saveChatSession(ChatSession session) async =>
       (await _chatSessions).saveChatSession(session);
 
+  Future<ChatSession> markOpeningMessageInitialized({
+    required String sessionId,
+    required String characterId,
+  }) async => (await _chatSessions).markOpeningMessageInitialized(
+    sessionId: sessionId,
+    characterId: characterId,
+  );
+
   Future<ChatSession> duplicateChatSession(ChatSession source) async =>
       (await _chatSessions).duplicateChatSession(source);
 
@@ -455,7 +463,9 @@ class LocalStorageService {
   ) async {
     final service = await _chatSessions;
     final memories = await service.loadCharacterMemories(characterId);
-    final legacy = memories.where((memory) => memory.keywords.isNotEmpty).toList();
+    final legacy = memories
+        .where((memory) => memory.keywords.isNotEmpty)
+        .toList();
     if (legacy.isEmpty) return memories;
 
     final character = (await loadCharacters())
@@ -470,7 +480,8 @@ class LocalStorageService {
     if (worldBook == null) {
       worldBook = WorldBook(
         id: worldBookId,
-        name: '${character.name.trim().isEmpty ? characterId : character.name.trim()} - 旧关键词世界书',
+        name:
+            '${character.name.trim().isEmpty ? characterId : character.name.trim()} - 旧关键词世界书',
         description: '从旧版关键词记忆迁移',
         createdAt: now,
         updatedAt: now,
@@ -481,8 +492,7 @@ class LocalStorageService {
     final existing = await service.loadWorldBookEntries(worldBookId);
     final existingIds = existing.map((entry) => entry.id).toSet();
     for (final memory in legacy) {
-      final entryId =
-          'legacy_worldbook_entry_${_safeWorldBookPart(memory.id)}';
+      final entryId = 'legacy_worldbook_entry_${_safeWorldBookPart(memory.id)}';
       if (existingIds.contains(entryId)) continue;
       await service.saveWorldBookEntry(
         WorldBookEntry(
@@ -500,10 +510,10 @@ class LocalStorageService {
     }
 
     if (!character.worldBookIds.contains(worldBookId)) {
-      await updateCharacterWorldBookReferences(
-        characterId,
-        [...character.worldBookIds, worldBookId],
-      );
+      await updateCharacterWorldBookReferences(characterId, [
+        ...character.worldBookIds,
+        worldBookId,
+      ]);
     }
     for (final memory in legacy) {
       await service.deleteCharacterMemory(characterId, memory.id);

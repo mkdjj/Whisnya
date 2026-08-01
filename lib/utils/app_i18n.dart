@@ -555,8 +555,7 @@ const _en = {
   '至少填写一个关键词': 'Enter at least one keyword',
   '当前角色还没有长期记忆': 'This character has no long-term memories yet',
   '当前对话还没有记忆': 'This chat has no memories yet',
-  '当前角色还没有引用世界书':
-      'This character does not reference any world books yet',
+  '当前角色还没有引用世界书': 'This character does not reference any world books yet',
   '保存引用': 'Save references',
   '还没有世界书': 'No world books yet',
   '有效词条': 'active entries',

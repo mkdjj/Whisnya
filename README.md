@@ -1,6 +1,6 @@
 # Whisnya
 
-## 1.4.0
+## 1.4.0+18
 
 - A character can now have multiple independent chat sessions. Sessions support renaming, duplication, archiving, and deletion.
 - Assistant replies can keep multiple variants. The selected variant is used consistently for prompts, search, copy, summaries, and TXT export.
@@ -59,7 +59,7 @@ The APK will be generated at:
 build/app/outputs/flutter-apk/app-release.apk
 ```
 
-Current release version is `1.4.0`. Keep both `versionName` and `versionCode` increasing for every public release. The Android package name is
+Current release version is `1.4.0+18`. Keep both `versionName` and `versionCode` increasing for every public release. The Android package name is
 `com.mkdjj.whisnya`.
 
 For public distribution, configure your own Android signing key first:

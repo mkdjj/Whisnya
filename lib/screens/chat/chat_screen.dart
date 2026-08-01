@@ -129,23 +129,54 @@ class _ChatScreenState extends State<ChatScreen> {
 
     try {
       final apiConfig = await widget.storage.loadApiConfig();
-      final session =
+      var activeSession =
           _session ??
           widget.session ??
           (widget.storage.usesSessionStorage
               ? await widget.storage.getOrCreateRecentChatSession(_character.id)
               : _compatibilitySession());
+      if (widget.storage.usesSessionStorage) {
+        final storedSessions = await widget.storage.loadChatSessions(
+          activeSession.characterId,
+        );
+        for (final storedSession in storedSessions) {
+          if (storedSession.id == activeSession.id) {
+            activeSession = storedSession;
+            break;
+          }
+        }
+      }
       final summary = widget.storage.usesSessionStorage
-          ? await widget.storage.loadSummaryBySession(session)
+          ? await widget.storage.loadSummaryBySession(activeSession)
           : await widget.storage.loadSummary(_character.id);
       final chat = widget.storage.usesSessionStorage
-          ? await widget.storage.loadChatBySession(session)
+          ? await widget.storage.loadChatBySession(activeSession)
           : await widget.storage.loadChat(_character.id);
       final selectedEndpointId =
           apiConfig.effectiveEndpoint(_character.defaultEndpointId)?.id ?? '';
       var messages = [...chat];
 
-      if (messages.isEmpty && _character.openingMessage.trim().isNotEmpty) {
+      if (widget.storage.usesSessionStorage) {
+        if (!activeSession.openingMessageInitialized) {
+          if (messages.isEmpty && _character.openingMessage.trim().isNotEmpty) {
+            messages = [
+              ChatMessage(
+                role: 'assistant',
+                content: _character.openingMessage.trim(),
+                time: DateTime.now(),
+                endpointId: selectedEndpointId,
+                endpointName: apiConfig.endpointById(selectedEndpointId)?.name,
+              ),
+            ];
+            await widget.storage.saveChatBySession(activeSession, messages);
+          }
+          activeSession = await widget.storage.markOpeningMessageInitialized(
+            sessionId: activeSession.id,
+            characterId: activeSession.characterId,
+          );
+        }
+      } else if (messages.isEmpty &&
+          _character.openingMessage.trim().isNotEmpty) {
         messages = [
           ChatMessage(
             role: 'assistant',
@@ -155,17 +186,13 @@ class _ChatScreenState extends State<ChatScreen> {
             endpointName: apiConfig.endpointById(selectedEndpointId)?.name,
           ),
         ];
-        if (widget.storage.usesSessionStorage) {
-          await widget.storage.saveChatBySession(session, messages);
-        } else {
-          await widget.storage.saveChat(_character.id, messages);
-        }
+        await widget.storage.saveChat(_character.id, messages);
       }
 
       if (!mounted) return;
       setState(() {
         _apiConfig = apiConfig;
-        _session = session;
+        _session = activeSession;
         _selectedEndpointId = selectedEndpointId;
         _conversation.load(messages: messages, summary: summary);
         _isLoading = false;
@@ -279,6 +306,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final sessionId = _currentSession.id;
     final cancelToken = AiCancelToken();
     _cancelToken = cancelToken;
+    StreamTextBuffer? requestBuffer;
     try {
       final summaryUpdated = variantAt == null
           ? await _updateRollingSummary(endpoint, generationId, cancelToken)
@@ -287,6 +315,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
       final chatSettings = await widget.storage.loadSettings();
       final userProfile = chatSettings.userProfile;
+      final contextMessages = variantAt == null
+          ? List<ChatMessage>.of(_messages)
+          : _messages.take(variantAt).toList();
       final memories = widget.storage.usesSessionStorage
           ? await widget.storage.loadCharacterMemories(_character.id)
           : const <CharacterMemoryEntry>[];
@@ -298,11 +329,17 @@ class _ChatScreenState extends State<ChatScreen> {
           _character = refreshedCharacter;
         }
       }
-      final worldBooks = widget.storage.usesSessionStorage
+      final allWorldBooks = widget.storage.usesSessionStorage
           ? await widget.storage.loadWorldBooks()
           : const <WorldBook>[];
+      final referencedIds = _character.worldBookIds.toSet();
+      final worldBooks = allWorldBooks
+          .where((worldBook) => referencedIds.contains(worldBook.id))
+          .toList();
       final worldBookEntries = <WorldBookEntry>[];
-      for (final worldBook in worldBooks) {
+      for (final worldBook in worldBooks.where(
+        (worldBook) => worldBook.enabled,
+      )) {
         worldBookEntries.addAll(
           await widget.storage.loadWorldBookEntries(worldBook.id),
         );
@@ -312,7 +349,7 @@ class _ChatScreenState extends State<ChatScreen> {
         entries: memories,
         characterId: _character.id,
         sessionId: sessionId,
-        messages: _messages,
+        messages: contextMessages,
         maxCharacters: chatSettings.memoryContextMaxCharacters,
         worldBooks: worldBooks,
         worldBookEntries: worldBookEntries,
@@ -321,9 +358,7 @@ class _ChatScreenState extends State<ChatScreen> {
       final requestMessages = _buildChatRequestMessages(
         userProfile,
         memoryPrompt: context.memoryPrompt,
-        messages: variantAt == null
-            ? _messages
-            : _messages.take(variantAt).toList(),
+        messages: contextMessages,
       );
       final streamResponses = widget.settings.streamResponses;
       final assistantMessage = ChatMessage(
@@ -341,7 +376,7 @@ class _ChatScreenState extends State<ChatScreen> {
       }
 
       var reply = '';
-      final streamBuffer = StreamTextBuffer(
+      requestBuffer = StreamTextBuffer(
         onFlush: (delta) {
           reply += delta;
           if (!streamResponses ||
@@ -357,7 +392,7 @@ class _ChatScreenState extends State<ChatScreen> {
           }
         },
       );
-      _streamBuffer = streamBuffer;
+      _streamBuffer = requestBuffer;
       await for (final chunk in widget.aiService.streamMessage(
         apiKey: endpoint.apiKey,
         baseUrl: endpoint.baseUrl,
@@ -378,9 +413,9 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       )) {
         if (!_isCurrentGeneration(generationId, sessionId)) return;
-        streamBuffer.add(chunk);
+        requestBuffer.add(chunk);
       }
-      streamBuffer.flush();
+      requestBuffer.flush();
       if (reply.trim().isEmpty) {
         throw AiException('API 没有返回可用回复。');
       }
@@ -418,14 +453,16 @@ class _ChatScreenState extends State<ChatScreen> {
       });
       context.showSnack(error.toString());
     } finally {
-      final streamBuffer = _streamBuffer;
-      if (streamBuffer != null) {
-        streamBuffer.flush();
-        streamBuffer.dispose();
-        if (identical(_streamBuffer, streamBuffer)) _streamBuffer = null;
+      final ownedBuffer = requestBuffer;
+      if (ownedBuffer != null) {
+        ownedBuffer.flush();
+        ownedBuffer.dispose();
+        if (identical(_streamBuffer, ownedBuffer)) _streamBuffer = null;
       }
       if (identical(_cancelToken, cancelToken)) _cancelToken = null;
-      if (mounted && _variantGenerationIndex == variantAt) {
+      if (mounted &&
+          generationId == _generationId &&
+          _variantGenerationIndex == variantAt) {
         setState(() => _variantGenerationIndex = null);
       }
     }
@@ -451,6 +488,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _openSessionList() async {
+    final beforeId = _session?.id;
     final selected = await Navigator.of(context).push<ChatSession>(
       MaterialPageRoute(
         builder: (_) => ChatSessionListScreen(
@@ -460,10 +498,26 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       ),
     );
-    if (selected == null || !mounted || selected.id == _session?.id) return;
-    _stopGeneration();
-    _session = selected;
-    await _load();
+    if (!mounted) return;
+
+    final sessions = await widget.storage.loadChatSessions(_character.id);
+    ChatSession? target;
+    if (selected != null) {
+      target = sessions
+          .where((session) => session.id == selected.id)
+          .firstOrNull;
+    }
+    target ??= sessions.where((session) => session.id == beforeId).firstOrNull;
+    target ??= await widget.storage.getOrCreateRecentChatSession(_character.id);
+    if (!mounted) return;
+
+    if (target.id != beforeId) {
+      _cancelActiveGeneration(showMessage: false);
+      _session = target;
+      await _load();
+      return;
+    }
+    setState(() => _session = target);
   }
 
   Future<void> _openMemoryManager() async {
@@ -620,7 +674,9 @@ class _ChatScreenState extends State<ChatScreen> {
     await _requestAssistantReply(endpoint);
   }
 
-  void _stopGeneration() {
+  void _stopGeneration() => _cancelActiveGeneration();
+
+  void _cancelActiveGeneration({bool showMessage = true}) {
     if (!_isSending) return;
     _streamBuffer?.flush();
     _cancelToken?.cancel();
@@ -632,7 +688,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _isSending = false;
     });
     unawaited(_saveCurrentChat());
-    context.showSnack('已停止生成');
+    if (showMessage) context.showSnack('已停止生成');
   }
 
   Future<void> _summarize() async {
@@ -1236,9 +1292,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final confirmed = await showConfirmDialog(
       context: context,
       title: context.t(deletingVariant ? '删除候选回复' : '删除消息'),
-      content: context.t(
-        deletingVariant ? '确定删除当前候选回复吗？' : '确定删除这条消息吗？',
-      ),
+      content: context.t(deletingVariant ? '确定删除当前候选回复吗？' : '确定删除这条消息吗？'),
       confirmLabel: '删除',
     );
     if (!confirmed) return;

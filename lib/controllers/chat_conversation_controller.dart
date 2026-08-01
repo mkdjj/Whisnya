@@ -165,7 +165,9 @@ final class ChatConversationController {
       if (summaryInvalidated) {
         _summary = ChatSummary.empty(_summary.characterId, _summary.sessionId);
       }
-      final nextSelectedIndex = selectedIndex.clamp(0, variants.length - 1);
+      final nextSelectedIndex = selectedIndex
+          .clamp(0, variants.length - 1)
+          .toInt();
       _replaceAt(
         index,
         message.copyWith(

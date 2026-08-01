@@ -36,8 +36,10 @@ class MemoryManagerScreen extends StatefulWidget {
   State<MemoryManagerScreen> createState() => _MemoryManagerScreenState();
 }
 
-class _MemoryManagerScreenState extends State<MemoryManagerScreen> {
+class _MemoryManagerScreenState extends State<MemoryManagerScreen>
+    with SingleTickerProviderStateMixin {
   late AppCharacter _character;
+  late final TabController _tabController;
   var _entries = <CharacterMemoryEntry>[];
   var _messages = <ChatMessage>[];
   var _worldBooks = <WorldBook>[];
@@ -51,7 +53,23 @@ class _MemoryManagerScreenState extends State<MemoryManagerScreen> {
   void initState() {
     super.initState();
     _character = widget.character;
+    _tabController = TabController(length: 3, vsync: this)
+      ..addListener(_handleTabChanged);
     unawaited(_load());
+  }
+
+  void _handleTabChanged() {
+    final index = _tabController.index;
+    if (!mounted || index == _tabIndex) return;
+    setState(() => _tabIndex = index);
+  }
+
+  @override
+  void dispose() {
+    _tabController
+      ..removeListener(_handleTabChanged)
+      ..dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -60,9 +78,7 @@ class _MemoryManagerScreenState extends State<MemoryManagerScreen> {
       _error = null;
     });
     try {
-      final entries = await widget.storage.loadCharacterMemories(
-        _character.id,
-      );
+      final entries = await widget.storage.loadCharacterMemories(_character.id);
       final refreshedCharacter = (await widget.storage.loadCharacters())
           .where((character) => character.id == _character.id)
           .firstOrNull;
@@ -151,29 +167,31 @@ class _MemoryManagerScreenState extends State<MemoryManagerScreen> {
       final config = await widget.storage.loadApiConfig();
       final endpoint = config.effectiveEndpoint(widget.selectedEndpointId);
       if (endpoint == null) throw StateError('请先添加完整 API 配置。');
-      final candidates = await MemoryExtractionService(widget.aiService).extract(
-        characterId: _character.id,
-        sessionId: widget.session.id,
-        messages: _messages,
-        endpoint: endpoint,
-        onUsage: (usage, request) => widget.storage.recordAiUsage(
-          requestType: 'characterMemoryExtraction',
-          model: endpoint.model,
-          usage: usage,
-          messages: request,
-          summaryUpdated: false,
-        ),
-      );
+      final candidates = await MemoryExtractionService(widget.aiService)
+          .extract(
+            characterId: _character.id,
+            sessionId: widget.session.id,
+            messages: _messages,
+            endpoint: endpoint,
+            onUsage: (usage, request) => widget.storage.recordAiUsage(
+              requestType: 'characterMemoryExtraction',
+              model: endpoint.model,
+              usage: usage,
+              messages: request,
+              summaryUpdated: false,
+            ),
+          );
       if (!mounted) return;
-      final selected = await Navigator.of(context).push<List<CharacterMemoryEntry>>(
-        MaterialPageRoute(
-          builder: (_) => _MemoryReviewScreen(
-            character: _character,
-            session: widget.session,
-            entries: candidates,
-          ),
-        ),
-      );
+      final selected = await Navigator.of(context)
+          .push<List<CharacterMemoryEntry>>(
+            MaterialPageRoute(
+              builder: (_) => _MemoryReviewScreen(
+                character: _character,
+                session: widget.session,
+                entries: candidates,
+              ),
+            ),
+          );
       if (selected == null || selected.isEmpty) return;
       for (final entry in selected) {
         await widget.storage.saveCharacterMemory(entry);
@@ -245,7 +263,8 @@ class _MemoryManagerScreenState extends State<MemoryManagerScreen> {
   Future<void> _openWorldBook(WorldBook book) async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
-        builder: (_) => WorldBookEntriesScreen(storage: widget.storage, book: book),
+        builder: (_) =>
+            WorldBookEntriesScreen(storage: widget.storage, book: book),
       ),
     );
     await _load();
@@ -283,24 +302,24 @@ class _MemoryManagerScreenState extends State<MemoryManagerScreen> {
     );
   }
 
-  List<CharacterMemoryEntry> _memoryItems(MemoryScope scope) => _entries
-      .where(
-        (entry) =>
-            entry.scope == scope &&
-            (scope != MemoryScope.session || entry.sessionId == widget.session.id) &&
-            entry.keywords.isEmpty,
-      )
-      .toList()
-    ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+  List<CharacterMemoryEntry> _memoryItems(MemoryScope scope) =>
+      _entries
+          .where(
+            (entry) =>
+                entry.scope == scope &&
+                (scope != MemoryScope.session ||
+                    entry.sessionId == widget.session.id) &&
+                entry.keywords.isEmpty,
+          )
+          .toList()
+        ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
 
   Widget _memoryTab(MemoryScope scope) {
     final items = _memoryItems(scope);
     final emptyText = scope == MemoryScope.character
         ? '当前角色还没有长期记忆'
         : '当前对话还没有记忆';
-    final addText = scope == MemoryScope.character
-        ? '添加长期记忆'
-        : '添加当前对话记忆';
+    final addText = scope == MemoryScope.character ? '添加长期记忆' : '添加当前对话记忆';
     return Column(
       children: [
         if (scope == MemoryScope.session)
@@ -313,7 +332,11 @@ class _MemoryManagerScreenState extends State<MemoryManagerScreen> {
           ),
         Expanded(
           child: items.isEmpty
-              ? _emptyAction(emptyText, addText, () => _editMemory(fixedScope: scope))
+              ? _emptyAction(
+                  emptyText,
+                  addText,
+                  () => _editMemory(fixedScope: scope),
+                )
               : ListView.builder(
                   padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
                   itemCount: items.length,
@@ -333,7 +356,9 @@ class _MemoryManagerScreenState extends State<MemoryManagerScreen> {
         overflow: TextOverflow.ellipsis,
       ),
       isThreeLine: true,
-      leading: Icon(entry.enabled ? Icons.check_circle_outline : Icons.pause_circle_outline),
+      leading: Icon(
+        entry.enabled ? Icons.check_circle_outline : Icons.pause_circle_outline,
+      ),
       onTap: () => _editMemory(entry: entry, fixedScope: entry.scope),
       trailing: PopupMenuButton<_MemoryAction>(
         onSelected: (action) {
@@ -349,7 +374,10 @@ class _MemoryManagerScreenState extends State<MemoryManagerScreen> {
             value: _MemoryAction.toggle,
             child: Text(context.t(entry.enabled ? '禁用记忆' : '启用记忆')),
           ),
-          PopupMenuItem(value: _MemoryAction.delete, child: Text(context.t('删除'))),
+          PopupMenuItem(
+            value: _MemoryAction.delete,
+            child: Text(context.t('删除')),
+          ),
         ],
       ),
     ),
@@ -357,11 +385,7 @@ class _MemoryManagerScreenState extends State<MemoryManagerScreen> {
 
   Widget _worldBookTab() {
     if (_worldBooks.isEmpty) {
-      return _emptyAction(
-        '当前角色还没有引用世界书',
-        '添加世界书',
-        _addWorldBook,
-      );
+      return _emptyAction('当前角色还没有引用世界书', '添加世界书', _addWorldBook);
     }
     return ListView(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
@@ -369,7 +393,9 @@ class _MemoryManagerScreenState extends State<MemoryManagerScreen> {
         for (final book in _worldBooks)
           Card(
             child: ListTile(
-              leading: Icon(book.enabled ? Icons.menu_book : Icons.menu_book_outlined),
+              leading: Icon(
+                book.enabled ? Icons.menu_book : Icons.menu_book_outlined,
+              ),
               title: Text(book.name),
               subtitle: Text(
                 '${book.description}\n${_entryCounts[book.id]?.enabled ?? 0}/${_entryCounts[book.id]?.total ?? 0} ${context.t('有效词条')}',
@@ -386,18 +412,37 @@ class _MemoryManagerScreenState extends State<MemoryManagerScreen> {
                     case _WorldBookMenuAction.edit:
                       unawaited(_editWorldBook(book));
                     case _WorldBookMenuAction.toggle:
-                      unawaited(widget.storage.saveWorldBook(
-                        book.copyWith(enabled: !book.enabled, updatedAt: DateTime.now()),
-                      ).then((_) => _load()));
+                      unawaited(
+                        widget.storage
+                            .saveWorldBook(
+                              book.copyWith(
+                                enabled: !book.enabled,
+                                updatedAt: DateTime.now(),
+                              ),
+                            )
+                            .then((_) => _load()),
+                      );
                     case _WorldBookMenuAction.delete:
                       unawaited(_deleteWorldBook(book));
                   }
                 },
                 itemBuilder: (context) => [
-                  PopupMenuItem(value: _WorldBookMenuAction.remove, child: Text(context.t('取消引用'))),
-                  PopupMenuItem(value: _WorldBookMenuAction.edit, child: Text(context.t('编辑世界书'))),
-                  PopupMenuItem(value: _WorldBookMenuAction.toggle, child: Text(context.t(book.enabled ? '禁用世界书' : '启用世界书'))),
-                  PopupMenuItem(value: _WorldBookMenuAction.delete, child: Text(context.t('删除'))),
+                  PopupMenuItem(
+                    value: _WorldBookMenuAction.remove,
+                    child: Text(context.t('取消引用')),
+                  ),
+                  PopupMenuItem(
+                    value: _WorldBookMenuAction.edit,
+                    child: Text(context.t('编辑世界书')),
+                  ),
+                  PopupMenuItem(
+                    value: _WorldBookMenuAction.toggle,
+                    child: Text(context.t(book.enabled ? '禁用世界书' : '启用世界书')),
+                  ),
+                  PopupMenuItem(
+                    value: _WorldBookMenuAction.delete,
+                    child: Text(context.t('删除')),
+                  ),
                 ],
               ),
             ),
@@ -406,89 +451,107 @@ class _MemoryManagerScreenState extends State<MemoryManagerScreen> {
     );
   }
 
-  Widget _emptyAction(String emptyText, String actionText, VoidCallback onPressed) =>
-      Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(emptyText),
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: onPressed,
-              icon: const Icon(Icons.add),
-              label: Text(context.t(actionText)),
-            ),
-          ],
+  Widget _emptyAction(
+    String emptyText,
+    String actionText,
+    VoidCallback onPressed,
+  ) => Center(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(emptyText),
+        const SizedBox(height: 12),
+        FilledButton.icon(
+          onPressed: onPressed,
+          icon: const Icon(Icons.add),
+          label: Text(context.t(actionText)),
         ),
-      );
+      ],
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
     final body = _loading
         ? const Center(child: CircularProgressIndicator())
         : _error != null
-        ? Center(child: FilledButton.icon(onPressed: _load, icon: const Icon(Icons.refresh), label: Text(context.t('重新加载'))))
+        ? Center(
+            child: FilledButton.icon(
+              onPressed: _load,
+              icon: const Icon(Icons.refresh),
+              label: Text(context.t('重新加载')),
+            ),
+          )
         : TabBarView(
+            controller: _tabController,
             children: [
               _memoryTab(MemoryScope.character),
               _memoryTab(MemoryScope.session),
               _worldBookTab(),
             ],
           );
-    return DefaultTabController(
-      length: 3,
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text(context.t('记忆与世界书')),
-          actions: [
-            IconButton(
-              tooltip: context.t('AI 提取记忆'),
-              onPressed: _extracting ? null : _extract,
-              icon: _extracting
-                  ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.auto_awesome_outlined),
-            ),
-          ],
-          bottom: TabBar(
-            onTap: (index) => setState(() => _tabIndex = index),
-            tabs: [
-              Tab(text: context.t('长期记忆')),
-              Tab(text: context.t('当前对话记忆')),
-              Tab(text: context.t('关键词世界书')),
-            ],
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(context.t('记忆与世界书')),
+        actions: [
+          IconButton(
+            tooltip: context.t('AI 提取记忆'),
+            onPressed: _extracting ? null : _extract,
+            icon: _extracting
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.auto_awesome_outlined),
           ),
+        ],
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: [
+            Tab(text: context.t('长期记忆')),
+            Tab(text: context.t('当前对话记忆')),
+            Tab(text: context.t('关键词世界书')),
+          ],
         ),
-        floatingActionButton: !_loading && _error == null
-            ? FloatingActionButton.extended(
-                onPressed: _tabIndex == 2
-                    ? _addWorldBook
-                    : () => _editMemory(
-                        fixedScope: _tabIndex == 0
-                            ? MemoryScope.character
-                            : MemoryScope.session,
-                      ),
-                icon: const Icon(Icons.add),
-                label: Text(
-                  context.t(_tabIndex == 2
+      ),
+      floatingActionButton: !_loading && _error == null
+          ? FloatingActionButton.extended(
+              onPressed: _tabIndex == 2
+                  ? _addWorldBook
+                  : () => _editMemory(
+                      fixedScope: _tabIndex == 0
+                          ? MemoryScope.character
+                          : MemoryScope.session,
+                    ),
+              icon: const Icon(Icons.add),
+              label: Text(
+                context.t(
+                  _tabIndex == 2
                       ? '添加世界书'
                       : _tabIndex == 0
                       ? '添加长期记忆'
-                      : '添加当前对话记忆'),
+                      : '添加当前对话记忆',
                 ),
-              )
-            : null,
-        body: body,
-      ),
+              ),
+            )
+          : null,
+      body: body,
     );
   }
 }
 
 enum _MemoryAction { toggle, delete }
+
 enum _WorldBookAction { reference, create }
+
 enum _WorldBookMenuAction { remove, edit, toggle, delete }
 
 class _MemoryReviewScreen extends StatefulWidget {
-  const _MemoryReviewScreen({required this.character, required this.session, required this.entries});
+  const _MemoryReviewScreen({
+    required this.character,
+    required this.session,
+    required this.entries,
+  });
 
   final AppCharacter character;
   final ChatSession session;
@@ -499,7 +562,10 @@ class _MemoryReviewScreen extends StatefulWidget {
 }
 
 class _MemoryReviewScreenState extends State<_MemoryReviewScreen> {
-  late final List<bool> _selected = List<bool>.filled(widget.entries.length, true);
+  late final List<bool> _selected = List<bool>.filled(
+    widget.entries.length,
+    true,
+  );
   late final List<CharacterMemoryEntry> _entries = List.of(widget.entries);
 
   @override
@@ -512,25 +578,31 @@ class _MemoryReviewScreenState extends State<_MemoryReviewScreen> {
         final entry = _entries[index];
         return CheckboxListTile(
           value: _selected[index],
-          onChanged: (value) => setState(() => _selected[index] = value ?? false),
+          onChanged: (value) =>
+              setState(() => _selected[index] = value ?? false),
           title: Text(entry.title),
-          subtitle: Text('${entry.content}\n${entry.scope.name} · ${entry.priority}'),
+          subtitle: Text(
+            '${entry.content}\n${entry.scope.name} · ${entry.priority}',
+          ),
           isThreeLine: true,
           secondary: IconButton(
             tooltip: context.t('编辑记忆'),
             icon: const Icon(Icons.edit_outlined),
             onPressed: () async {
-              final edited = await Navigator.of(context).push<CharacterMemoryEntry>(
-                MaterialPageRoute(
-                  builder: (_) => MemoryEditScreen(
-                    character: widget.character,
-                    session: widget.session,
-                    entry: entry,
-                    fixedScope: entry.scope,
-                  ),
-                ),
-              );
-              if (edited != null && mounted) setState(() => _entries[index] = edited);
+              final edited = await Navigator.of(context)
+                  .push<CharacterMemoryEntry>(
+                    MaterialPageRoute(
+                      builder: (_) => MemoryEditScreen(
+                        character: widget.character,
+                        session: widget.session,
+                        entry: entry,
+                        fixedScope: entry.scope,
+                      ),
+                    ),
+                  );
+              if (edited != null && mounted) {
+                setState(() => _entries[index] = edited);
+              }
             },
           ),
         );

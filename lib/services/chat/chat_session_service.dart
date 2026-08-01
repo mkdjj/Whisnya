@@ -74,19 +74,51 @@ class ChatSessionService {
     });
   }
 
+  Future<ChatSession> markOpeningMessageInitialized({
+    required String sessionId,
+    required String characterId,
+  }) async {
+    _requireSafeId(sessionId, 'sessionId');
+    _requireSafeId(characterId, 'characterId');
+    late ChatSession updated;
+    await _updateSessions((sessions) {
+      final index = sessions.indexWhere(
+        (session) =>
+            session.id == sessionId && session.characterId == characterId,
+      );
+      if (index < 0) throw StateError('对话不存在');
+      updated = sessions[index].copyWith(
+        openingMessageInitialized: true,
+        updatedAt: DateTime.now(),
+      );
+      sessions[index] = updated;
+      return sessions;
+    });
+    return updated;
+  }
+
   Future<ChatSession> duplicateChatSession(ChatSession source) async {
     _validateSession(source);
+    final sessions = await _readSessions();
+    final sourceIndex = sessions.indexWhere(
+      (session) =>
+          session.id == source.id && session.characterId == source.characterId,
+    );
+    if (sourceIndex < 0) throw StateError('对话不存在');
+    final latestSource = sessions[sourceIndex];
+    final messages = await loadChatBySession(latestSource);
     final now = DateTime.now();
     final copy = ChatSession(
       id: _newSessionId(),
-      characterId: source.characterId,
-      title: '${ChatSession.normalizedTitle(source.title)}（副本）',
+      characterId: latestSource.characterId,
+      title: '${ChatSession.normalizedTitle(latestSource.title)}（副本）',
       createdAt: now,
       updatedAt: now,
       lastUsedAt: now,
+      openingMessageInitialized:
+          latestSource.openingMessageInitialized || messages.isNotEmpty,
     );
-    final messages = await loadChatBySession(source);
-    final summary = await loadSummaryBySession(source);
+    final summary = await loadSummaryBySession(latestSource);
     await saveChatBySession(copy, messages, touchSession: false);
     await saveSummaryBySession(
       ChatSummary(
@@ -97,7 +129,11 @@ class ChatSessionService {
         summarizedMessageCount: summary.summarizedMessageCount,
       ),
     );
-    await duplicateSessionMemories(source.characterId, source.id, copy.id);
+    await duplicateSessionMemories(
+      latestSource.characterId,
+      latestSource.id,
+      copy.id,
+    );
     await saveChatSession(copy);
     return copy;
   }
@@ -204,9 +240,30 @@ class ChatSessionService {
       'messages': messages.map((message) => message.toJson()).toList(),
     }, compact: true);
     if (touchSession) {
-      final now = DateTime.now();
-      await saveChatSession(session.copyWith(updatedAt: now, lastUsedAt: now));
+      await _touchChatSession(
+        sessionId: session.id,
+        characterId: session.characterId,
+      );
     }
+  }
+
+  Future<void> _touchChatSession({
+    required String sessionId,
+    required String characterId,
+  }) async {
+    await _updateSessions((sessions) {
+      final index = sessions.indexWhere(
+        (session) =>
+            session.id == sessionId && session.characterId == characterId,
+      );
+      if (index < 0) throw StateError('对话不存在');
+      final now = DateTime.now();
+      sessions[index] = sessions[index].copyWith(
+        updatedAt: now,
+        lastUsedAt: now,
+      );
+      return sessions;
+    });
   }
 
   Future<ChatSummary> loadSummaryBySession(ChatSession session) async {
@@ -250,6 +307,19 @@ class ChatSessionService {
 
   Future<List<WorldBook>> loadWorldBooks() async {
     final decoded = await _store.read(_paths.worldBooks, <dynamic>[]);
+    return _parseWorldBooks(decoded);
+  }
+
+  Future<List<WorldBook>> _readWorldBooksNow() async {
+    final file = _paths.worldBooks;
+    if (await _store.recoveryNeeded(file)) {
+      await _store.recover(file);
+    }
+    if (!await file.exists()) return <WorldBook>[];
+    return _parseWorldBooks(jsonDecode(await file.readAsString()));
+  }
+
+  List<WorldBook> _parseWorldBooks(dynamic decoded) {
     if (decoded is! List) {
       throw const FormatException('Invalid world books file');
     }
@@ -271,10 +341,14 @@ class ChatSessionService {
     _requireSafeId(worldBook.id, 'worldBook.id');
     final normalized = worldBook.copyWith(name: worldBook.name);
     if (normalized.name.isEmpty) {
-      throw ArgumentError.value(worldBook.name, 'worldBook.name', 'must not be empty');
+      throw ArgumentError.value(
+        worldBook.name,
+        'worldBook.name',
+        'must not be empty',
+      );
     }
     await _store.synchronized(_paths.worldBooks, () async {
-      final books = await loadWorldBooks();
+      final books = await _readWorldBooksNow();
       final index = books.indexWhere((book) => book.id == normalized.id);
       if (index < 0) {
         books.add(normalized);
@@ -290,15 +364,18 @@ class ChatSessionService {
 
   Future<void> deleteWorldBook(String worldBookId) async {
     _requireSafeId(worldBookId, 'worldBookId');
+    final entriesFile = _paths.worldBookEntries(worldBookId);
     await _store.synchronized(_paths.worldBooks, () async {
-      final books = await loadWorldBooks()
-        ..removeWhere((book) => book.id == worldBookId);
-      await _store.writeNow(
-        _paths.worldBooks,
-        books.map((book) => book.toJson()).toList(),
-      );
+      await _store.synchronized(entriesFile, () async {
+        final books = await _readWorldBooksNow()
+          ..removeWhere((book) => book.id == worldBookId);
+        await _store.writeNow(
+          _paths.worldBooks,
+          books.map((book) => book.toJson()).toList(),
+        );
+        await _deleteIfExists(entriesFile);
+      });
     });
-    await _deleteIfExists(_paths.worldBookEntries(worldBookId));
   }
 
   Future<List<WorldBookEntry>> loadWorldBookEntries(String worldBookId) async {
@@ -307,6 +384,28 @@ class ChatSessionService {
       _paths.worldBookEntries(worldBookId),
       <dynamic>[],
     );
+    return _parseWorldBookEntries(decoded, worldBookId);
+  }
+
+  Future<List<WorldBookEntry>> _readWorldBookEntriesNow(
+    String worldBookId,
+  ) async {
+    _requireSafeId(worldBookId, 'worldBookId');
+    final file = _paths.worldBookEntries(worldBookId);
+    if (await _store.recoveryNeeded(file)) {
+      await _store.recover(file);
+    }
+    if (!await file.exists()) return <WorldBookEntry>[];
+    return _parseWorldBookEntries(
+      jsonDecode(await file.readAsString()),
+      worldBookId,
+    );
+  }
+
+  List<WorldBookEntry> _parseWorldBookEntries(
+    dynamic decoded,
+    String worldBookId,
+  ) {
     if (decoded is! List) {
       throw const FormatException('Invalid world book entries file');
     }
@@ -330,18 +429,24 @@ class ChatSessionService {
     _requireSafeId(entry.worldBookId, 'entry.worldBookId');
     _requireSafeId(entry.id, 'entry.id');
     final file = _paths.worldBookEntries(entry.worldBookId);
-    await _store.synchronized(file, () async {
-      final entries = await loadWorldBookEntries(entry.worldBookId);
-      final index = entries.indexWhere((item) => item.id == entry.id);
-      if (index < 0) {
-        entries.add(entry);
-      } else {
-        entries[index] = entry;
+    await _store.synchronized(_paths.worldBooks, () async {
+      final books = await _readWorldBooksNow();
+      if (!books.any((book) => book.id == entry.worldBookId)) {
+        throw StateError('世界书不存在');
       }
-      await _store.writeNow(
-        file,
-        entries.map((item) => item.toJson()).toList(),
-      );
+      await _store.synchronized(file, () async {
+        final entries = await _readWorldBookEntriesNow(entry.worldBookId);
+        final index = entries.indexWhere((item) => item.id == entry.id);
+        if (index < 0) {
+          entries.add(entry);
+        } else {
+          entries[index] = entry;
+        }
+        await _store.writeNow(
+          file,
+          entries.map((item) => item.toJson()).toList(),
+        );
+      });
     });
   }
 
@@ -350,7 +455,7 @@ class ChatSessionService {
     _requireSafeId(entryId, 'entryId');
     final file = _paths.worldBookEntries(worldBookId);
     await _store.synchronized(file, () async {
-      final entries = await loadWorldBookEntries(worldBookId)
+      final entries = await _readWorldBookEntriesNow(worldBookId)
         ..removeWhere((entry) => entry.id == entryId);
       await _store.writeNow(
         file,
@@ -463,6 +568,12 @@ class ChatSessionService {
       final hasLegacyChat = await legacyChat.exists();
       final hasLegacySummary = await legacySummary.exists();
       final now = DateTime.now();
+      final chatJson = hasLegacyChat
+          ? await _readObject(legacyChat)
+          : <String, dynamic>{'messages': <dynamic>[]};
+      final legacyMessages = chatJson['messages'] is List
+          ? chatJson['messages'] as List
+          : <dynamic>[];
       final session = ChatSession(
         id: hasLegacyChat || hasLegacySummary
             ? 'legacy_session_${_safeLegacyId(characterId)}'
@@ -472,20 +583,16 @@ class ChatSessionService {
         createdAt: now,
         updatedAt: now,
         lastUsedAt: now,
+        openingMessageInitialized: legacyMessages.isNotEmpty,
       );
 
-      final chatJson = hasLegacyChat
-          ? await _readObject(legacyChat)
-          : <String, dynamic>{'messages': <dynamic>[]};
       final summaryJson = hasLegacySummary
           ? await _readObject(legacySummary)
           : ChatSummary.empty(characterId, session.id).toJson();
       await _store.write(_paths.chatBySession(session.id), {
         'sessionId': session.id,
         'characterId': characterId,
-        'messages': chatJson['messages'] is List
-            ? chatJson['messages']
-            : <dynamic>[],
+        'messages': legacyMessages,
       }, compact: true);
       final migratedSummary = ChatSummary.fromJson(summaryJson);
       await _store.write(_paths.summaryBySession(session.id), {

@@ -180,10 +180,7 @@ class _WorldBookEntryEditScreenState extends State<WorldBookEntryEditScreen> {
     body: ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Text(
-          widget.book.name,
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
+        Text(widget.book.name, style: Theme.of(context).textTheme.titleMedium),
         TextField(
           controller: _title,
           maxLength: 80,
@@ -234,7 +231,11 @@ class _WorldBookEntryEditScreenState extends State<WorldBookEntryEditScreen> {
 }
 
 class WorldBookEntriesScreen extends StatefulWidget {
-  const WorldBookEntriesScreen({required this.storage, required this.book, super.key});
+  const WorldBookEntriesScreen({
+    required this.storage,
+    required this.book,
+    super.key,
+  });
 
   final LocalStorageService storage;
   final WorldBook book;
@@ -256,16 +257,25 @@ class _WorldBookEntriesScreenState extends State<WorldBookEntriesScreen> {
   Future<void> _load() async {
     try {
       final entries = await widget.storage.loadWorldBookEntries(widget.book.id);
-      if (mounted) setState(() { _entries = entries; _loading = false; });
+      if (mounted) {
+        setState(() {
+          _entries = entries;
+          _loading = false;
+        });
+      }
     } catch (error) {
-      if (mounted) { setState(() => _loading = false); context.showSnack(error.toString()); }
+      if (mounted) {
+        setState(() => _loading = false);
+        context.showSnack(error.toString());
+      }
     }
   }
 
   Future<void> _edit([WorldBookEntry? entry]) async {
     final result = await Navigator.of(context).push<WorldBookEntry>(
       MaterialPageRoute(
-        builder: (_) => WorldBookEntryEditScreen(book: widget.book, entry: entry),
+        builder: (_) =>
+            WorldBookEntryEditScreen(book: widget.book, entry: entry),
       ),
     );
     if (result == null) return;
@@ -319,7 +329,9 @@ class _WorldBookEntriesScreenState extends State<WorldBookEntriesScreen> {
                   ),
                   isThreeLine: true,
                   leading: Icon(
-                    entry.enabled ? Icons.check_circle_outline : Icons.pause_circle_outline,
+                    entry.enabled
+                        ? Icons.check_circle_outline
+                        : Icons.pause_circle_outline,
                   ),
                   onTap: () => _edit(entry),
                   trailing: PopupMenuButton<_EntryAction>(
@@ -334,9 +346,14 @@ class _WorldBookEntriesScreenState extends State<WorldBookEntriesScreen> {
                     itemBuilder: (context) => [
                       PopupMenuItem(
                         value: _EntryAction.toggle,
-                        child: Text(context.t(entry.enabled ? '禁用世界书词条' : '启用世界书词条')),
+                        child: Text(
+                          context.t(entry.enabled ? '禁用世界书词条' : '启用世界书词条'),
+                        ),
                       ),
-                      PopupMenuItem(value: _EntryAction.delete, child: Text(context.t('删除'))),
+                      PopupMenuItem(
+                        value: _EntryAction.delete,
+                        child: Text(context.t('删除')),
+                      ),
                     ],
                   ),
                 ),
@@ -349,7 +366,11 @@ class _WorldBookEntriesScreenState extends State<WorldBookEntriesScreen> {
 enum _EntryAction { toggle, delete }
 
 class WorldBookPickerScreen extends StatefulWidget {
-  const WorldBookPickerScreen({required this.books, required this.selectedIds, super.key});
+  const WorldBookPickerScreen({
+    required this.books,
+    required this.selectedIds,
+    super.key,
+  });
 
   final List<WorldBook> books;
   final List<String> selectedIds;
@@ -384,7 +405,9 @@ class _WorldBookPickerScreenState extends State<WorldBookPickerScreen> {
                 title: Text(book.name),
                 subtitle: Text(book.description),
                 onChanged: (value) => setState(() {
-                  value == true ? _selected.add(book.id) : _selected.remove(book.id);
+                  value == true
+                      ? _selected.add(book.id)
+                      : _selected.remove(book.id);
                 }),
               );
             },

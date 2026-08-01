@@ -50,7 +50,51 @@ void main() {
     expect(controller.summary.summary, isEmpty);
     expect(controller.messages.single.content, '回答');
   });
-  test('deletes only the selected assistant variant while alternatives remain', () {
+  test(
+    'deletes only the selected assistant variant while alternatives remain',
+    () {
+      final controller = ChatConversationController(characterId: 'character');
+      controller.append(
+        ChatMessage(
+          role: 'assistant',
+          content: 'first',
+          time: DateTime(2026),
+          variants: [
+            ChatReplyVariant(content: 'first', time: DateTime(2026)),
+            ChatReplyVariant(content: 'second', time: DateTime(2026, 2)),
+            ChatReplyVariant(content: 'third', time: DateTime(2026, 3)),
+          ],
+          selectedVariantIndex: 1,
+        ),
+      );
+
+      expect(controller.deleteAt(0), ChatMessageDeletion.removed);
+      expect(controller.messages, hasLength(1));
+      expect(controller.messages.single.variantCount, 2);
+      expect(
+        controller.messages.single.variants.map((variant) => variant.content),
+        ['first', 'third'],
+      );
+      expect(controller.messages.single.effectiveContent, 'third');
+    },
+  );
+
+  test('deleting the last assistant variant removes the message', () {
+    final controller = ChatConversationController(characterId: 'character');
+    controller.append(
+      ChatMessage(
+        role: 'assistant',
+        content: 'reply',
+        time: DateTime(2026),
+        variants: [ChatReplyVariant(content: 'reply', time: DateTime(2026))],
+      ),
+    );
+
+    expect(controller.deleteAt(0), ChatMessageDeletion.removed);
+    expect(controller.messages, isEmpty);
+  });
+
+  test('deleting the selected last variant keeps an integer valid index', () {
     final controller = ChatConversationController(characterId: 'character');
     controller.append(
       ChatMessage(
@@ -62,64 +106,48 @@ void main() {
           ChatReplyVariant(content: 'second', time: DateTime(2026, 2)),
           ChatReplyVariant(content: 'third', time: DateTime(2026, 3)),
         ],
-        selectedVariantIndex: 1,
+        selectedVariantIndex: 2,
       ),
     );
 
     expect(controller.deleteAt(0), ChatMessageDeletion.removed);
-    expect(controller.messages, hasLength(1));
-    expect(controller.messages.single.variantCount, 2);
-    expect(
-      controller.messages.single.variants.map((variant) => variant.content),
-      ['first', 'third'],
-    );
-    expect(controller.messages.single.effectiveContent, 'third');
+
+    final selectedIndex = controller.messages.single.selectedVariantIndex;
+    expect(selectedIndex, isA<int>());
+    expect(selectedIndex, 1);
+    expect(controller.messages.single.effectiveContent, 'second');
   });
 
-  test('deleting the last assistant variant removes the message', () {
-    final controller = ChatConversationController(characterId: 'character');
-    controller.append(
-      ChatMessage(
-        role: 'assistant',
-        content: 'reply',
-        time: DateTime(2026),
-        variants: [
-          ChatReplyVariant(content: 'reply', time: DateTime(2026)),
+  test(
+    'deleting a summarized variant clears the summary but keeps alternatives',
+    () {
+      final controller = ChatConversationController(characterId: 'character');
+      controller.load(
+        messages: [
+          ChatMessage(
+            role: 'assistant',
+            content: 'first',
+            time: DateTime(2026),
+            variants: [
+              ChatReplyVariant(content: 'first', time: DateTime(2026)),
+              ChatReplyVariant(content: 'second', time: DateTime(2026, 2)),
+            ],
+          ),
         ],
-      ),
-    );
-
-    expect(controller.deleteAt(0), ChatMessageDeletion.removed);
-    expect(controller.messages, isEmpty);
-  });
-
-  test('deleting a summarized variant clears the summary but keeps alternatives', () {
-    final controller = ChatConversationController(characterId: 'character');
-    controller.load(
-      messages: [
-        ChatMessage(
-          role: 'assistant',
-          content: 'first',
-          time: DateTime(2026),
-          variants: [
-            ChatReplyVariant(content: 'first', time: DateTime(2026)),
-            ChatReplyVariant(content: 'second', time: DateTime(2026, 2)),
-          ],
+        summary: ChatSummary(
+          characterId: 'character',
+          sessionId: 'session',
+          summary: 'summary',
+          updatedAt: DateTime(2026),
+          summarizedMessageCount: 1,
         ),
-      ],
-      summary: ChatSummary(
-        characterId: 'character',
-        sessionId: 'session',
-        summary: 'summary',
-        updatedAt: DateTime(2026),
-        summarizedMessageCount: 1,
-      ),
-    );
+      );
 
-    expect(controller.deleteAt(0), ChatMessageDeletion.summaryInvalidated);
-    expect(controller.summary.summary, isEmpty);
-    expect(controller.messages.single.variantCount, 1);
-  });
+      expect(controller.deleteAt(0), ChatMessageDeletion.summaryInvalidated);
+      expect(controller.summary.summary, isEmpty);
+      expect(controller.messages.single.variantCount, 1);
+    },
+  );
 
   test('adds a variant by preserving a legacy assistant reply first', () {
     final controller = ChatConversationController(characterId: 'character');

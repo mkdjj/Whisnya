@@ -22,6 +22,35 @@ void main() {
     );
   });
 
+  test('chat session opening message state is backward compatible', () {
+    final legacy = ChatSession.fromJson({
+      'id': 's1',
+      'characterId': 'c1',
+      'title': 'Legacy',
+      'createdAt': '2026-01-01T00:00:00.000',
+      'updatedAt': '2026-01-01T00:00:00.000',
+      'lastUsedAt': '2026-01-01T00:00:00.000',
+    });
+    final initialized = ChatSession.fromJson({
+      ...legacy.toJson(),
+      'openingMessageInitialized': true,
+    });
+    final malformed = ChatSession.fromJson({
+      ...legacy.toJson(),
+      'openingMessageInitialized': 'yes',
+    });
+
+    expect(legacy.toJson()['openingMessageInitialized'], isFalse);
+    expect(initialized.toJson()['openingMessageInitialized'], isTrue);
+    expect(malformed.openingMessageInitialized, isFalse);
+    expect(
+      initialized
+          .copyWith(openingMessageInitialized: false)
+          .openingMessageInitialized,
+      isFalse,
+    );
+  });
+
   test('chat session sorting keeps active and recent sessions first', () {
     final old = DateTime(2026, 1, 1);
     final recent = DateTime(2026, 1, 2);
