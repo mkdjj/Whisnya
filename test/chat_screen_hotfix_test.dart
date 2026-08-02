@@ -301,7 +301,7 @@ void main() {
     expect(storage.chats['session']!.last.effectiveContent, '新回复');
   });
 
-  testWidgets('session management waits for partial reply persistence', (
+  testWidgets('session management does not force partial reply persistence', (
     tester,
   ) async {
     final character = _character();
@@ -319,15 +319,14 @@ void main() {
     gateway.controllers.single.add('已输出的部分');
     await tester.pump(const Duration(milliseconds: 50));
     await tester.tap(find.byTooltip('对话管理'));
-    await tester.tap(find.byTooltip('对话管理'));
-    await tester.pump();
-
-    expect(find.byType(ChatSessionListScreen), findsNothing);
-    storage.safeSaveGate!.complete();
     await tester.pumpAndSettle();
 
     expect(find.byType(ChatSessionListScreen), findsOneWidget);
-    expect(storage.chats['session']!.last.content, '已输出的部分');
+    expect(storage.chats['session']!.last.content, '长回复');
+    Navigator.of(tester.element(find.byType(ChatSessionListScreen))).pop();
+    await tester.pumpAndSettle();
+    expect(find.textContaining('已输出的部分'), findsOneWidget);
+    expect(find.byIcon(Icons.stop), findsOneWidget);
   });
 
   testWidgets('management waits for a save already started by Stop', (
@@ -393,7 +392,7 @@ void main() {
   });
 
   testWidgets(
-    'partial reply save failure is shown and management still opens',
+    'partial reply save failure after Stop is shown and management still opens',
     (tester) async {
       final character = _character();
       final storage = _SessionStorage(
@@ -409,16 +408,24 @@ void main() {
       await _pumpUntil(tester, () => gateway.callCount == 1);
       gateway.controllers.single.add('片段');
       await tester.pump(const Duration(milliseconds: 50));
+      tester
+          .widget<IconButton>(find.widgetWithIcon(IconButton, Icons.stop))
+          .onPressed!();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(storage.safeSaveCallCount, 1);
+      expect(find.byType(SnackBar), findsOneWidget);
+      final snackBar = tester.widget<SnackBar>(find.byType(SnackBar));
+      expect((snackBar.content as Text).data, contains('部分回复保存失败'));
       await tester.tap(find.byTooltip('对话管理'));
       await tester.pumpAndSettle();
 
       expect(find.byType(ChatSessionListScreen), findsOneWidget);
-      expect(find.textContaining('部分回复保存失败'), findsOneWidget);
       expect(find.byTooltip('新建对话'), findsWidgets);
     },
   );
 
-  testWidgets('generation disables conversation mutations but keeps stop', (
+  testWidgets('generation keeps non-destructive controls available', (
     tester,
   ) async {
     final character = _character();
@@ -441,7 +448,7 @@ void main() {
             find.widgetWithIcon(IconButton, Icons.settings_outlined),
           )
           .onPressed,
-      isNull,
+      isNotNull,
     );
     expect(
       tester
@@ -457,7 +464,7 @@ void main() {
             find.widgetWithIcon(IconButton, Icons.menu_book_outlined),
           )
           .onPressed,
-      isNull,
+      isNotNull,
     );
     expect(
       tester
@@ -467,17 +474,173 @@ void main() {
           .onPressed,
       isNull,
     );
-
-    await tester.tap(find.byIcon(Icons.stop));
-    await tester.pumpAndSettle();
     expect(
       tester
           .widget<IconButton>(
-            find.widgetWithIcon(IconButton, Icons.settings_outlined),
+            find.widgetWithIcon(IconButton, Icons.bookmark_add_outlined).first,
           )
           .onPressed,
       isNotNull,
     );
+
+    await tester.tap(find.byIcon(Icons.settings_outlined));
+    await tester.pumpAndSettle();
+    expect(find.byType(BottomSheet), findsOneWidget);
+    expect(find.byIcon(Icons.stop), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('chat-clear-history-setting')),
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(
+      tester
+          .widget<ListTile>(
+            find.byKey(const ValueKey('chat-clear-history-setting')),
+          )
+          .onTap,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<ListTile>(
+            find.byKey(const ValueKey('chat-export-history-setting')),
+          )
+          .onTap,
+      isNotNull,
+    );
+    Navigator.of(tester.element(find.byType(BottomSheet))).pop();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.menu_book_outlined));
+    await tester.pumpAndSettle();
+    expect(find.byType(MemoryManagerScreen), findsOneWidget);
+    Navigator.of(tester.element(find.byType(MemoryManagerScreen))).pop();
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.stop), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.forum_outlined));
+    await tester.pumpAndSettle();
+    expect(find.byType(ChatSessionListScreen), findsOneWidget);
+    gateway.controllers.single.add('still streaming');
+    await tester.pump(const Duration(milliseconds: 50));
+    Navigator.of(tester.element(find.byType(ChatSessionListScreen))).pop();
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('still streaming'), findsOneWidget);
+    expect(find.byIcon(Icons.stop), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.stop));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('sending keeps the keyboard and borderless input visible', (
+    tester,
+  ) async {
+    final character = _character();
+    final storage = _SessionStorage(
+      character: character,
+      sessions: [_session(openingMessageInitialized: true)],
+    );
+    final gateway = _ControlledGateway();
+    addTearDown(gateway.close);
+    await _pumpChat(tester, storage, character, gateway: gateway);
+
+    final input = find.byType(TextField).last;
+    await tester.tap(input);
+    await tester.enterText(input, 'next message');
+    expect(tester.testTextInput.isVisible, isTrue);
+    tester
+        .widget<IconButton>(find.widgetWithIcon(IconButton, Icons.send))
+        .onPressed!();
+    await _pumpUntil(tester, () => gateway.callCount == 1);
+
+    final field = tester.widget<TextField>(input);
+    expect(field.enabled, isTrue);
+    expect(field.focusNode, isNotNull);
+    expect(field.focusNode!.hasFocus, isTrue);
+    expect(tester.testTextInput.isVisible, isTrue);
+    expect(field.decoration?.border, InputBorder.none);
+    expect(field.decoration?.enabledBorder, InputBorder.none);
+    expect(field.decoration?.focusedBorder, InputBorder.none);
+    expect(field.decoration?.disabledBorder, InputBorder.none);
+
+    await tester.tap(find.byIcon(Icons.stop));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('session switching waits for generation without cancelling it', (
+    tester,
+  ) async {
+    final character = _character();
+    final sessionA = _session(
+      id: 'session_a',
+      title: 'Session A',
+      openingMessageInitialized: true,
+    );
+    final sessionB = _session(
+      id: 'session_b',
+      title: 'Session B',
+      openingMessageInitialized: true,
+    );
+    final storage = _SessionStorage(
+      character: character,
+      sessions: [sessionA, sessionB],
+    );
+    final gateway = _ControlledGateway();
+    addTearDown(gateway.close);
+    await _pumpChat(
+      tester,
+      storage,
+      character,
+      gateway: gateway,
+      session: sessionA,
+    );
+
+    await _send(tester, 'long reply');
+    await _pumpUntil(tester, () => gateway.callCount == 1);
+    await tester.tap(find.byIcon(Icons.forum_outlined));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Session B'));
+    await tester.pump();
+
+    expect(find.text('Session A'), findsWidgets);
+    expect(find.byIcon(Icons.stop), findsOneWidget);
+
+    gateway.controllers.single.add('completed in A');
+    await gateway.controllers.single.close();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Session B'), findsOneWidget);
+    expect(storage.chats['session_a']!.last.content, 'completed in A');
+  });
+
+  testWidgets('regenerate waits for the active reply without cancelling it', (
+    tester,
+  ) async {
+    final character = _character();
+    final storage = _SessionStorage(
+      character: character,
+      sessions: [_session(openingMessageInitialized: true)],
+    );
+    final gateway = _ControlledGateway();
+    addTearDown(gateway.close);
+    await _pumpChat(tester, storage, character, gateway: gateway);
+
+    await _send(tester, 'question');
+    await _pumpUntil(tester, () => gateway.callCount == 1);
+    gateway.controllers.first.add('first reply');
+    await tester.pump(const Duration(milliseconds: 50));
+
+    final regenerate = find.widgetWithText(TextButton, '重新生成');
+    expect(regenerate, findsOneWidget);
+    tester.widget<TextButton>(regenerate).onPressed!();
+    await tester.pump();
+    expect(gateway.callCount, 1);
+
+    await gateway.controllers.first.close();
+    await _pumpUntil(tester, () => gateway.callCount == 2);
+
+    await tester.tap(find.byIcon(Icons.stop));
+    await tester.pumpAndSettle();
   });
 
   testWidgets('manual summary owns the busy state until its request finishes', (
@@ -1169,6 +1332,7 @@ final class _SessionStorage extends LocalStorageService {
   Completer<void>? apiLoadGate;
   Completer<void>? safeSaveGate;
   Object? safeSaveError;
+  var safeSaveCallCount = 0;
 
   @override
   bool get usesSessionStorage => true;
@@ -1239,6 +1403,7 @@ final class _SessionStorage extends LocalStorageService {
     ChatSession session,
     List<ChatMessage> messages,
   ) async {
+    safeSaveCallCount++;
     if (safeSaveGate != null) await safeSaveGate!.future;
     if (safeSaveError != null) throw safeSaveError!;
     if (!sessions.any((item) => item.id == session.id)) return false;

@@ -14,12 +14,14 @@ class ChatSessionListScreen extends StatefulWidget {
     required this.storage,
     required this.character,
     this.selectedSessionId,
+    this.deletionDisabled = false,
     super.key,
   });
 
   final LocalStorageService storage;
   final AppCharacter character;
   final String? selectedSessionId;
+  final bool deletionDisabled;
 
   @override
   State<ChatSessionListScreen> createState() => _ChatSessionListScreenState();
@@ -165,6 +167,7 @@ class _ChatSessionListScreenState extends State<ChatSessionListScreen> {
   }
 
   Future<void> _delete(ChatSession session) async {
+    if (widget.deletionDisabled) return;
     final confirmed = await showConfirmDialog(
       context: context,
       title: '删除对话',
@@ -297,6 +300,7 @@ class _ChatSessionListScreenState extends State<ChatSessionListScreen> {
                 ),
                 PopupMenuItem(
                   value: _SessionAction.delete,
+                  enabled: !widget.deletionDisabled,
                   child: Text(context.t('删除')),
                 ),
               ],

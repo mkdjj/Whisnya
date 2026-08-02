@@ -6,6 +6,7 @@ import '../utils/page_layout.dart';
 class ChatInputComposer extends StatelessWidget {
   const ChatInputComposer({
     required this.controller,
+    this.focusNode,
     required this.isGenerating,
     this.enabled = true,
     required this.hasBackground,
@@ -20,6 +21,7 @@ class ChatInputComposer extends StatelessWidget {
   });
 
   final TextEditingController controller;
+  final FocusNode? focusNode;
   final bool isGenerating;
   final bool enabled;
   final bool hasBackground;
@@ -62,23 +64,18 @@ class ChatInputComposer extends StatelessWidget {
                   Expanded(
                     child: TextField(
                       controller: controller,
-                      enabled: enabled && !isGenerating,
+                      focusNode: focusNode,
+                      enabled: enabled,
                       minLines: 1,
                       maxLines: 5,
                       textInputAction: TextInputAction.newline,
                       decoration: InputDecoration(
                         hintText: context.t('输入消息'),
                         isDense: true,
-                        enabledBorder: OutlineInputBorder(
-                          borderSide: BorderSide(
-                            color: colors.outline.withValues(alpha: alpha),
-                          ),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderSide: BorderSide(
-                            color: colors.primary.withValues(alpha: alpha),
-                          ),
-                        ),
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        disabledBorder: InputBorder.none,
                       ),
                     ),
                   ),
