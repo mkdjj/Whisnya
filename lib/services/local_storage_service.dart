@@ -16,6 +16,9 @@ import '../models/chat_session.dart';
 import '../models/chat_summary.dart';
 import '../models/character_memory_entry.dart';
 import '../models/novel_book.dart';
+import '../models/qq_contact_binding.dart';
+import '../models/qq_diagnostic_event.dart';
+import '../models/qq_integration_settings.dart';
 import '../models/theater.dart';
 import '../models/world_book.dart';
 import '../utils/password_lock.dart';
@@ -23,6 +26,7 @@ import '../utils/role_import_parser.dart';
 import '../utils/safe_zip.dart';
 import 'storage/json_file_store.dart';
 import 'chat/chat_session_service.dart';
+import 'qq/qq_exceptions.dart';
 import 'storage/media_store.dart' as media_store;
 import 'storage/storage_paths.dart';
 
@@ -113,6 +117,14 @@ Future<void> validateBackupDirectory(Directory directory) async {
   await optionalJson('chat_sessions.json', (value) => value is List);
   await optionalJson('novels.json', (value) => value is List);
   await optionalJson('theater_sessions.json', (value) => value is List);
+  await optionalJson(
+    'config${separator}qq_integration.json',
+    (value) => value is Map<String, dynamic>,
+  );
+  await optionalJson(
+    'config${separator}qq_contact_bindings.json',
+    (value) => value is List,
+  );
 }
 
 Future<dynamic> _readBackupJson(File file) async {
@@ -137,6 +149,7 @@ class LocalStorageService {
 
   static const _secureApiKeyIndexKey = 'whisnya_api_endpoint_ids';
   static const _secureApiKeyPrefix = 'whisnya_api_key_';
+  static const _secureOneBotAccessTokenKey = 'whisnya.qq.onebot.access_token';
 
   final FlutterSecureStorage _secureStorage;
   final JsonFileStore jsonStore;
@@ -195,6 +208,8 @@ class LocalStorageService {
       'theater_messages',
       'memories',
       'worldbook_entries',
+      'config',
+      'logs',
     ]) {
       await Directory(
         '${directory.path}${Platform.pathSeparator}$name',
@@ -217,6 +232,133 @@ class LocalStorageService {
 
   Future<void> saveSettings(AppSettings settings) async {
     await _writeJson((await _paths).settings, settings.toJson());
+  }
+
+  Future<QqIntegrationSettings> loadQqIntegrationSettings() async {
+    final file = (await _paths).qqIntegration;
+    final decoded = await _readJson(
+      file,
+      const QqIntegrationSettings().toJson(),
+      recoverOnInvalid: true,
+    );
+    if (decoded is! Map<String, dynamic>) {
+      throw StorageException('QQ 接入设置文件异常');
+    }
+    return QqIntegrationSettings.fromJson(decoded);
+  }
+
+  Future<void> saveQqIntegrationSettings(QqIntegrationSettings value) async {
+    await _writeJson((await _paths).qqIntegration, value.toJson());
+  }
+
+  Future<List<QqContactBinding>> loadQqContactBindings() async {
+    final file = (await _paths).qqContactBindings;
+    final decoded = await _readJson(file, <dynamic>[], recoverOnInvalid: true);
+    return _parseQqContactBindings(decoded);
+  }
+
+  Future<void> saveQqContactBinding(QqContactBinding value) async {
+    final file = (await _paths).qqContactBindings;
+    await _enqueueWrite(file, () async {
+      final decoded = await _readJsonNow(
+        file,
+        <dynamic>[],
+        recoverOnInvalid: true,
+      );
+      final bindings = _parseQqContactBindings(decoded);
+      if (bindings.any(
+        (binding) =>
+            binding.id != value.id && binding.sessionId == value.sessionId,
+      )) {
+        throw const QqBindingException('每位 QQ 联系人必须使用独立对话。');
+      }
+      _upsert(bindings, value, (binding) => binding.id);
+      await _writeJsonNow(
+        file,
+        bindings.map((binding) => binding.toJson()).toList(),
+      );
+    });
+  }
+
+  Future<void> deleteQqContactBinding(String id) async {
+    final file = (await _paths).qqContactBindings;
+    await _enqueueWrite(file, () async {
+      final decoded = await _readJsonNow(
+        file,
+        <dynamic>[],
+        recoverOnInvalid: true,
+      );
+      final bindings = _parseQqContactBindings(decoded)
+        ..removeWhere((binding) => binding.id == id);
+      await _writeJsonNow(
+        file,
+        bindings.map((binding) => binding.toJson()).toList(),
+      );
+    });
+  }
+
+  Future<String> loadOneBotAccessToken() async =>
+      (await _secureStorage.read(key: _secureOneBotAccessTokenKey)) ?? '';
+
+  Future<void> saveOneBotAccessToken(String token) async {
+    final value = token.trim();
+    if (value.isEmpty) {
+      await clearOneBotAccessToken();
+      return;
+    }
+    await _secureStorage.write(key: _secureOneBotAccessTokenKey, value: value);
+  }
+
+  Future<void> clearOneBotAccessToken() =>
+      _secureStorage.delete(key: _secureOneBotAccessTokenKey);
+
+  Future<List<QqDiagnosticEvent>> loadQqDiagnostics() async {
+    final file = (await _paths).qqDiagnostics;
+    final decoded = await _readJson(file, <dynamic>[], recoverOnInvalid: true);
+    if (decoded is! List) return const [];
+    return decoded
+        .whereType<Map<String, dynamic>>()
+        .map(QqDiagnosticEvent.fromJson)
+        .toList();
+  }
+
+  Future<void> appendQqDiagnosticEvent(QqDiagnosticEvent event) async {
+    final file = (await _paths).qqDiagnostics;
+    await _enqueueWrite(file, () async {
+      final decoded = await _readJsonNow(
+        file,
+        <dynamic>[],
+        recoverOnInvalid: true,
+      );
+      final events = decoded is List
+          ? decoded
+                .whereType<Map<String, dynamic>>()
+                .map(QqDiagnosticEvent.fromJson)
+                .toList()
+          : <QqDiagnosticEvent>[];
+      events.add(event);
+      final kept = events.length <= 200
+          ? events
+          : events.sublist(events.length - 200);
+      await _writeJsonNow(file, kept.map((item) => item.toJson()).toList());
+    });
+  }
+
+  Future<void> clearQqDiagnostics() async {
+    await _writeJson((await _paths).qqDiagnostics, <dynamic>[]);
+  }
+
+  List<QqContactBinding> _parseQqContactBindings(dynamic decoded) {
+    if (decoded is! List) throw StorageException('QQ 联系人绑定文件异常');
+    final result = <QqContactBinding>[];
+    for (final value in decoded.whereType<Map<String, dynamic>>()) {
+      try {
+        result.add(QqContactBinding.fromJson(value));
+      } on Object {
+        // A single corrupt binding must not erase the other bindings.
+      }
+    }
+    return result;
   }
 
   Future<AppSettings?> upgradePrivacyPasswordHashIfNeeded(

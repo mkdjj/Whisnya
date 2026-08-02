@@ -12,6 +12,9 @@ class StoragePaths {
   File get novels => _file('novels.json');
   File get theaterSessions => _file('theater_sessions.json');
   File get chatSessions => _file('chat_sessions.json');
+  File get qqIntegration => _file('config', 'qq_integration.json');
+  File get qqContactBindings => _file('config', 'qq_contact_bindings.json');
+  File get qqDiagnostics => _file('logs', 'qq_diagnostics.json');
   File chat(String id) => _file('chats', '$id.json');
   File summary(String id) => _file('summaries', '$id.json');
   File chatBySession(String sessionId) => chat(sessionId);
