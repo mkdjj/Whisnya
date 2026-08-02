@@ -11,6 +11,10 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
@@ -97,7 +101,7 @@ object QqBridgeChannels {
             "externalUserId" to parsed.contactKey,
             "senderDisplayName" to parsed.title,
             "text" to parsed.text,
-            "timestamp" to java.time.Instant.ofEpochMilli(parsed.timestamp).toString(),
+            "timestamp" to isoTimestamp(parsed.timestamp),
             "rawConversationTitle" to parsed.title,
             "nativeNotificationKey" to parsed.notificationKey,
             "packageName" to parsed.packageName,
@@ -195,4 +199,10 @@ object QqBridgeChannels {
             result.error("settings_open_failed", "无法打开系统设置。", null)
         }
     }
+
+    private fun isoTimestamp(milliseconds: Long): String =
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).run {
+            timeZone = TimeZone.getTimeZone("UTC")
+            format(Date(milliseconds))
+        }
 }

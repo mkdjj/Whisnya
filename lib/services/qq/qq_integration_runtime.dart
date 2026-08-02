@@ -15,8 +15,10 @@ import '../local_storage_service.dart';
 import 'android/qq_native_bridge.dart';
 import 'background_character_chat_service.dart';
 import 'onebot/onebot_client.dart';
+import 'qq_contact_queue.dart';
 import 'qq_exceptions.dart';
 import 'qq_diagnostic_service.dart';
+import 'qq_delivery_fence.dart';
 import 'qq_message_debouncer.dart';
 import 'qq_message_processor.dart';
 import 'qq_reply_splitter.dart';
@@ -33,6 +35,7 @@ class QqIntegrationRuntime extends ChangeNotifier {
   final LocalStorageService _storage;
   final AiGateway _aiGateway;
   final QqNativeBridge nativeBridge;
+  final _deliveryQueue = QqContactQueue(maxConcurrent: 2);
   QqMessageProcessor? _processor;
   OneBotClient? _oneBot;
   StreamSubscription<UnifiedQqMessage>? _oneBotMessages;
@@ -42,6 +45,7 @@ class QqIntegrationRuntime extends ChangeNotifier {
   var _mergeWindowMilliseconds = -1;
   var _running = false;
   var _paused = false;
+  var _runGeneration = 0;
   var _accountId = '';
   var _nickname = '';
   DateTime? _lastMessageAt;
@@ -76,14 +80,17 @@ class QqIntegrationRuntime extends ChangeNotifier {
     _ensureProcessor(settings);
     _paused = false;
     _processor!.setPaused(false);
-    await _syncNativeSettings(settings, bindings: bindings);
     _running = true;
+    _runGeneration++;
     _lastError = '';
+    await _syncNativeSettings(settings, bindings: bindings);
     notifyListeners();
     try {
       await nativeBridge.startForegroundBridge();
     } on Object {
       _running = false;
+      _runGeneration++;
+      await _syncNativeSettings(settings, bindings: bindings);
       notifyListeners();
       rethrow;
     }
@@ -93,8 +100,11 @@ class QqIntegrationRuntime extends ChangeNotifier {
   }
 
   Future<void> pause() async {
+    if (!_running || _paused) return;
     _paused = true;
+    _runGeneration++;
     _processor?.setPaused(true);
+    await _syncNativeSettings(_settings);
     notifyListeners();
   }
 
@@ -103,14 +113,18 @@ class QqIntegrationRuntime extends ChangeNotifier {
       await start();
       return;
     }
+    if (!_paused) return;
     _paused = false;
+    _runGeneration++;
     _processor?.setPaused(false);
+    await _syncNativeSettings(_settings);
     notifyListeners();
   }
 
   Future<void> stop({bool stopForeground = true}) async {
     _running = false;
     _paused = false;
+    _runGeneration++;
     await _oneBotMessages?.cancel();
     await _oneBotStates?.cancel();
     _oneBotMessages = null;
@@ -122,6 +136,7 @@ class QqIntegrationRuntime extends ChangeNotifier {
     _mergeWindowMilliseconds = -1;
     _accountId = '';
     _nickname = '';
+    await _syncNativeSettings(_settings);
     await nativeBridge.cancelPendingAccessibilityReply();
     if (stopForeground) await nativeBridge.stopForegroundBridge();
     notifyListeners();
@@ -135,7 +150,10 @@ class QqIntegrationRuntime extends ChangeNotifier {
         _running && (!settings.enabled || settings.mode != _settings.mode);
     if (mustStop) await stop();
     _settings = settings;
-    if (_running) _ensureProcessor(settings);
+    if (_running) {
+      _runGeneration++;
+      _ensureProcessor(settings);
+    }
     await _syncNativeSettings(settings, bindings: bindings);
     notifyListeners();
   }
@@ -177,6 +195,7 @@ class QqIntegrationRuntime extends ChangeNotifier {
       if (!_running || settings.mode != QqIntegrationMode.notification) {
         return const {'status': 'ignored'};
       }
+      final generation = _runGeneration;
       _lastMessageAt = DateTime.now();
       notifyListeners();
       _ensureProcessor(settings);
@@ -185,6 +204,9 @@ class QqIntegrationRuntime extends ChangeNotifier {
         'source': QqIntegrationMode.notification.name,
       });
       final result = await _processor!.handle(message, settings: settings);
+      if (!_canDeliver(generation, QqIntegrationMode.notification)) {
+        return const {'status': 'ignored'};
+      }
       final json = result.toNativeJson();
       if (result.status == QqProcessStatus.reply) {
         json['text'] = QqReplySplitter.forNotification(
@@ -192,6 +214,7 @@ class QqIntegrationRuntime extends ChangeNotifier {
           maxReplyCharacters: settings.maxReplyCharacters,
         );
       }
+      json['runGeneration'] = generation;
       notifyListeners();
       return json;
     } on Object catch (error) {
@@ -335,27 +358,49 @@ class QqIntegrationRuntime extends ChangeNotifier {
     final processor = _processor;
     final client = _oneBot;
     if (!_running || processor == null || client == null) return;
+    final generation = _runGeneration;
+    final settings = _settings;
     _lastMessageAt = DateTime.now();
     notifyListeners();
     try {
-      final result = await processor.handle(message, settings: _settings);
+      final result = await processor.handle(message, settings: settings);
       if (result.status != QqProcessStatus.reply) return;
-      if (_settings.replyDelayMilliseconds > 0) {
-        await Future<void>.delayed(
-          Duration(milliseconds: _settings.replyDelayMilliseconds),
-        );
-      }
-      final chunks = QqReplySplitter.splitOneBot(
-        result.text,
-        maxReplyCharacters: _settings.maxReplyCharacters,
-        replyChunkCharacters: _settings.replyChunkCharacters,
-      );
-      for (var index = 0; index < chunks.length; index++) {
-        await client.sendPrivateMessage(message.externalUserId, chunks[index]);
-        if (index + 1 < chunks.length) {
-          await Future<void>.delayed(const Duration(milliseconds: 300));
+      var delivered = false;
+      await _deliveryQueue.run(message.externalUserId, () async {
+        if (!_canDeliver(generation, QqIntegrationMode.oneBot) ||
+            !identical(client, _oneBot)) {
+          return;
         }
-      }
+        if (settings.replyDelayMilliseconds > 0) {
+          await Future<void>.delayed(
+            Duration(milliseconds: settings.replyDelayMilliseconds),
+          );
+        }
+        if (!_canDeliver(generation, QqIntegrationMode.oneBot) ||
+            !identical(client, _oneBot)) {
+          return;
+        }
+        final chunks = QqReplySplitter.splitOneBot(
+          result.text,
+          maxReplyCharacters: settings.maxReplyCharacters,
+          replyChunkCharacters: settings.replyChunkCharacters,
+        );
+        for (var index = 0; index < chunks.length; index++) {
+          if (!_canDeliver(generation, QqIntegrationMode.oneBot) ||
+              !identical(client, _oneBot)) {
+            return;
+          }
+          await client.sendPrivateMessage(
+            message.externalUserId,
+            chunks[index],
+          );
+          if (index + 1 < chunks.length) {
+            await Future<void>.delayed(const Duration(milliseconds: 300));
+          }
+        }
+        delivered = true;
+      });
+      if (!delivered) return;
       _lastReplyAt = DateTime.now();
       _lastError = '';
       await QqDiagnosticService(_storage).record(
@@ -390,6 +435,16 @@ class QqIntegrationRuntime extends ChangeNotifier {
     _lastError = '';
     notifyListeners();
   }
+
+  bool _canDeliver(int generation, QqIntegrationMode mode) =>
+      qqDeliveryPermitted(
+        running: _running,
+        paused: _paused,
+        currentGeneration: _runGeneration,
+        resultGeneration: generation,
+        settings: _settings,
+        mode: mode,
+      );
 
   void _rememberError(Object error) {
     _lastError = error.toString();
@@ -482,6 +537,8 @@ class QqIntegrationRuntime extends ChangeNotifier {
       'lastMessageAt': _lastMessageAt?.toIso8601String() ?? '',
       'lastReplyAt': _lastReplyAt?.toIso8601String() ?? '',
       'lastError': _lastError,
+      'runtimeActive': _running && !_paused,
+      'runGeneration': _runGeneration,
     });
   }
 }

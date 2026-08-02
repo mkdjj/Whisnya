@@ -5,6 +5,7 @@ import android.app.Notification
 import android.app.NotificationManager
 import android.content.Context
 import android.service.notification.StatusBarNotification
+import android.os.Build
 import com.mkdjj.whisnya.R
 import java.util.ArrayDeque
 import java.util.LinkedHashMap
@@ -18,6 +19,7 @@ data class QqPendingNotificationContext(
 data class PendingAccessibilityReply(
     val id: String,
     val notificationKey: String,
+    val messageId: String,
     val contactKey: String,
     val expectedTitles: List<String>,
     val text: String,
@@ -26,6 +28,11 @@ data class PendingAccessibilityReply(
     val returnAfterSend: Boolean,
     var clicked: Boolean = false,
 )
+
+object QqNotificationVersionGuard {
+    fun isCurrent(storedMessageId: String?, callbackMessageId: String): Boolean =
+        storedMessageId != null && storedMessageId == callbackMessageId
+}
 
 object QqPendingReplyStore {
     private const val NOTIFICATION_TTL = 3 * 60 * 1000L
@@ -45,19 +52,28 @@ object QqPendingReplyStore {
     }
 
     @Synchronized
-    fun notification(key: String): QqPendingNotificationContext? {
+    fun notification(key: String, messageId: String): QqPendingNotificationContext? {
         prune()
-        return notifications[key]
+        return notifications[key]?.takeIf {
+            QqNotificationVersionGuard.isCurrent(it.parsed.messageId, messageId)
+        }
     }
 
     @Synchronized
-    fun removeNotification(key: String) {
-        notifications.remove(key)
+    fun removeNotification(key: String, messageId: String) {
+        if (QqNotificationVersionGuard.isCurrent(
+                notifications[key]?.parsed?.messageId,
+                messageId,
+            )
+        ) {
+            notifications.remove(key)
+        }
     }
 
     @Synchronized
     fun enqueueAccessibility(
         notificationKey: String,
+        messageId: String,
         contactKey: String,
         expectedTitles: List<String>,
         text: String,
@@ -69,6 +85,7 @@ object QqPendingReplyStore {
         return PendingAccessibilityReply(
             id = "$now-${accessibility.size}",
             notificationKey = notificationKey,
+            messageId = messageId,
             contactKey = contactKey,
             expectedTitles = expectedTitles
                 .map(QqNotificationParser::normalizeTitle)
@@ -88,10 +105,12 @@ object QqPendingReplyStore {
     }
 
     @Synchronized
-    fun finishAccessibility(id: String) {
+    fun finishAccessibility(id: String): PendingAccessibilityReply? {
         val notificationKey = accessibility.firstOrNull { it.id == id }?.notificationKey
         accessibility.removeAll { it.id == id }
         if (notificationKey != null) notifications.remove(notificationKey)
+        prune()
+        return accessibility.firstOrNull()
     }
 
     @Synchronized
@@ -106,7 +125,7 @@ object QqPendingReplyStore {
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.notify(
             14302,
-            Notification.Builder(context, "whisnya_qq_bridge")
+            notificationBuilder(context)
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setContentTitle("QQ 自动回复")
                 .setContentText("解锁后可继续处理 QQ 消息")
@@ -120,7 +139,7 @@ object QqPendingReplyStore {
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.notify(
             14303,
-            Notification.Builder(context, "whisnya_qq_bridge")
+            notificationBuilder(context)
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setContentTitle("QQ 自动回复未发送")
                 .setContentText("目标或发送方式无法安全确认，请查看诊断日志")
@@ -135,4 +154,12 @@ object QqPendingReplyStore {
         notifications.entries.removeAll { it.value.expiresAt <= now }
         accessibility.removeAll { it.expiresAt <= now }
     }
+
+    private fun notificationBuilder(context: Context): Notification.Builder =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(context, "whisnya_qq_bridge")
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(context)
+        }
 }

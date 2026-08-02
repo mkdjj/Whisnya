@@ -32,4 +32,6 @@ object QqAccessibilitySelector {
         val labels = setOf("发送", "Send")
         return text?.trim() in labels || contentDescription?.trim() in labels
     }
+
+    fun <T> onlyCandidate(values: List<T>): T? = values.singleOrNull()
 }

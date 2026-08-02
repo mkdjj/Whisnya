@@ -136,6 +136,24 @@ void main() {
     expect(result.status, QqProcessStatus.ignored);
     expect(result.reason, 'bindingChangedAfterReply');
   });
+
+  test(
+    'delivers a reply after the missing bound session is replaced',
+    () async {
+      replies.replySessionId = 'replacement-session';
+      replies.beforeReturn = () async {
+        storage.bindings[0] = storage.bindings.single.copyWith(
+          sessionId: 'replacement-session',
+        );
+      };
+      final result = await processor.handle(
+        _message(id: 'replacement'),
+        settings: _settings(),
+      );
+      expect(result.status, QqProcessStatus.reply);
+      expect(result.reply?.sessionId, 'replacement-session');
+    },
+  );
 }
 
 QqIntegrationSettings _settings() => const QqIntegrationSettings(
@@ -163,6 +181,7 @@ final class _FakeReplyService implements QqCharacterReplyService {
   var calls = 0;
   UnifiedQqMessage? lastMessage;
   Future<void> Function()? beforeReturn;
+  String? replySessionId;
 
   @override
   Future<UnifiedQqReply> reply({
@@ -176,7 +195,7 @@ final class _FakeReplyService implements QqCharacterReplyService {
     return UnifiedQqReply(
       externalUserId: binding.externalUserId,
       bindingId: binding.id,
-      sessionId: binding.sessionId,
+      sessionId: replySessionId ?? binding.sessionId,
       text: 'reply: ${message.text}',
       createdAt: DateTime.now(),
     );

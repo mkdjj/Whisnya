@@ -11,6 +11,8 @@ object QqNativeConfiguration {
     @Volatile var sendFailureNotice: Boolean = true
     @Volatile var enabledContacts: Int = 0
     @Volatile var lastError: String = ""
+    @Volatile var runtimeActive: Boolean = false
+    @Volatile var runGeneration: Long = 0
 
     fun update(values: Map<*, *>) {
         enabled = values["enabled"] as? Boolean ?: enabled
@@ -26,5 +28,7 @@ object QqNativeConfiguration {
         sendFailureNotice = values["sendFailureNotice"] as? Boolean ?: sendFailureNotice
         enabledContacts = (values["enabledContacts"] as? Number)?.toInt() ?: enabledContacts
         lastError = values["lastError"] as? String ?: lastError
+        runtimeActive = values["runtimeActive"] as? Boolean ?: runtimeActive
+        runGeneration = (values["runGeneration"] as? Number)?.toLong() ?: runGeneration
     }
 }

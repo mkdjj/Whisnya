@@ -29,4 +29,10 @@ class QqAccessibilitySelectorTest {
         assertTrue(QqAccessibilitySelector.isSendButton(null, "Send"))
         assertFalse(QqAccessibilitySelector.isSendButton("转发", null))
     }
+
+    @Test
+    fun `requires one unambiguous send candidate`() {
+        assertEquals("send", QqAccessibilitySelector.onlyCandidate(listOf("send")))
+        assertEquals(null, QqAccessibilitySelector.onlyCandidate(listOf("send-1", "send-2")))
+    }
 }

@@ -1,6 +1,5 @@
 package com.mkdjj.whisnya.qq
 
-import android.app.PendingIntent
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 
@@ -19,7 +18,10 @@ class QqNotificationListenerService : NotificationListenerService() {
             QqBridgeChannels.notificationCaptured(parsed)
             return
         }
-        if (!QqNativeConfiguration.enabled || QqNativeConfiguration.mode != "notification") return
+        if (!QqNativeConfiguration.enabled ||
+            !QqNativeConfiguration.runtimeActive ||
+            QqNativeConfiguration.mode != "notification"
+        ) return
         QqPendingReplyStore.put(value, parsed)
         QqBridgeChannels.incomingNotification(parsed) { result ->
             handleFlutterResult(parsed, result)
@@ -27,16 +29,29 @@ class QqNotificationListenerService : NotificationListenerService() {
     }
 
     private fun handleFlutterResult(parsed: ParsedQqNotification, result: Map<*, *>?) {
+        val resultGeneration = (result?.get("runGeneration") as? Number)?.toLong()
+        if (!QqNativeRunGuard.canDeliver(
+                QqNativeConfiguration.runtimeActive,
+                QqNativeConfiguration.runGeneration,
+                resultGeneration,
+            )
+        ) {
+            QqPendingReplyStore.removeNotification(parsed.notificationKey, parsed.messageId)
+            return
+        }
         if (result?.get("status") != "reply") {
-            QqPendingReplyStore.removeNotification(parsed.notificationKey)
+            QqPendingReplyStore.removeNotification(parsed.notificationKey, parsed.messageId)
             return
         }
         val text = result["text"] as? String
         if (text.isNullOrBlank()) {
-            QqPendingReplyStore.removeNotification(parsed.notificationKey)
+            QqPendingReplyStore.removeNotification(parsed.notificationKey, parsed.messageId)
             return
         }
-        val pending = QqPendingReplyStore.notification(parsed.notificationKey) ?: return
+        val pending = QqPendingReplyStore.notification(
+            parsed.notificationKey,
+            parsed.messageId,
+        ) ?: return
         val remote = if (QqNativeConfiguration.remoteInputEnabled) {
             QqRemoteInputReplySender.send(
                 this,
@@ -48,7 +63,10 @@ class QqNotificationListenerService : NotificationListenerService() {
         }
         val disposition = when (remote) {
                 QqRemoteInputResult.Sent -> {
-                    QqPendingReplyStore.removeNotification(parsed.notificationKey)
+                    QqPendingReplyStore.removeNotification(
+                        parsed.notificationKey,
+                        parsed.messageId,
+                    )
                     QqBridgeChannels.emit(
                         "remoteInputSend",
                         mapOf("success" to true, "transport" to "notificationRemoteInput"),
@@ -75,14 +93,20 @@ class QqNotificationListenerService : NotificationListenerService() {
         )) {
             QqDeliveryRoute.Complete -> return
             QqDeliveryRoute.Abort -> {
-                QqPendingReplyStore.removeNotification(parsed.notificationKey)
+                QqPendingReplyStore.removeNotification(
+                    parsed.notificationKey,
+                    parsed.messageId,
+                )
                 QqPendingReplyStore.showFailureNotice(this)
                 QqBridgeChannels.emit("remoteInputSend", mapOf("success" to false))
                 return
             }
             QqDeliveryRoute.AbortLocked -> {
                 QqPendingReplyStore.showUnlockNotice(this)
-                QqPendingReplyStore.removeNotification(parsed.notificationKey)
+                QqPendingReplyStore.removeNotification(
+                    parsed.notificationKey,
+                    parsed.messageId,
+                )
                 QqBridgeChannels.emit(
                     "accessibilitySend",
                     mapOf("success" to false, "errorCode" to "device_locked"),
@@ -97,11 +121,16 @@ class QqNotificationListenerService : NotificationListenerService() {
             .ifEmpty { listOf(parsed.title) }
         val task = QqPendingReplyStore.enqueueAccessibility(
             notificationKey = parsed.notificationKey,
+            messageId = parsed.messageId,
             contactKey = parsed.contactKey,
             expectedTitles = expected,
             text = text,
             returnAfterSend = QqNativeConfiguration.returnAfterSend,
         ) ?: run {
+            QqPendingReplyStore.removeNotification(
+                parsed.notificationKey,
+                parsed.messageId,
+            )
             QqPendingReplyStore.showFailureNotice(this)
             QqBridgeChannels.emit(
                 "accessibilitySend",
@@ -109,23 +138,7 @@ class QqNotificationListenerService : NotificationListenerService() {
             )
             return
         }
-        try {
-            pending.statusBarNotification.notification.contentIntent?.send()
-                ?: abortAccessibility(task, "content_intent_missing")
-        } catch (_: PendingIntent.CanceledException) {
-            abortAccessibility(task, "content_intent_cancelled")
-        } catch (_: SecurityException) {
-            abortAccessibility(task, "content_intent_security")
-        }
-    }
-
-    private fun abortAccessibility(task: PendingAccessibilityReply, code: String) {
-        QqPendingReplyStore.finishAccessibility(task.id)
-        QqPendingReplyStore.showFailureNotice(this)
-        QqBridgeChannels.emit(
-            "accessibilitySend",
-            mapOf("success" to false, "errorCode" to code),
-        )
+        QqAccessibilityTaskLauncher.launch(this, task)
     }
 
     companion object {

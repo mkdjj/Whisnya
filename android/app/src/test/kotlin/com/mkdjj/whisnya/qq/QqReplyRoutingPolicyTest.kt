@@ -47,4 +47,32 @@ class QqReplyRoutingPolicyTest {
             ),
         )
     }
+
+    @Test
+    fun `stopped or stale runtime generation cannot deliver`() {
+        assertEquals(
+            false,
+            QqNativeRunGuard.canDeliver(
+                runtimeActive = false,
+                currentGeneration = 4,
+                resultGeneration = 4,
+            ),
+        )
+        assertEquals(
+            false,
+            QqNativeRunGuard.canDeliver(
+                runtimeActive = true,
+                currentGeneration = 5,
+                resultGeneration = 4,
+            ),
+        )
+        assertEquals(
+            true,
+            QqNativeRunGuard.canDeliver(
+                runtimeActive = true,
+                currentGeneration = 5,
+                resultGeneration = 5,
+            ),
+        )
+    }
 }

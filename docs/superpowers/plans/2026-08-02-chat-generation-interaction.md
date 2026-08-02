@@ -106,4 +106,3 @@ Expected: `build/app/outputs/flutter-apk/app-arm64-v8a-release.apk`.
 - [ ] **Step 3: Verify and copy the artifact**
 
 Use `aapt dump badging`, archive inspection, and SHA-256 hashing to confirm versionName `1.4.2`, versionCode derived from build `20`, and only `arm64-v8a` native libraries. Copy it to the release-assets filename above.
-

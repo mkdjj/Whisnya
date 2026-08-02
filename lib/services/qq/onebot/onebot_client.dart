@@ -95,7 +95,10 @@ class OneBotClient {
       );
     } on WebSocketException catch (error) {
       final message = error.message;
-      if (message.contains('401') || message.contains('403')) {
+      if (error.httpStatusCode == HttpStatus.unauthorized ||
+          error.httpStatusCode == HttpStatus.forbidden ||
+          message.contains('401') ||
+          message.contains('403')) {
         throw const OneBotAuthenticationException('OneBot token 鉴权失败。');
       }
       throw const OneBotConnectionException('无法连接 OneBot WebSocket。');

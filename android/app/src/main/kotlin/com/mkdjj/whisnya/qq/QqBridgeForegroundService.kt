@@ -49,6 +49,7 @@ class QqBridgeForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun createChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_ID, "QQ 自动回复", NotificationManager.IMPORTANCE_LOW),
@@ -70,7 +71,13 @@ class QqBridgeForegroundService : Service() {
                 append(QqNativeConfiguration.lastError.take(40))
             }
         }
-        val notification = Notification.Builder(this, CHANNEL_ID)
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, CHANNEL_ID)
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+        }
+        val notification = builder
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("QQ 自动回复")
             .setContentText(text)

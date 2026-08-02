@@ -34,4 +34,3 @@ Keep normal chat controls usable while an assistant reply is being generated, wi
 - Focus the input, send, and verify the `FocusNode` stays focused and the test keyboard stays visible.
 - Verify every `TextField` border state is `InputBorder.none` before and during generation.
 - Verify a selected session change is deferred until generation completes and does not cancel the gateway token.
-

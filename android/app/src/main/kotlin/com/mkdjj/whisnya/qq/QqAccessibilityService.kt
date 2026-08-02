@@ -31,7 +31,7 @@ class QqAccessibilityService : AccessibilityService() {
         QqPendingReplyStore.cancelAccessibility()
     }
 
-    fun scheduleSingleBack(taskId: String) {
+    fun scheduleSingleBack(taskId: String, after: () -> Unit) {
         scheduledBackTaskId = taskId
         scheduledBackAt = System.currentTimeMillis()
         handler.postDelayed({
@@ -39,6 +39,7 @@ class QqAccessibilityService : AccessibilityService() {
                 scheduledBackTaskId = null
                 performGlobalAction(GLOBAL_ACTION_BACK)
             }
+            after()
         }, 500)
     }
 }

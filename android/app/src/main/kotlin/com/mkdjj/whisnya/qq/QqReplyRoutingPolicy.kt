@@ -16,3 +16,13 @@ object QqReplyRoutingPolicy {
         return QqDeliveryRoute.Accessibility
     }
 }
+
+object QqNativeRunGuard {
+    fun canDeliver(
+        runtimeActive: Boolean,
+        currentGeneration: Long,
+        resultGeneration: Long?,
+    ): Boolean = runtimeActive &&
+        resultGeneration != null &&
+        currentGeneration == resultGeneration
+}

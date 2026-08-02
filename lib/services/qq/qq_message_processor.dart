@@ -217,7 +217,7 @@ class QqMessageProcessor {
       if (liveBinding == null ||
           !liveBinding.enabled ||
           liveBinding.id != binding.id ||
-          liveBinding.sessionId != binding.sessionId) {
+          liveBinding.sessionId != reply.sessionId) {
         return const QqProcessResult.ignored('bindingChangedAfterReply');
       }
       await _diagnostics.record(
