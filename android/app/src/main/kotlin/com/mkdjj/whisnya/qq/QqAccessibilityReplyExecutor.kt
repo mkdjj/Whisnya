@@ -6,7 +6,13 @@ import android.view.accessibility.AccessibilityNodeInfo
 
 object QqAccessibilityReplyExecutor {
     fun execute(service: QqAccessibilityService, task: PendingAccessibilityReply): Boolean {
-        if (task.clicked || task.expiresAt <= System.currentTimeMillis()) return false
+        if (task.clicked ||
+            task.expiresAt <= System.currentTimeMillis() ||
+            !QqAccessibilityTaskLauncher.canDeliver(task)
+        ) {
+            QqAccessibilityTaskLauncher.finishAndContinue(service, task)
+            return false
+        }
         val root = service.rootInActiveWindow ?: return false
         if (root.packageName?.toString() != QqNativeConfiguration.packageName) return false
         if (!hasExpectedTitle(root, task.expectedTitles)) return false
@@ -31,11 +37,19 @@ object QqAccessibilityReplyExecutor {
         val arguments = Bundle().apply {
             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, task.text)
         }
+        if (!QqAccessibilityTaskLauncher.canDeliver(task)) {
+            QqAccessibilityTaskLauncher.finishAndContinue(service, task)
+            return false
+        }
         if (!input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)) return false
 
         val refreshed = service.rootInActiveWindow ?: return false
         if (!hasExpectedTitle(refreshed, task.expectedTitles)) return false
         val send = findSendButton(refreshed, input) ?: return false
+        if (!QqAccessibilityTaskLauncher.canDeliver(task)) {
+            QqAccessibilityTaskLauncher.finishAndContinue(service, task)
+            return false
+        }
         task.clicked = true
         val clicked = send.performAction(AccessibilityNodeInfo.ACTION_CLICK)
         if (!clicked) {

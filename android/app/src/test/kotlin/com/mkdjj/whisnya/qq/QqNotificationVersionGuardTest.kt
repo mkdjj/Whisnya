@@ -21,4 +21,20 @@ class QqNotificationVersionGuardTest {
             ),
         )
     }
+
+    @Test
+    fun `finishing old accessibility task preserves newer same key context`() {
+        assertFalse(
+            QqAccessibilityCompletionGuard.shouldRemoveNotification(
+                storedMessageId = "message-2",
+                completedMessageId = "message-1",
+            ),
+        )
+        assertTrue(
+            QqAccessibilityCompletionGuard.shouldRemoveNotification(
+                storedMessageId = "message-2",
+                completedMessageId = "message-2",
+            ),
+        )
+    }
 }

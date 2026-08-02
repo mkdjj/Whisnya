@@ -20,6 +20,10 @@ class QqAccessibilityService : AccessibilityService() {
             scheduledBackTaskId = null
         }
         val task = QqPendingReplyStore.currentAccessibility() ?: return
+        if (!QqAccessibilityTaskLauncher.canDeliver(task)) {
+            QqAccessibilityTaskLauncher.finishAndContinue(this, task)
+            return
+        }
         if (QqPendingReplyStore.isDeviceLocked(this)) {
             QqPendingReplyStore.showUnlockNotice(this)
             return

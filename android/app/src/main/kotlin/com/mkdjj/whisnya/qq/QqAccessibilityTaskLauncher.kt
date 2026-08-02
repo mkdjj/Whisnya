@@ -5,7 +5,10 @@ import android.content.Context
 
 object QqAccessibilityTaskLauncher {
     fun launch(context: Context, task: PendingAccessibilityReply) {
-        if (QqPendingReplyStore.currentAccessibility()?.id != task.id) return
+        if (!canDeliver(task)) {
+            finishAndContinue(context, task)
+            return
+        }
         if (QqPendingReplyStore.isDeviceLocked(context)) {
             QqPendingReplyStore.showUnlockNotice(context)
             QqPendingReplyStore.cancelAccessibility()
@@ -29,6 +32,14 @@ object QqAccessibilityTaskLauncher {
             finishAndContinue(context, task, "content_intent_security")
         }
     }
+
+    fun canDeliver(task: PendingAccessibilityReply): Boolean =
+        QqAccessibilityRunGuard.canDeliver(
+            runtimeActive = QqNativeConfiguration.runtimeActive,
+            currentGeneration = QqNativeConfiguration.runGeneration,
+            taskGeneration = task.runGeneration,
+            isCurrentTask = QqPendingReplyStore.isAccessibilityCurrent(task.id),
+        )
 
     fun finishAndContinue(
         context: Context,

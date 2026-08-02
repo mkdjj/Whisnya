@@ -20,6 +20,7 @@ data class PendingAccessibilityReply(
     val id: String,
     val notificationKey: String,
     val messageId: String,
+    val runGeneration: Long,
     val contactKey: String,
     val expectedTitles: List<String>,
     val text: String,
@@ -32,6 +33,16 @@ data class PendingAccessibilityReply(
 object QqNotificationVersionGuard {
     fun isCurrent(storedMessageId: String?, callbackMessageId: String): Boolean =
         storedMessageId != null && storedMessageId == callbackMessageId
+}
+
+object QqAccessibilityCompletionGuard {
+    fun shouldRemoveNotification(
+        storedMessageId: String?,
+        completedMessageId: String,
+    ): Boolean = QqNotificationVersionGuard.isCurrent(
+        storedMessageId,
+        completedMessageId,
+    )
 }
 
 object QqPendingReplyStore {
@@ -74,6 +85,7 @@ object QqPendingReplyStore {
     fun enqueueAccessibility(
         notificationKey: String,
         messageId: String,
+        runGeneration: Long,
         contactKey: String,
         expectedTitles: List<String>,
         text: String,
@@ -86,6 +98,7 @@ object QqPendingReplyStore {
             id = "$now-${accessibility.size}",
             notificationKey = notificationKey,
             messageId = messageId,
+            runGeneration = runGeneration,
             contactKey = contactKey,
             expectedTitles = expectedTitles
                 .map(QqNotificationParser::normalizeTitle)
@@ -105,16 +118,37 @@ object QqPendingReplyStore {
     }
 
     @Synchronized
+    fun isAccessibilityCurrent(id: String): Boolean {
+        prune()
+        return accessibility.firstOrNull()?.id == id
+    }
+
+    @Synchronized
     fun finishAccessibility(id: String): PendingAccessibilityReply? {
-        val notificationKey = accessibility.firstOrNull { it.id == id }?.notificationKey
+        val completed = accessibility.firstOrNull { it.id == id }
         accessibility.removeAll { it.id == id }
-        if (notificationKey != null) notifications.remove(notificationKey)
+        if (completed != null && QqAccessibilityCompletionGuard.shouldRemoveNotification(
+                notifications[completed.notificationKey]?.parsed?.messageId,
+                completed.messageId,
+            )
+        ) {
+            notifications.remove(completed.notificationKey)
+        }
         prune()
         return accessibility.firstOrNull()
     }
 
     @Synchronized
     fun cancelAccessibility() {
+        accessibility.forEach { task ->
+            if (QqAccessibilityCompletionGuard.shouldRemoveNotification(
+                    notifications[task.notificationKey]?.parsed?.messageId,
+                    task.messageId,
+                )
+            ) {
+                notifications.remove(task.notificationKey)
+            }
+        }
         accessibility.clear()
     }
 

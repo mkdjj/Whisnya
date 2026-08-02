@@ -122,6 +122,7 @@ class QqNotificationListenerService : NotificationListenerService() {
         val task = QqPendingReplyStore.enqueueAccessibility(
             notificationKey = parsed.notificationKey,
             messageId = parsed.messageId,
+            runGeneration = resultGeneration ?: return,
             contactKey = parsed.contactKey,
             expectedTitles = expected,
             text = text,

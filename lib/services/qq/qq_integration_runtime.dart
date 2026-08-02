@@ -104,6 +104,7 @@ class QqIntegrationRuntime extends ChangeNotifier {
     _paused = true;
     _runGeneration++;
     _processor?.setPaused(true);
+    await nativeBridge.cancelPendingAccessibilityReply();
     await _syncNativeSettings(_settings);
     notifyListeners();
   }
@@ -125,6 +126,9 @@ class QqIntegrationRuntime extends ChangeNotifier {
     _running = false;
     _paused = false;
     _runGeneration++;
+    _processor?.setPaused(true);
+    await nativeBridge.cancelPendingAccessibilityReply();
+    await _syncNativeSettings(_settings);
     await _oneBotMessages?.cancel();
     await _oneBotStates?.cancel();
     _oneBotMessages = null;
@@ -136,8 +140,6 @@ class QqIntegrationRuntime extends ChangeNotifier {
     _mergeWindowMilliseconds = -1;
     _accountId = '';
     _nickname = '';
-    await _syncNativeSettings(_settings);
-    await nativeBridge.cancelPendingAccessibilityReply();
     if (stopForeground) await nativeBridge.stopForegroundBridge();
     notifyListeners();
   }
@@ -152,6 +154,7 @@ class QqIntegrationRuntime extends ChangeNotifier {
     _settings = settings;
     if (_running) {
       _runGeneration++;
+      await nativeBridge.cancelPendingAccessibilityReply();
       _ensureProcessor(settings);
     }
     await _syncNativeSettings(settings, bindings: bindings);

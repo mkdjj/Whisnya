@@ -75,4 +75,44 @@ class QqReplyRoutingPolicyTest {
             ),
         )
     }
+
+    @Test
+    fun `accessibility task cannot continue after pause stop or replacement`() {
+        assertEquals(
+            false,
+            QqAccessibilityRunGuard.canDeliver(
+                runtimeActive = false,
+                currentGeneration = 8,
+                taskGeneration = 8,
+                isCurrentTask = true,
+            ),
+        )
+        assertEquals(
+            false,
+            QqAccessibilityRunGuard.canDeliver(
+                runtimeActive = true,
+                currentGeneration = 9,
+                taskGeneration = 8,
+                isCurrentTask = true,
+            ),
+        )
+        assertEquals(
+            false,
+            QqAccessibilityRunGuard.canDeliver(
+                runtimeActive = true,
+                currentGeneration = 8,
+                taskGeneration = 8,
+                isCurrentTask = false,
+            ),
+        )
+        assertEquals(
+            true,
+            QqAccessibilityRunGuard.canDeliver(
+                runtimeActive = true,
+                currentGeneration = 8,
+                taskGeneration = 8,
+                isCurrentTask = true,
+            ),
+        )
+    }
 }

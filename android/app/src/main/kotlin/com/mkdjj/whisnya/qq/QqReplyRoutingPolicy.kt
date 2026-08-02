@@ -26,3 +26,16 @@ object QqNativeRunGuard {
         resultGeneration != null &&
         currentGeneration == resultGeneration
 }
+
+object QqAccessibilityRunGuard {
+    fun canDeliver(
+        runtimeActive: Boolean,
+        currentGeneration: Long,
+        taskGeneration: Long,
+        isCurrentTask: Boolean,
+    ): Boolean = isCurrentTask && QqNativeRunGuard.canDeliver(
+        runtimeActive,
+        currentGeneration,
+        taskGeneration,
+    )
+}
