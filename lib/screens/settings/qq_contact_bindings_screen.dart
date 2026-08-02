@@ -14,6 +14,7 @@ class QqContactBindingsScreen extends StatefulWidget {
     required this.storage,
     required this.mode,
     this.nativeBridge,
+    this.onBindingsChanged,
     this.isAndroid = true,
     super.key,
   });
@@ -21,6 +22,8 @@ class QqContactBindingsScreen extends StatefulWidget {
   final LocalStorageService storage;
   final QqIntegrationMode mode;
   final QqNativeBridge? nativeBridge;
+  final Future<void> Function(List<QqContactBinding> bindings)?
+  onBindingsChanged;
   final bool isAndroid;
 
   @override
@@ -38,16 +41,17 @@ class _QqContactBindingsScreenState extends State<QqContactBindingsScreen> {
     unawaited(_load());
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool notifyChanged = false}) async {
     final values = await widget.storage.loadQqContactBindings();
     if (!mounted) return;
     setState(() {
       _bindings = values.where((item) => item.mode == widget.mode).toList();
     });
+    if (notifyChanged) await widget.onBindingsChanged?.call(values);
   }
 
   Future<void> _add() async {
-    await Navigator.of(context).push(
+    final changed = await Navigator.of(context).push(
       MaterialPageRoute<QqContactBinding>(
         builder: (_) => QqContactBindingEditScreen(
           storage: widget.storage,
@@ -55,7 +59,7 @@ class _QqContactBindingsScreenState extends State<QqContactBindingsScreen> {
         ),
       ),
     );
-    await _load();
+    await _load(notifyChanged: changed != null);
   }
 
   Future<void> _capture() async {
@@ -68,7 +72,7 @@ class _QqContactBindingsScreenState extends State<QqContactBindingsScreen> {
         const Duration(seconds: 65),
       );
       if (!mounted) return;
-      await Navigator.of(context).push(
+      final changed = await Navigator.of(context).push(
         MaterialPageRoute<QqContactBinding>(
           builder: (_) => QqContactBindingEditScreen(
             storage: widget.storage,
@@ -78,7 +82,7 @@ class _QqContactBindingsScreenState extends State<QqContactBindingsScreen> {
           ),
         ),
       );
-      await _load();
+      await _load(notifyChanged: changed != null);
     } on TimeoutException {
       if (mounted) _snack(context.t('60 秒内没有捕获到有效 QQ 私聊通知。'));
     } finally {
@@ -88,7 +92,7 @@ class _QqContactBindingsScreenState extends State<QqContactBindingsScreen> {
   }
 
   Future<void> _edit(QqContactBinding binding) async {
-    await Navigator.of(context).push(
+    final changed = await Navigator.of(context).push(
       MaterialPageRoute<QqContactBinding>(
         builder: (_) => QqContactBindingEditScreen(
           storage: widget.storage,
@@ -97,7 +101,7 @@ class _QqContactBindingsScreenState extends State<QqContactBindingsScreen> {
         ),
       ),
     );
-    await _load();
+    await _load(notifyChanged: changed != null);
   }
 
   Future<void> _delete(QqContactBinding binding) async {
@@ -135,7 +139,7 @@ class _QqContactBindingsScreenState extends State<QqContactBindingsScreen> {
         }
       }
     }
-    await _load();
+    await _load(notifyChanged: true);
   }
 
   void _snack(String message) {

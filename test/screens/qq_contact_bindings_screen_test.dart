@@ -66,6 +66,50 @@ void main() {
       expect(find.byKey(const ValueKey('qq-external-user-id')), findsNothing);
     },
   );
+
+  testWidgets('binding deletion notifies the running integration immediately', (
+    tester,
+  ) async {
+    final storage = _BindingStorage();
+    storage.bindings.add(
+      QqContactBinding(
+        id: 'binding',
+        mode: QqIntegrationMode.oneBot,
+        externalUserId: '10001',
+        displayName: 'Alice',
+        characterId: 'character',
+        sessionId: 'session',
+        createdAt: storage.now,
+        updatedAt: storage.now,
+      ),
+    );
+    final snapshots = <List<QqContactBinding>>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        home: QqContactBindingsScreen(
+          storage: storage,
+          mode: QqIntegrationMode.oneBot,
+          isAndroid: false,
+          onBindingsChanged: (bindings) async {
+            snapshots.add([...bindings]);
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.delete_outline));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(TextButton).at(1));
+    await tester.pumpAndSettle();
+
+    expect(storage.bindings, isEmpty);
+    expect(snapshots, hasLength(1));
+    expect(snapshots.single, isEmpty);
+  });
 }
 
 final class _BindingStorage extends LocalStorageService {
@@ -84,6 +128,11 @@ final class _BindingStorage extends LocalStorageService {
   @override
   Future<void> saveQqContactBinding(QqContactBinding value) async {
     bindings.add(value);
+  }
+
+  @override
+  Future<void> deleteQqContactBinding(String id) async {
+    bindings.removeWhere((binding) => binding.id == id);
   }
 
   @override

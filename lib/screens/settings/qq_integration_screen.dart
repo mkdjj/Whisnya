@@ -239,6 +239,10 @@ class _QqIntegrationScreenState extends State<QqIntegrationScreen> {
           mode: mode,
           nativeBridge: widget.runtime?.nativeBridge,
           isAndroid: widget.isAndroid,
+          onBindingsChanged: (bindings) async {
+            if (mounted) setState(() => _bindings = bindings);
+            await widget.runtime?.applySettings(_settings, bindings: bindings);
+          },
         ),
       ),
     );

@@ -116,6 +116,15 @@ void main() {
       expect(bridge.nativeUpdates.last['runtimeActive'], isFalse);
     },
   );
+
+  test('binding changes invalidate queued accessibility replies', () async {
+    final settings = await storage.loadQqIntegrationSettings();
+
+    await runtime.applySettings(settings, bindings: const []);
+
+    expect(bridge.cancelCalls, 1);
+    expect(bridge.nativeUpdates.last['enabledContacts'], 0);
+  });
 }
 
 final class _TrackingNativeBridge extends QqNativeBridge {
