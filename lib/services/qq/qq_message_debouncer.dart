@@ -53,6 +53,8 @@ class QqMessageDebouncer {
     Future.sync(() => batch.onReady(latest.copyWith(text: text)));
   }
 
+  void flush(String externalUserId) => _flush(externalUserId);
+
   void dispose() {
     for (final batch in _pending.values) {
       batch.timer?.cancel();
