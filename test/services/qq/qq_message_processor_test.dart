@@ -124,6 +124,18 @@ void main() {
     );
     expect(storage.sessions.last.openingMessageInitialized, isTrue);
   });
+
+  test('does not deliver a reply when binding is disabled during AI', () async {
+    replies.beforeReturn = () async {
+      storage.bindings[0] = storage.bindings.single.copyWith(enabled: false);
+    };
+    final result = await processor.handle(
+      _message(id: 'disabled-during-ai'),
+      settings: _settings(),
+    );
+    expect(result.status, QqProcessStatus.ignored);
+    expect(result.reason, 'bindingChangedAfterReply');
+  });
 }
 
 QqIntegrationSettings _settings() => const QqIntegrationSettings(
@@ -150,6 +162,7 @@ UnifiedQqMessage _message({
 final class _FakeReplyService implements QqCharacterReplyService {
   var calls = 0;
   UnifiedQqMessage? lastMessage;
+  Future<void> Function()? beforeReturn;
 
   @override
   Future<UnifiedQqReply> reply({
@@ -159,6 +172,7 @@ final class _FakeReplyService implements QqCharacterReplyService {
   }) async {
     calls++;
     lastMessage = message;
+    await beforeReturn?.call();
     return UnifiedQqReply(
       externalUserId: binding.externalUserId,
       bindingId: binding.id,

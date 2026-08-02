@@ -1,5 +1,13 @@
 # Whisnya
 
+## 1.4.3+21
+
+- Added Android QQ private-chat auto-reply with mutually exclusive NapCat / OneBot 11 forward WebSocket and QQ notification-listener modes.
+- Both modes share strict contact bindings, dedicated character sessions, character/session memory, world books, summaries, deduplication, merging, and queued processing.
+- Notification mode prefers RemoteInput quick reply. Optional accessibility is a strictly verified fallback and never sends while locked or when the target cannot be confirmed.
+- Settings now manage bindings, connection and permissions, reply controls, quiet hours, bilingual help, and redacted diagnostics.
+- NapCat and accessibility are unofficial integrations that may stop working or put an account at risk. Use only a non-critical QQ account.
+
 ## 1.4.2+20
 
 - Isolated manual and rolling summaries by operation and session, preventing stale requests or dialogs from writing into another conversation.
@@ -68,7 +76,7 @@ The APK will be generated at:
 build/app/outputs/flutter-apk/app-release.apk
 ```
 
-Current release version is `1.4.2+20`. Keep both `versionName` and `versionCode` increasing for every public release. The Android package name is
+Current release version is `1.4.3+21`. Keep both `versionName` and `versionCode` increasing for every public release. The Android package name is
 `com.mkdjj.whisnya`.
 
 For public distribution, configure your own Android signing key first:
@@ -84,7 +92,7 @@ Then edit `android/key.properties` with your real passwords. Both
 Recommended release asset name:
 
 ```text
-Whisnya-android-v1.4.2-release.apk
+Whisnya-android-v1.4.3-release.apk
 ```
 
 ## Other Platforms
@@ -106,7 +114,7 @@ Ship the whole `Release` folder, not only the `.exe`.
 Recommended Windows release asset name:
 
 ```text
-Whisnya-windows-x64-v1.4.2.zip
+Whisnya-windows-x64-v1.4.3.zip
 ```
 
 Generate iOS or macOS platform files, then build on macOS with Xcode installed:
@@ -129,6 +137,11 @@ app_data/
   settings.json
   characters.json
   novels.json
+  config/
+    qq_integration.json
+    qq_contact_bindings.json
+  logs/
+    qq_diagnostics.json
   chats/
     {characterId}.json
   summaries/
@@ -149,6 +162,8 @@ app_data/
 The in-app full-data export creates a zip backup with relative files under `app_data/`.
 API keys are excluded by default and are only included when you explicitly enable
 that option before exporting.
+The OneBot token stays in platform secure storage and is never included in a full
+backup. QQ settings and contact bindings are included in regular backups.
 Import repairs saved paths for the current platform, so backups can be moved between
 Android, Windows, macOS, and iOS builds of Whisnya.
 
@@ -157,6 +172,10 @@ Android, Windows, macOS, and iOS builds of Whisnya.
 Whisnya is local-first. Chat records, novel text, character data, images, settings,
 and API configuration are stored locally by default. After you configure a third-party
 API endpoint, request content is sent to that model provider when you chat or summarize.
+
+When QQ notification listening is enabled, only explicitly bound contact messages are
+processed. Their content is saved to local chat history and sent to the model API
+configured for the bound character. Diagnostic logs do not store message or reply text.
 
 Do not publicly share backups that contain API keys, chat records, novel text, or
 other private data.

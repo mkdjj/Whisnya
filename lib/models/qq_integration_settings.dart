@@ -31,6 +31,7 @@ class QqIntegrationSettings {
     this.notificationRemoteInputEnabled = true,
     this.accessibilityFallbackEnabled = false,
     this.returnAfterAccessibilitySend = true,
+    this.accessibilitySendButtonViewId = '',
     this.sendFailureNotice = true,
     this.diagnosticLoggingEnabled = true,
   });
@@ -56,6 +57,7 @@ class QqIntegrationSettings {
   final bool notificationRemoteInputEnabled;
   final bool accessibilityFallbackEnabled;
   final bool returnAfterAccessibilitySend;
+  final String accessibilitySendButtonViewId;
   final bool sendFailureNotice;
   final bool diagnosticLoggingEnabled;
 
@@ -123,45 +125,45 @@ class QqIntegrationSettings {
     bool? notificationRemoteInputEnabled,
     bool? accessibilityFallbackEnabled,
     bool? returnAfterAccessibilitySend,
+    String? accessibilitySendButtonViewId,
     bool? sendFailureNotice,
     bool? diagnosticLoggingEnabled,
   }) => QqIntegrationSettings.fromJson({
-    ...toJson(),
-    if (enabled != null) 'enabled': enabled,
-    if (mode != null) 'mode': mode.name,
-    if (defaultCharacterId != null) 'defaultCharacterId': defaultCharacterId,
-    if (mergeWindowMilliseconds != null)
-      'mergeWindowMilliseconds': mergeWindowMilliseconds,
-    if (replyDelayMilliseconds != null)
-      'replyDelayMilliseconds': replyDelayMilliseconds,
-    if (maxReplyCharacters != null) 'maxReplyCharacters': maxReplyCharacters,
-    if (replyChunkCharacters != null)
-      'replyChunkCharacters': replyChunkCharacters,
-    if (requestTimeoutSeconds != null)
-      'requestTimeoutSeconds': requestTimeoutSeconds,
-    if (quietHoursEnabled != null) 'quietHoursEnabled': quietHoursEnabled,
-    if (quietHoursStartMinutes != null)
-      'quietHoursStartMinutes': quietHoursStartMinutes,
-    if (quietHoursEndMinutes != null)
-      'quietHoursEndMinutes': quietHoursEndMinutes,
-    if (oneBotHost != null) 'oneBotHost': oneBotHost,
-    if (oneBotPort != null) 'oneBotPort': oneBotPort,
-    if (oneBotPath != null) 'oneBotPath': oneBotPath,
-    if (oneBotSecure != null) 'oneBotSecure': oneBotSecure,
-    if (oneBotAutoReconnect != null) 'oneBotAutoReconnect': oneBotAutoReconnect,
-    if (allowInsecureRemoteOneBot != null)
-      'allowInsecureRemoteOneBot': allowInsecureRemoteOneBot,
-    if (notificationPackageName != null)
-      'notificationPackageName': notificationPackageName,
-    if (notificationRemoteInputEnabled != null)
-      'notificationRemoteInputEnabled': notificationRemoteInputEnabled,
-    if (accessibilityFallbackEnabled != null)
-      'accessibilityFallbackEnabled': accessibilityFallbackEnabled,
-    if (returnAfterAccessibilitySend != null)
-      'returnAfterAccessibilitySend': returnAfterAccessibilitySend,
-    if (sendFailureNotice != null) 'sendFailureNotice': sendFailureNotice,
-    if (diagnosticLoggingEnabled != null)
-      'diagnosticLoggingEnabled': diagnosticLoggingEnabled,
+    'enabled': enabled ?? this.enabled,
+    'mode': (mode ?? this.mode).name,
+    'defaultCharacterId': defaultCharacterId ?? this.defaultCharacterId,
+    'mergeWindowMilliseconds':
+        mergeWindowMilliseconds ?? this.mergeWindowMilliseconds,
+    'replyDelayMilliseconds':
+        replyDelayMilliseconds ?? this.replyDelayMilliseconds,
+    'maxReplyCharacters': maxReplyCharacters ?? this.maxReplyCharacters,
+    'replyChunkCharacters': replyChunkCharacters ?? this.replyChunkCharacters,
+    'requestTimeoutSeconds':
+        requestTimeoutSeconds ?? this.requestTimeoutSeconds,
+    'quietHoursEnabled': quietHoursEnabled ?? this.quietHoursEnabled,
+    'quietHoursStartMinutes':
+        quietHoursStartMinutes ?? this.quietHoursStartMinutes,
+    'quietHoursEndMinutes': quietHoursEndMinutes ?? this.quietHoursEndMinutes,
+    'oneBotHost': oneBotHost ?? this.oneBotHost,
+    'oneBotPort': oneBotPort ?? this.oneBotPort,
+    'oneBotPath': oneBotPath ?? this.oneBotPath,
+    'oneBotSecure': oneBotSecure ?? this.oneBotSecure,
+    'oneBotAutoReconnect': oneBotAutoReconnect ?? this.oneBotAutoReconnect,
+    'allowInsecureRemoteOneBot':
+        allowInsecureRemoteOneBot ?? this.allowInsecureRemoteOneBot,
+    'notificationPackageName':
+        notificationPackageName ?? this.notificationPackageName,
+    'notificationRemoteInputEnabled':
+        notificationRemoteInputEnabled ?? this.notificationRemoteInputEnabled,
+    'accessibilityFallbackEnabled':
+        accessibilityFallbackEnabled ?? this.accessibilityFallbackEnabled,
+    'returnAfterAccessibilitySend':
+        returnAfterAccessibilitySend ?? this.returnAfterAccessibilitySend,
+    'accessibilitySendButtonViewId':
+        accessibilitySendButtonViewId ?? this.accessibilitySendButtonViewId,
+    'sendFailureNotice': sendFailureNotice ?? this.sendFailureNotice,
+    'diagnosticLoggingEnabled':
+        diagnosticLoggingEnabled ?? this.diagnosticLoggingEnabled,
   });
 
   factory QqIntegrationSettings.fromJson(Map<String, dynamic>? json) {
@@ -211,6 +213,8 @@ class QqIntegrationSettings {
           value['accessibilityFallbackEnabled'] as bool? ?? false,
       returnAfterAccessibilitySend:
           value['returnAfterAccessibilitySend'] as bool? ?? true,
+      accessibilitySendButtonViewId:
+          (value['accessibilitySendButtonViewId'] as String? ?? '').trim(),
       sendFailureNotice: value['sendFailureNotice'] as bool? ?? true,
       diagnosticLoggingEnabled:
           value['diagnosticLoggingEnabled'] as bool? ?? true,
@@ -239,6 +243,7 @@ class QqIntegrationSettings {
     'notificationRemoteInputEnabled': notificationRemoteInputEnabled,
     'accessibilityFallbackEnabled': accessibilityFallbackEnabled,
     'returnAfterAccessibilitySend': returnAfterAccessibilitySend,
+    'accessibilitySendButtonViewId': accessibilitySendButtonViewId,
     'sendFailureNotice': sendFailureNotice,
     'diagnosticLoggingEnabled': diagnosticLoggingEnabled,
   };

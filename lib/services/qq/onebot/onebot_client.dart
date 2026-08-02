@@ -1,3 +1,5 @@
+// ignore_for_file: close_sinks
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -23,6 +25,7 @@ class OneBotClient {
 
   final Duration actionTimeout;
   final OneBotReconnectPolicy _reconnectPolicy;
+  // Both controllers are closed by dispose().
   final _messages = StreamController<UnifiedQqMessage>.broadcast();
   final _states = StreamController<QqConnectionState>.broadcast();
   WebSocket? _socket;
@@ -156,6 +159,12 @@ class OneBotClient {
     _stopRequested = true;
     await _closeSocket();
     _setState(QqConnectionState.stopped);
+  }
+
+  Future<void> dispose() async {
+    await disconnect();
+    await _messages.close();
+    await _states.close();
   }
 
   Future<void> _closeSocket() async {

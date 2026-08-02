@@ -24,11 +24,13 @@ class QqContactQueue {
     });
     final tail = result.then<void>((_) {}, onError: (_, _) {});
     _contactTails[contactId] = tail;
-    tail.whenComplete(() {
-      if (identical(_contactTails[contactId], tail)) {
-        _contactTails.remove(contactId);
-      }
-    });
+    unawaited(
+      tail.whenComplete(() {
+        if (identical(_contactTails[contactId], tail)) {
+          unawaited(_contactTails.remove(contactId));
+        }
+      }),
+    );
     return result;
   }
 

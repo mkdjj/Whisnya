@@ -756,4 +756,142 @@ const _en = {
   '聊天外观': 'Chat appearance',
   '请先到 API 设置添加配置': 'Add an API configuration in API settings first.',
   '预览': 'Preview',
+  'QQ 私聊自动回复': 'QQ private chat auto-reply',
+  'NapCat / OneBot 或通知监听': 'NapCat / OneBot or notification listener',
+  '当前仅 Android 支持手机后台 QQ 接入':
+      'Background QQ integration is currently available on Android only',
+  '非官方接入风险': 'Unofficial integration risk',
+  'NapCat 可能掉线、失效或触发账号风险；通知和无障碍依赖 QQ 当前格式。只使用不重要的 QQ 小号。':
+      'NapCat may disconnect, stop working, or put the account at risk. Notification and accessibility modes depend on the current QQ layout. Use only a non-critical QQ account.',
+  '总开关': 'Master switch',
+  '仍需手动点击“启动”才会运行': 'You must still tap Start to run it',
+  '通知监听': 'Notification listener',
+  '状态': 'Status',
+  '运行中': 'Running',
+  '已停止': 'Stopped',
+  '启动': 'Start',
+  '暂停': 'Pause',
+  '停止': 'Stop',
+  '联系人绑定': 'Contact bindings',
+  '强制白名单；每位联系人绑定一个角色和独立会话':
+      'Strict allowlist; every contact uses one character and a dedicated session',
+  '权限和隐私': 'Permissions and privacy',
+  '电池优化设置': 'Battery optimization settings',
+  'Termux 与 Whisnya 都建议关闭电池优化':
+      'Disable battery optimization for both Termux and Whisnya',
+  '诊断日志': 'Diagnostic log',
+  '最多 200 条，不记录消息原文、回复原文、API Key 或 token':
+      'Up to 200 entries; message text, reply text, API keys, and tokens are never logged',
+  'NapCat / OneBot 配置': 'NapCat / OneBot settings',
+  'Token（仅安全存储）': 'Token (secure storage only)',
+  '自动重连': 'Auto reconnect',
+  '保存配置': 'Save settings',
+  'Termux 帮助': 'Termux help',
+  'OneBot 配置已保存': 'OneBot settings saved',
+  '远程明文连接风险': 'Remote plaintext connection risk',
+  '远程 ws 会暴露 QQ 消息和 token。确认仍要允许吗？':
+      'A remote ws connection exposes QQ messages and the token. Allow it anyway?',
+  '我已了解并允许': 'I understand and allow it',
+  '通知监听配置': 'Notification listener settings',
+  '通知读取权限': 'Notification access',
+  '应用通知权限': 'App notification permission',
+  '已开启': 'Enabled',
+  '未开启': 'Disabled',
+  '捕获下一条 QQ 私聊通知': 'Capture the next QQ private notification',
+  '进入联系人绑定后开始 60 秒捕获': 'Open contact bindings to start a 60-second capture',
+  '快捷回复': 'Quick reply',
+  '优先使用通知 RemoteInput，不打开 QQ':
+      'Prefer notification RemoteInput without opening QQ',
+  '无障碍兜底': 'Accessibility fallback',
+  '只在快捷回复不存在或失败时使用': 'Used only when quick reply is unavailable or fails',
+  '发送后返回 Whisnya': 'Return to Whisnya after sending',
+  '仅无障碍兜底发送成功后生效':
+      'Applies only after a successful accessibility fallback send',
+  '发送失败时显示提示': 'Show a notice when sending fails',
+  '无障碍服务': 'Accessibility service',
+  'QQ 包名': 'QQ package name',
+  'QQ 包名不能为空。': 'The QQ package name cannot be empty.',
+  '发送按钮 ViewId（可选）': 'Send button ViewId (optional)',
+  '仅在标题严格匹配后用于无障碍兜底':
+      'Used by accessibility fallback only after an exact title match',
+  '保存通知配置': 'Save notification settings',
+  '通知配置已保存': 'Notification settings saved',
+  '使用说明': 'Instructions',
+  '回复设置': 'Reply settings',
+  '连续消息合并窗口': 'Consecutive-message merge window',
+  '回复延迟': 'Reply delay',
+  '最大回复字符（100–8000）': 'Maximum reply characters (100–8000)',
+  'OneBot 分片字符': 'OneBot chunk size',
+  'AI 超时秒数（15–300）': 'AI timeout in seconds (15–300)',
+  '保存回复设置': 'Save reply settings',
+  '静默时段': 'Quiet hours',
+  '支持跨午夜；命令仍可使用': 'May cross midnight; commands remain available',
+  '静默开始': 'Quiet hours start',
+  '静默结束': 'Quiet hours end',
+  '开始与结束相同表示全天静默': 'Matching start and end times mean quiet all day',
+  '无障碍权限披露': 'Accessibility permission disclosure',
+  '通知权限披露': 'Notification access disclosure',
+  '我已了解': 'I understand',
+  '仅在 QQ 通知没有快捷回复时使用。Whisnya 会打开触发通知的 QQ 会话、核对标题、填写回复并点击一次发送。无法确认目标时不会发送。':
+      'Used only when a QQ notification has no quick reply. Whisnya opens the originating QQ chat, verifies its title, fills the reply, and taps Send once. It never sends when the target cannot be verified.',
+  'Whisnya 将读取 QQ 发出的消息通知，只处理你明确绑定的联系人。通知内容会保存到本地聊天记录，并发送给你配置的 AI API。':
+      'Whisnya reads message notifications from QQ and processes only contacts you explicitly bind. Notification content is saved to local chat history and sent to your configured AI API.',
+  'QQ 诊断日志': 'QQ diagnostic log',
+  '已复制脱敏诊断': 'Redacted diagnostics copied',
+  '暂无诊断记录': 'No diagnostic entries',
+  '60 秒内没有捕获到有效 QQ 私聊通知。':
+      'No valid QQ private notification was captured within 60 seconds.',
+  '删除联系人绑定': 'Delete contact binding',
+  '默认只删除绑定；QQ 对话和聊天记录可以保留。':
+      'Only the binding is deleted by default; the QQ session and chat history can be kept.',
+  '仅删除绑定': 'Delete binding only',
+  '删除绑定和 QQ 会话': 'Delete binding and QQ session',
+  '有效 60 秒；捕获到的通知不会触发回复':
+      'Valid for 60 seconds; the captured notification will not trigger a reply',
+  '还没有联系人绑定。陌生联系人会被静默忽略。':
+      'No contact bindings yet. Unknown contacts are silently ignored.',
+  '添加联系人绑定': 'Add contact binding',
+  '编辑联系人绑定': 'Edit contact binding',
+  '请先创建一个角色。': 'Create a character first.',
+  '这个联系人已经绑定。': 'This contact is already bound.',
+  '通知联系人 Key': 'Notification contact key',
+  'QQ 号': 'QQ ID',
+  '只能通过捕获 QQ 私聊通知生成':
+      'Can only be created by capturing a QQ private notification',
+  '始终按字符串保存': 'Always stored as a string',
+  '显示名': 'Display name',
+  '绑定角色': 'Bound character',
+  '联系人标题别名': 'Contact title aliases',
+  '每行一个；无障碍发送时只做精确匹配':
+      'One per line; accessibility sending uses exact matches only',
+  '启用这个联系人': 'Enable this contact',
+  'QQ 通知监听说明': 'QQ notification listener guide',
+  'Whisnya 只处理你通过通知捕获并明确绑定的 QQ 私聊联系人。':
+      'Whisnya processes only QQ private contacts you explicitly bind through notification capture.',
+  '回复优先使用通知自带的快捷回复，成功时不会打开 QQ。':
+      'Replies prefer the notification quick-reply action and do not open QQ when successful.',
+  '只有快捷回复不存在或失败，并且你明确开启无障碍兜底后，才会通过原通知打开对应会话。':
+      'The originating chat is opened only when quick reply is unavailable or fails and you explicitly enable accessibility fallback.',
+  '无障碍会精确核对联系人标题，使用 ACTION_SET_TEXT 填写并只点击一次发送；锁屏、标题不符或无法确认目标时绝不发送。':
+      'Accessibility verifies the exact contact title, fills text with ACTION_SET_TEXT, and taps Send only once. It never sends while locked, on a title mismatch, or when the target is uncertain.',
+  '通知内容会保存到本地聊天记录，并发送给你配置的 AI API。诊断日志不保存消息原文。':
+      'Notification content is saved to local chat history and sent to your configured AI API. Diagnostic logs do not store message text.',
+  'NapCat / Termux 帮助': 'NapCat / Termux guide',
+  'NapCat 是非官方 QQ 接入，可能掉线、失效或触发账号风险。':
+      'NapCat is an unofficial QQ integration and may disconnect, stop working, or put the account at risk.',
+  '复制安装命令': 'Copy install command',
+  '安装 Termux。': 'Install Termux.',
+  '用下方命令安装 NapCat。': 'Install NapCat with the command below.',
+  '登录一个不重要的 QQ 小号。': 'Sign in with a non-critical QQ account.',
+  '在 WebUI 启用 OneBot 11 正向 WebSocket。':
+      'Enable the OneBot 11 forward WebSocket in the WebUI.',
+  '绑定 127.0.0.1，设置端口和随机 token；不要监听 0.0.0.0。':
+      'Bind to 127.0.0.1, set a port and random token, and do not listen on 0.0.0.0.',
+  '回到 Whisnya 测试连接。': 'Return to Whisnya and test the connection.',
+  '添加白名单联系人并绑定角色。': 'Add allowlisted contacts and bind their characters.',
+  '启动 QQ 自动回复。': 'Start QQ auto-reply.',
+  '为 Termux 和 Whisnya 关闭电池优化。':
+      'Disable battery optimization for Termux and Whisnya.',
+  '手机重启后手动重新启动 Termux 和 Whisnya。':
+      'After a phone restart, manually restart Termux and Whisnya.',
 };

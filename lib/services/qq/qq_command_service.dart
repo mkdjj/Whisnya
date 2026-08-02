@@ -1,6 +1,5 @@
 import '../../models/app_character.dart';
 import '../../models/qq_contact_binding.dart';
-import '../../models/qq_integration_settings.dart';
 import '../../models/unified_qq_reply.dart';
 import '../local_storage_service.dart';
 

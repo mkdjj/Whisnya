@@ -1,3 +1,5 @@
+// ignore_for_file: prefer_initializing_formals
+
 import 'dart:async';
 
 import '../../models/ai_usage.dart';
@@ -36,6 +38,7 @@ class BackgroundCharacterChatService implements QqCharacterReplyService {
   final LocalStorageService _storage;
   final AiGateway _aiGateway;
 
+  @override
   Future<UnifiedQqReply> reply({
     required QqContactBinding binding,
     required UnifiedQqMessage message,

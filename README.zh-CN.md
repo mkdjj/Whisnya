@@ -1,5 +1,13 @@
 # Whisnya
 
+## 1.4.3+21
+
+- Android 新增 QQ 私聊自动回复，支持 NapCat / OneBot 11 正向 WebSocket 与 QQ 通知监听两种互斥模式。
+- 两种模式共用联系人白名单、角色独立会话、长期记忆、当前会话记忆、世界书、总结、去重、合并与排队处理。
+- 通知模式优先使用 RemoteInput 快捷回复；可选无障碍仅作严格校验标题后的兜底，锁屏或无法确认目标时不会发送。
+- 设置中可管理联系人绑定、连接与权限、回复参数、静默时段、双语帮助和脱敏诊断日志。
+- NapCat 与无障碍均为非官方接入方式，可能失效或带来账号风险；建议只使用不重要的 QQ 小号。
+
 ## 1.4.2+20
 
 - 手动总结和自动滚动总结现在同时绑定操作编号与会话，旧请求和旧编辑框不会把总结写入其他对话。
@@ -67,7 +75,7 @@ APK 会生成在：
 build/app/outputs/flutter-apk/app-release.apk
 ```
 
-当前发布版本是 `1.4.2+20`。每次公开发版都要同时递增 `versionName`
+当前发布版本是 `1.4.3+21`。每次公开发版都要同时递增 `versionName`
 和 `versionCode`。Android 包名是 `com.mkdjj.whisnya`。
 
 如果要公开分发，请先配置自己的 Android 签名文件：
@@ -83,7 +91,7 @@ Copy-Item android/key.properties.example android/key.properties
 推荐发布文件名：
 
 ```text
-Whisnya-android-v1.4.2-release.apk
+Whisnya-android-v1.4.3-release.apk
 ```
 
 ## 其他平台
@@ -105,7 +113,7 @@ build/windows/x64/runner/Release/
 推荐 Windows 发布文件名：
 
 ```text
-Whisnya-windows-x64-v1.4.2.zip
+Whisnya-windows-x64-v1.4.3.zip
 ```
 
 iOS 或 macOS 需要先生成平台文件，然后在安装了 Xcode 的 macOS 上打包：
@@ -128,6 +136,11 @@ app_data/
   settings.json
   characters.json
   novels.json
+  config/
+    qq_integration.json
+    qq_contact_bindings.json
+  logs/
+    qq_diagnostics.json
   chats/
     {characterId}.json
   summaries/
@@ -147,10 +160,13 @@ app_data/
 
 App 内的“导出全部数据”会生成 zip 备份，里面使用 `app_data/` 下的相对文件结构。
 API Key 默认不会导出，只有在导出前明确勾选“包含 API Key”时才会写入备份。
+OneBot token 使用系统安全存储，不会写入全量备份；QQ 设置和联系人绑定会随普通备份导出。
 导入时会自动修复当前平台的数据路径，所以备份可以在 Whisnya 的 Android、Windows、macOS 和 iOS 版本之间迁移。
 
 ## 隐私说明
 
 Whisnya 是本地优先应用。聊天记录、小说原文、角色数据、图片、设置和 API 配置默认保存在本地。配置第三方 API 后，聊天或总结时的请求内容会发送给对应模型服务商。
+
+启用 QQ 通知监听后，只有明确绑定的联系人消息会被处理；消息会写入本地聊天记录，并发送给你为对应角色配置的模型 API。诊断日志不保存消息或回复原文。
 
 不要公开分享包含 API Key、聊天记录、小说原文或其他隐私内容的备份文件。

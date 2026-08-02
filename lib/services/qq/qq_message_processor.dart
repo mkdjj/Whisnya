@@ -19,6 +19,7 @@ class QqProcessResult {
   const QqProcessResult._({
     required this.status,
     this.reply,
+    this.expectedTitles = const [],
     this.reason = '',
     this.message = '',
   });
@@ -26,14 +27,21 @@ class QqProcessResult {
   const QqProcessResult.ignored([String reason = ''])
     : this._(status: QqProcessStatus.ignored, reason: reason);
 
-  const QqProcessResult.reply(UnifiedQqReply reply)
-    : this._(status: QqProcessStatus.reply, reply: reply);
+  const QqProcessResult.reply(
+    UnifiedQqReply reply, {
+    List<String> expectedTitles = const [],
+  }) : this._(
+         status: QqProcessStatus.reply,
+         reply: reply,
+         expectedTitles: expectedTitles,
+       );
 
   const QqProcessResult.error(String message)
     : this._(status: QqProcessStatus.error, message: message);
 
   final QqProcessStatus status;
   final UnifiedQqReply? reply;
+  final List<String> expectedTitles;
   final String reason;
   final String message;
 
@@ -46,6 +54,7 @@ class QqProcessResult {
       'text': reply!.text,
       'bindingId': reply!.bindingId,
       'sessionId': reply!.sessionId,
+      'expectedTitles': expectedTitles,
     },
     QqProcessStatus.error => {'status': 'error', 'message': message},
   };
@@ -54,11 +63,13 @@ class QqProcessResult {
 class QqMessageProcessor {
   QqMessageProcessor({
     required LocalStorageService storage,
+    // ignore: prefer_initializing_formals
     required QqCharacterReplyService chatService,
     QqMessageDeduplicator? deduplicator,
     QqMessageDebouncer? debouncer,
     QqContactQueue? queue,
   }) : _storage = storage,
+       // ignore: prefer_initializing_formals
        _chatService = chatService,
        _deduplicator = deduplicator ?? QqMessageDeduplicator(),
        _debouncer =
@@ -95,6 +106,13 @@ class QqMessageProcessor {
     final text = message.text.trim();
     if (text.isEmpty) return const QqProcessResult.ignored('empty');
     final normalized = message.copyWith(text: text);
+    await _diagnostics.record(
+      settings: settings,
+      mode: message.source,
+      eventType: QqDiagnosticEventType.received,
+      success: true,
+      messageId: message.messageId,
+    );
     final binding = await _findBinding(normalized);
     if (binding == null) {
       await _diagnostics.record(
@@ -143,9 +161,25 @@ class QqMessageProcessor {
     final previous = _pendingResults[message.externalUserId];
     if (previous != null && !previous.isCompleted) {
       previous.complete(const QqProcessResult.ignored('merged'));
+      await _diagnostics.record(
+        settings: settings,
+        mode: message.source,
+        eventType: QqDiagnosticEventType.merged,
+        success: true,
+        contactDisplayName: binding.displayName,
+        messageId: message.messageId,
+      );
     }
     _pendingResults[message.externalUserId] = completer;
     _debouncer.add(normalized, (merged) async {
+      await _diagnostics.record(
+        settings: settings,
+        mode: message.source,
+        eventType: QqDiagnosticEventType.queued,
+        success: true,
+        contactDisplayName: binding.displayName,
+        messageId: message.messageId,
+      );
       final result = await _queue.run(
         merged.externalUserId,
         () => _handleMerged(merged, settings),
@@ -179,6 +213,13 @@ class QqMessageProcessor {
         message: message,
         settings: settings,
       );
+      final liveBinding = await _findBinding(message);
+      if (liveBinding == null ||
+          !liveBinding.enabled ||
+          liveBinding.id != binding.id ||
+          liveBinding.sessionId != binding.sessionId) {
+        return const QqProcessResult.ignored('bindingChangedAfterReply');
+      }
       await _diagnostics.record(
         settings: settings,
         mode: message.source,
@@ -189,9 +230,15 @@ class QqMessageProcessor {
         durationMilliseconds: DateTime.now().difference(started).inMilliseconds,
         replyLength: reply.text.runes.length,
       );
-      return QqProcessResult.reply(reply);
+      return QqProcessResult.reply(
+        reply,
+        expectedTitles: {
+          binding.displayName,
+          ...binding.notificationTitleAliases,
+          message.rawConversationTitle,
+        }.where((title) => title.trim().isNotEmpty).toList(),
+      );
     } on Object catch (error) {
-      final summary = error.toString();
       await _diagnostics.record(
         settings: settings,
         mode: message.source,
@@ -199,7 +246,7 @@ class QqMessageProcessor {
         success: false,
         messageId: message.messageId,
         errorCode: error.runtimeType.toString(),
-        errorSummary: summary,
+        errorSummary: 'AI or reply processing failed',
       );
       return QqProcessResult.error('QQ 自动回复失败，请查看诊断日志。');
     }
@@ -213,7 +260,13 @@ class QqMessageProcessor {
       final reply = await _commands.handle(command, binding);
       return reply == null
           ? const QqProcessResult.ignored('notCommand')
-          : QqProcessResult.reply(reply);
+          : QqProcessResult.reply(
+              reply,
+              expectedTitles: {
+                binding.displayName,
+                ...binding.notificationTitleAliases,
+              }.toList(),
+            );
     } on Object {
       return const QqProcessResult.error('QQ 命令处理失败，请查看诊断日志。');
     }

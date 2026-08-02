@@ -25,7 +25,7 @@ class QqMessageDebouncer {
     final key = message.externalUserId;
     if (isCommand || mergeWindow == Duration.zero) {
       _flush(key);
-      Future.sync(() => onReady(message));
+      unawaited(Future.sync(() => onReady(message)));
       return;
     }
     final batch = _pending.putIfAbsent(
@@ -50,7 +50,7 @@ class QqMessageDebouncer {
     final text = String.fromCharCodes(
       runes.length <= maximumCharacters ? runes : runes.take(maximumCharacters),
     );
-    Future.sync(() => batch.onReady(latest.copyWith(text: text)));
+    unawaited(Future.sync(() => batch.onReady(latest.copyWith(text: text))));
   }
 
   void flush(String externalUserId) => _flush(externalUserId);

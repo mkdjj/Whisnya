@@ -12,7 +12,15 @@ val newBuildDir: Directory =
 rootProject.layout.buildDirectory.value(newBuildDir)
 
 subprojects {
-    val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
+    val rootDrive = rootProject.projectDir.toPath().root
+    val projectDrive = project.projectDir.toPath().root
+    val newSubprojectBuildDir: Directory = if (projectDrive == rootDrive) {
+        newBuildDir.dir(project.name)
+    } else {
+        project.layout.projectDirectory.dir(
+            "${System.getProperty("java.io.tmpdir").replace('\\', '/')}/whisnya-gradle/${project.name}",
+        )
+    }
     project.layout.buildDirectory.value(newSubprojectBuildDir)
 }
 subprojects {

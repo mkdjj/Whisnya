@@ -81,6 +81,7 @@ void main() {
             );
           }
         }
+        await socket.close();
         serverDone.complete();
       }());
 
@@ -97,8 +98,9 @@ void main() {
       final send = requests.firstWhere(
         (request) => request['action'] == 'send_private_msg',
       );
-      expect(send['params']['user_id'], '900719925474099399999');
-      await client.disconnect();
+      final params = send['params'] as Map<String, dynamic>;
+      expect(params['user_id'], '900719925474099399999');
+      await client.dispose();
       await server.close(force: true);
       await serverDone.future.timeout(const Duration(seconds: 1));
     },

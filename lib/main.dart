@@ -6,18 +6,35 @@ import 'models/app_settings.dart';
 import 'screens/home_screen.dart';
 import 'services/ai_service.dart';
 import 'services/local_storage_service.dart';
+import 'services/qq/qq_integration_runtime.dart';
 import 'utils/app_i18n.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(WhisnyaApp(storage: LocalStorageService(), aiService: AiService()));
+  final storage = LocalStorageService();
+  final aiService = AiService();
+  await storage.ensureReady();
+  final qqRuntime = QqIntegrationRuntime(
+    storage: storage,
+    aiGateway: aiService,
+  );
+  await qqRuntime.initialize();
+  runApp(
+    WhisnyaApp(storage: storage, aiService: aiService, qqRuntime: qqRuntime),
+  );
 }
 
 class WhisnyaApp extends StatefulWidget {
-  const WhisnyaApp({required this.storage, required this.aiService, super.key});
+  const WhisnyaApp({
+    required this.storage,
+    required this.aiService,
+    this.qqRuntime,
+    super.key,
+  });
 
   final LocalStorageService storage;
   final AiService aiService;
+  final QqIntegrationRuntime? qqRuntime;
 
   @override
   State<WhisnyaApp> createState() => _WhisnyaAppState();
@@ -66,6 +83,7 @@ class _WhisnyaAppState extends State<WhisnyaApp> {
       home: HomeScreen(
         storage: widget.storage,
         aiService: widget.aiService,
+        qqRuntime: widget.qqRuntime,
         settings: _settings,
         onSettingsChanged: _loadSettings,
       ),

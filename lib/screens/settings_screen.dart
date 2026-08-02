@@ -10,6 +10,7 @@ import '../models/image_crop_region.dart';
 import '../models/user_profile.dart';
 import '../services/ai_service.dart';
 import '../services/local_storage_service.dart';
+import '../services/qq/qq_integration_runtime.dart';
 import '../utils/app_i18n.dart';
 import '../utils/character_import_flow.dart';
 import '../utils/confirm_dialog.dart';
@@ -23,6 +24,7 @@ import '../widgets/color_picker_dialog.dart';
 import 'api_settings_screen.dart';
 import 'chat/world_book_screens.dart';
 import 'image_crop_screen.dart';
+import 'settings/qq_integration_screen.dart';
 import 'user_profile_edit_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -31,11 +33,13 @@ class SettingsScreen extends StatefulWidget {
     required this.settings,
     required this.onSettingsChanged,
     this.aiService,
+    this.qqRuntime,
     super.key,
   });
 
   final LocalStorageService storage;
   final AiService? aiService;
+  final QqIntegrationRuntime? qqRuntime;
   final AppSettings settings;
   final Future<void> Function() onSettingsChanged;
 
@@ -109,6 +113,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => WorldBookManagerScreen(storage: widget.storage),
+      ),
+    );
+  }
+
+  Future<void> _openQqIntegration() async {
+    if (!Platform.isAndroid) return;
+    final runtime = widget.qqRuntime;
+    if (runtime == null) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) =>
+            QqIntegrationScreen(storage: widget.storage, runtime: runtime),
       ),
     );
   }
@@ -876,6 +892,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 title: context.t('关键词世界书'),
                 subtitle: context.t('管理全局世界书和关键词词条'),
                 onTap: _openWorldBookSettings,
+              ),
+            ),
+            KeyedSubtree(
+              key: const ValueKey('qq-integration-settings-tile'),
+              child: _tile(
+                icon: Icons.chat_bubble_outline,
+                title: context.t('QQ 私聊自动回复'),
+                subtitle: Platform.isAndroid
+                    ? context.t('NapCat / OneBot 或通知监听')
+                    : context.t('当前仅 Android 支持手机后台 QQ 接入'),
+                onTap: Platform.isAndroid && widget.qqRuntime != null
+                    ? _openQqIntegration
+                    : null,
               ),
             ),
             KeyedSubtree(
