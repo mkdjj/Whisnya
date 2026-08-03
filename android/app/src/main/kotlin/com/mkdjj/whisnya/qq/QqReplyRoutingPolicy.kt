@@ -16,11 +16,26 @@ object QqReplyRoutingPolicy {
         return QqDeliveryRoute.Accessibility
     }
 
-    fun failureCode(remoteInput: QqRemoteInputDisposition): String = when (remoteInput) {
+    fun failureCode(
+        remoteInput: QqRemoteInputDisposition,
+        concreteFailureCode: String? = null,
+    ): String = when (remoteInput) {
         QqRemoteInputDisposition.Unavailable -> "remote_input_unavailable"
         QqRemoteInputDisposition.Disabled -> "remote_input_disabled"
-        QqRemoteInputDisposition.Failed -> "remote_input_failed"
+        QqRemoteInputDisposition.Failed ->
+            concreteFailureCode?.takeIf(String::isNotBlank) ?: "remote_input_failed"
         QqRemoteInputDisposition.Sent -> ""
+    }
+}
+
+object QqRemoteInputFailureReporter {
+    fun report(
+        disposition: QqRemoteInputDisposition,
+        concreteFailureCode: String? = null,
+        emit: (String) -> Unit,
+    ) {
+        val code = QqReplyRoutingPolicy.failureCode(disposition, concreteFailureCode)
+        if (code.isNotEmpty()) emit(code)
     }
 }
 

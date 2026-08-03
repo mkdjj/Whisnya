@@ -42,30 +42,24 @@ class QqNotificationVersionGuardTest {
     fun `same message notification update remains usable for delivery`() {
         assertTrue(
             QqPendingNotificationMatchPolicy.canUseForDelivery(
-                storedMessageId = "message-2",
                 storedContactKey = "alice",
                 storedText = "hello",
-                callbackMessageId = "message-1",
                 callbackContactKey = "alice",
                 callbackText = "hello",
             ),
         )
         assertFalse(
             QqPendingNotificationMatchPolicy.canUseForDelivery(
-                storedMessageId = "message-2",
                 storedContactKey = "alice",
                 storedText = "different",
-                callbackMessageId = "message-1",
                 callbackContactKey = "alice",
                 callbackText = "hello",
             ),
         )
         assertFalse(
             QqPendingNotificationMatchPolicy.canUseForDelivery(
-                storedMessageId = "message-2",
                 storedContactKey = "bob",
                 storedText = "hello",
-                callbackMessageId = "message-1",
                 callbackContactKey = "alice",
                 callbackText = "hello",
             ),

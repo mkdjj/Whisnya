@@ -53,6 +53,19 @@ class QqReplyRoutingPolicyTest {
     }
 
     @Test
+    fun `remote input failure emits its concrete code exactly once`() {
+        val emitted = mutableListOf<String>()
+
+        QqRemoteInputFailureReporter.report(
+            disposition = QqRemoteInputDisposition.Failed,
+            concreteFailureCode = "pending_intent_cancelled",
+            emit = emitted::add,
+        )
+
+        assertEquals(listOf("pending_intent_cancelled"), emitted)
+    }
+
+    @Test
     fun `locked device always aborts before accessibility`() {
         assertEquals(
             QqDeliveryRoute.AbortLocked,

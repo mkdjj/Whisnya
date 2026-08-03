@@ -52,7 +52,6 @@ class QqNotificationListenerService : NotificationListenerService() {
         }
         val pending = QqPendingReplyStore.notificationForDelivery(
             key = parsed.notificationKey,
-            messageId = parsed.messageId,
             contactKey = parsed.contactKey,
             text = parsed.text,
         ) ?: run {
@@ -89,14 +88,17 @@ class QqNotificationListenerService : NotificationListenerService() {
                 } else {
                     QqRemoteInputDisposition.Disabled
                 }
-                is QqRemoteInputResult.Failed -> {
-                    QqBridgeChannels.emit(
-                        "remoteInputSend",
-                        mapOf("success" to false, "errorCode" to remote.code),
-                    )
-                    QqRemoteInputDisposition.Failed
-                }
+                is QqRemoteInputResult.Failed -> QqRemoteInputDisposition.Failed
             }
+        QqRemoteInputFailureReporter.report(
+            disposition = disposition,
+            concreteFailureCode = (remote as? QqRemoteInputResult.Failed)?.code,
+        ) { code ->
+            QqBridgeChannels.emit(
+                "remoteInputSend",
+                mapOf("success" to false, "errorCode" to code),
+            )
+        }
         when (QqReplyRoutingPolicy.route(
             disposition,
             QqNativeConfiguration.accessibilityFallbackEnabled,
@@ -109,13 +111,6 @@ class QqNotificationListenerService : NotificationListenerService() {
                     deliveryMessageId,
                 )
                 QqPendingReplyStore.showFailureNotice(this)
-                QqBridgeChannels.emit(
-                    "remoteInputSend",
-                    mapOf(
-                        "success" to false,
-                        "errorCode" to QqReplyRoutingPolicy.failureCode(disposition),
-                    ),
-                )
                 return
             }
             QqDeliveryRoute.AbortLocked -> {
