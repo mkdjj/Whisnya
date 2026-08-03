@@ -1,6 +1,7 @@
 package com.mkdjj.whisnya.qq
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -62,6 +63,42 @@ class QqNotificationParserTest {
     }
 
     @Test
+    fun `qq unread count notification is capturable despite legacy group flag`() {
+        val parsed = QqNotificationParser.parseSnapshot(
+            snapshot(
+                groupConversation = true,
+                conversationTitle = "Alice（2条未读信息）",
+                title = "Alice（2条未读信息）",
+            ),
+        )
+
+        assertNotNull(parsed)
+        assertEquals("Alice", parsed?.title)
+    }
+
+    @Test
+    fun `group compatibility checks only the selected title candidate`() {
+        assertNull(
+            QqNotificationParser.parseSnapshot(
+                snapshot(
+                    groupConversation = true,
+                    conversationTitle = "Study Group",
+                    title = "Alice（2条未读信息）",
+                ),
+            ),
+        )
+        val parsed = QqNotificationParser.parseSnapshot(
+            snapshot(
+                groupConversation = true,
+                conversationTitle = null,
+                title = null,
+                messagingPersonName = "Alice（2条未读信息）",
+            ),
+        )
+        assertEquals("Alice", parsed?.title)
+    }
+
+    @Test
     fun `ignores service notifications and empty text`() {
         assertNull(QqNotificationParser.parseSnapshot(snapshot(title = "QQ", extraText = "QQ正在运行")))
         assertNull(QqNotificationParser.parseSnapshot(snapshot(extraText = "")))
@@ -76,6 +113,7 @@ class QqNotificationParserTest {
         title: String? = "Alice",
         messagingTexts: List<String> = emptyList(),
         extraText: String? = "hello",
+        messagingPersonName: String? = null,
         shortcutId: String? = null,
     ) = QqNotificationSnapshot(
         packageName = packageName,
@@ -86,7 +124,7 @@ class QqNotificationParserTest {
         groupConversation = groupConversation,
         conversationTitle = conversationTitle,
         title = title,
-        messagingPersonName = null,
+        messagingPersonName = messagingPersonName,
         messagingTexts = messagingTexts,
         extraText = extraText,
         bigText = null,

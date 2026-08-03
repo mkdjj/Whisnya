@@ -66,29 +66,68 @@ class _QqContactBindingsScreenState extends State<QqContactBindingsScreen> {
     final bridge = widget.nativeBridge;
     if (!widget.isAndroid || bridge == null || _capturing) return;
     setState(() => _capturing = true);
+    final capture = Completer<Map<String, dynamic>?>();
+    Object? streamError;
+    final subscription = bridge.capturedNotifications.listen(
+      (value) {
+        if (!capture.isCompleted) capture.complete(value);
+      },
+      onError: (Object error) {
+        streamError = error;
+        if (!capture.isCompleted) capture.complete(null);
+      },
+      onDone: () {
+        if (!capture.isCompleted) capture.complete(null);
+      },
+    );
+    Map<String, dynamic>? captured;
     try {
-      await bridge.beginNotificationCapture();
-      final captured = await bridge.capturedNotifications.first.timeout(
-        const Duration(seconds: 65),
+      await bridge.beginNotificationCapture().timeout(
+        const Duration(seconds: 10),
       );
-      if (!mounted) return;
-      final changed = await Navigator.of(context).push(
-        MaterialPageRoute<QqContactBinding>(
-          builder: (_) => QqContactBindingEditScreen(
-            storage: widget.storage,
-            mode: QqIntegrationMode.notification,
-            capturedExternalUserId: captured['contactKey'] as String? ?? '',
-            capturedDisplayName: captured['title'] as String? ?? '',
-          ),
-        ),
-      );
-      await _load(notifyChanged: changed != null);
+      captured = await capture.future.timeout(const Duration(seconds: 65));
+      if (captured == null) {
+        throw streamError ?? StateError('Capture stream closed');
+      }
     } on TimeoutException {
       if (mounted) _snack(context.t('60 秒内没有捕获到有效 QQ 私聊通知。'));
+    } on Object {
+      if (mounted) {
+        _snack(
+          context.isEnglish
+              ? 'QQ notification capture failed. Check notification access and retry.'
+              : 'QQ 通知捕获失败，请检查通知读取权限后重试。',
+        );
+      }
     } finally {
-      await bridge.cancelNotificationCapture();
+      if (!capture.isCompleted) capture.complete(null);
+      try {
+        unawaited(subscription.cancel().catchError((_) {}));
+      } on Object {
+        // The capture is already ending; never leave the action disabled.
+      }
+      try {
+        await bridge.cancelNotificationCapture().timeout(
+          const Duration(seconds: 5),
+        );
+      } on Object {
+        // Native capture expires by itself after 60 seconds.
+      }
       if (mounted) setState(() => _capturing = false);
     }
+    final capturedValue = captured;
+    if (!mounted || capturedValue == null) return;
+    final changed = await Navigator.of(context).push(
+      MaterialPageRoute<QqContactBinding>(
+        builder: (_) => QqContactBindingEditScreen(
+          storage: widget.storage,
+          mode: QqIntegrationMode.notification,
+          capturedExternalUserId: capturedValue['contactKey'] as String? ?? '',
+          capturedDisplayName: capturedValue['title'] as String? ?? '',
+        ),
+      ),
+    );
+    await _load(notifyChanged: changed != null);
   }
 
   Future<void> _edit(QqContactBinding binding) async {

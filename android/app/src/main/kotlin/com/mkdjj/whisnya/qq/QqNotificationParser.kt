@@ -89,16 +89,17 @@ object QqNotificationParser {
     fun parseSnapshot(snapshot: QqNotificationSnapshot): ParsedQqNotification? {
         if (snapshot.packageName != QQ_PACKAGE ||
             snapshot.ongoing ||
-            snapshot.groupSummary ||
-            snapshot.groupConversation
+            snapshot.groupSummary
         ) {
             return null
         }
-        val title = firstNonEmpty(
+        val rawTitle = firstNonEmpty(
             snapshot.conversationTitle,
             snapshot.title,
             snapshot.messagingPersonName,
-        )?.let(::normalizeConversationTitle)?.takeIf(String::isNotEmpty) ?: return null
+        ) ?: return null
+        if (snapshot.groupConversation && !hasUnreadCountSuffix(rawTitle)) return null
+        val title = normalizeConversationTitle(rawTitle).takeIf(String::isNotEmpty) ?: return null
         val text = firstNonEmpty(
             snapshot.messagingTexts.lastOrNull(),
             snapshot.extraText,
@@ -131,6 +132,9 @@ object QqNotificationParser {
 
     fun normalizeConversationTitle(value: String): String =
         normalizeTitle(value).replace(unreadCountSuffix, "").trim()
+
+    private fun hasUnreadCountSuffix(value: String): Boolean =
+        unreadCountSuffix.containsMatchIn(normalizeTitle(value))
 
     private fun firstNonEmpty(vararg values: String?): String? =
         values.firstOrNull { !it.isNullOrBlank() }
