@@ -45,6 +45,20 @@ object QqAccessibilityCompletionGuard {
     )
 }
 
+object QqPendingNotificationMatchPolicy {
+    fun canUseForDelivery(
+        storedMessageId: String,
+        storedContactKey: String,
+        storedText: String,
+        callbackMessageId: String,
+        callbackContactKey: String,
+        callbackText: String,
+    ): Boolean = storedMessageId == callbackMessageId ||
+        (storedContactKey == callbackContactKey && storedText == callbackText)
+
+    fun keepIgnored(reason: String?): Boolean = reason == "duplicate"
+}
+
 object QqPendingReplyStore {
     private const val NOTIFICATION_TTL = 3 * 60 * 1000L
     private const val ACCESSIBILITY_TTL = 30 * 1000L
@@ -67,6 +81,26 @@ object QqPendingReplyStore {
         prune()
         return notifications[key]?.takeIf {
             QqNotificationVersionGuard.isCurrent(it.parsed.messageId, messageId)
+        }
+    }
+
+    @Synchronized
+    fun notificationForDelivery(
+        key: String,
+        messageId: String,
+        contactKey: String,
+        text: String,
+    ): QqPendingNotificationContext? {
+        prune()
+        return notifications[key]?.takeIf {
+            QqPendingNotificationMatchPolicy.canUseForDelivery(
+                storedMessageId = it.parsed.messageId,
+                storedContactKey = it.parsed.contactKey,
+                storedText = it.parsed.text,
+                callbackMessageId = messageId,
+                callbackContactKey = contactKey,
+                callbackText = text,
+            )
         }
     }
 

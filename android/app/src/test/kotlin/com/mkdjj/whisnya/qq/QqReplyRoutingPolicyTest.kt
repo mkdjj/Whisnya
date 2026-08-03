@@ -37,6 +37,22 @@ class QqReplyRoutingPolicyTest {
     }
 
     @Test
+    fun `remote input abort exposes a useful diagnostic code`() {
+        assertEquals(
+            "remote_input_unavailable",
+            QqReplyRoutingPolicy.failureCode(QqRemoteInputDisposition.Unavailable),
+        )
+        assertEquals(
+            "remote_input_disabled",
+            QqReplyRoutingPolicy.failureCode(QqRemoteInputDisposition.Disabled),
+        )
+        assertEquals(
+            "remote_input_failed",
+            QqReplyRoutingPolicy.failureCode(QqRemoteInputDisposition.Failed),
+        )
+    }
+
+    @Test
     fun `locked device always aborts before accessibility`() {
         assertEquals(
             QqDeliveryRoute.AbortLocked,

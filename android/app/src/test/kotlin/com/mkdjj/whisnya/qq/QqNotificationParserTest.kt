@@ -38,6 +38,30 @@ class QqNotificationParserTest {
     }
 
     @Test
+    fun `unread count suffix keeps the captured contact identity`() {
+        val plain = QqNotificationParser.parseSnapshot(
+            snapshot(conversationTitle = "Alice", title = "Alice"),
+        )!!
+        val fullWidth = QqNotificationParser.parseSnapshot(
+            snapshot(
+                conversationTitle = "Alice（2条未读信息）",
+                title = "Alice（2条未读信息）",
+            ),
+        )!!
+        val halfWidth = QqNotificationParser.parseSnapshot(
+            snapshot(
+                conversationTitle = "Alice (12条新消息)",
+                title = "Alice (12条新消息)",
+            ),
+        )!!
+
+        assertEquals("Alice", fullWidth.title)
+        assertEquals("Alice", halfWidth.title)
+        assertEquals(plain.contactKey, fullWidth.contactKey)
+        assertEquals(plain.contactKey, halfWidth.contactKey)
+    }
+
+    @Test
     fun `ignores service notifications and empty text`() {
         assertNull(QqNotificationParser.parseSnapshot(snapshot(title = "QQ", extraText = "QQ正在运行")))
         assertNull(QqNotificationParser.parseSnapshot(snapshot(extraText = "")))

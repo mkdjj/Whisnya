@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -64,6 +65,41 @@ void main() {
       expect(replies.lastMessage!.text, 'first\nsecond');
     },
   );
+
+  test('message arriving during AI receives its own later reply', () async {
+    final firstStarted = Completer<void>();
+    final releaseFirst = Completer<void>();
+    var blockFirst = true;
+    replies.beforeReturn = () async {
+      if (!blockFirst) return;
+      blockFirst = false;
+      firstStarted.complete();
+      await releaseFirst.future;
+    };
+
+    final first = processor.handle(
+      _message(id: 'during-ai-1', text: 'first'),
+      settings: _settings(),
+    );
+    await firstStarted.future;
+    final second = processor.handle(
+      _message(id: 'during-ai-2', text: 'second'),
+      settings: _settings(),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    releaseFirst.complete();
+
+    expect((await first).text, 'reply: first');
+    expect((await second).text, 'reply: second');
+    expect(replies.calls, 2);
+  });
+
+  test('ignored native result includes its reason', () {
+    expect(const QqProcessResult.ignored('duplicate').toNativeJson(), {
+      'status': 'ignored',
+      'reason': 'duplicate',
+    });
+  });
 
   test(
     'quiet hours ignore ordinary messages but commands still work',

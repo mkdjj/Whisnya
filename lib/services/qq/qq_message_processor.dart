@@ -48,7 +48,7 @@ class QqProcessResult {
   String get text => reply?.text ?? '';
 
   Map<String, dynamic> toNativeJson() => switch (status) {
-    QqProcessStatus.ignored => {'status': 'ignored'},
+    QqProcessStatus.ignored => {'status': 'ignored', 'reason': reason},
     QqProcessStatus.reply => {
       'status': 'reply',
       'text': reply!.text,
@@ -172,6 +172,7 @@ class QqMessageProcessor {
     }
     _pendingResults[message.externalUserId] = completer;
     _debouncer.add(normalized, (merged) async {
+      final batchCompleter = _pendingResults.remove(merged.externalUserId);
       await _diagnostics.record(
         settings: settings,
         mode: message.source,
@@ -184,8 +185,9 @@ class QqMessageProcessor {
         merged.externalUserId,
         () => _handleMerged(merged, settings),
       );
-      final current = _pendingResults.remove(merged.externalUserId);
-      if (current != null && !current.isCompleted) current.complete(result);
+      if (batchCompleter != null && !batchCompleter.isCompleted) {
+        batchCompleter.complete(result);
+      }
     });
     return completer.future;
   }

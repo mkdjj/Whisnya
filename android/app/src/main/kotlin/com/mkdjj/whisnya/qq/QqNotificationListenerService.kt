@@ -40,7 +40,9 @@ class QqNotificationListenerService : NotificationListenerService() {
             return
         }
         if (result?.get("status") != "reply") {
-            QqPendingReplyStore.removeNotification(parsed.notificationKey, parsed.messageId)
+            if (!QqPendingNotificationMatchPolicy.keepIgnored(result?.get("reason") as? String)) {
+                QqPendingReplyStore.removeNotification(parsed.notificationKey, parsed.messageId)
+            }
             return
         }
         val text = result["text"] as? String
@@ -48,10 +50,19 @@ class QqNotificationListenerService : NotificationListenerService() {
             QqPendingReplyStore.removeNotification(parsed.notificationKey, parsed.messageId)
             return
         }
-        val pending = QqPendingReplyStore.notification(
-            parsed.notificationKey,
-            parsed.messageId,
-        ) ?: return
+        val pending = QqPendingReplyStore.notificationForDelivery(
+            key = parsed.notificationKey,
+            messageId = parsed.messageId,
+            contactKey = parsed.contactKey,
+            text = parsed.text,
+        ) ?: run {
+            QqBridgeChannels.emit(
+                "remoteInputSend",
+                mapOf("success" to false, "errorCode" to "notification_context_missing"),
+            )
+            return
+        }
+        val deliveryMessageId = pending.parsed.messageId
         val remote = if (QqNativeConfiguration.remoteInputEnabled) {
             QqRemoteInputReplySender.send(
                 this,
@@ -65,7 +76,7 @@ class QqNotificationListenerService : NotificationListenerService() {
                 QqRemoteInputResult.Sent -> {
                     QqPendingReplyStore.removeNotification(
                         parsed.notificationKey,
-                        parsed.messageId,
+                        deliveryMessageId,
                     )
                     QqBridgeChannels.emit(
                         "remoteInputSend",
@@ -95,17 +106,23 @@ class QqNotificationListenerService : NotificationListenerService() {
             QqDeliveryRoute.Abort -> {
                 QqPendingReplyStore.removeNotification(
                     parsed.notificationKey,
-                    parsed.messageId,
+                    deliveryMessageId,
                 )
                 QqPendingReplyStore.showFailureNotice(this)
-                QqBridgeChannels.emit("remoteInputSend", mapOf("success" to false))
+                QqBridgeChannels.emit(
+                    "remoteInputSend",
+                    mapOf(
+                        "success" to false,
+                        "errorCode" to QqReplyRoutingPolicy.failureCode(disposition),
+                    ),
+                )
                 return
             }
             QqDeliveryRoute.AbortLocked -> {
                 QqPendingReplyStore.showUnlockNotice(this)
                 QqPendingReplyStore.removeNotification(
                     parsed.notificationKey,
-                    parsed.messageId,
+                    deliveryMessageId,
                 )
                 QqBridgeChannels.emit(
                     "accessibilitySend",
@@ -121,7 +138,7 @@ class QqNotificationListenerService : NotificationListenerService() {
             .ifEmpty { listOf(parsed.title) }
         val task = QqPendingReplyStore.enqueueAccessibility(
             notificationKey = parsed.notificationKey,
-            messageId = parsed.messageId,
+            messageId = deliveryMessageId,
             runGeneration = resultGeneration ?: return,
             contactKey = parsed.contactKey,
             expectedTitles = expected,
@@ -130,7 +147,7 @@ class QqNotificationListenerService : NotificationListenerService() {
         ) ?: run {
             QqPendingReplyStore.removeNotification(
                 parsed.notificationKey,
-                parsed.messageId,
+                deliveryMessageId,
             )
             QqPendingReplyStore.showFailureNotice(this)
             QqBridgeChannels.emit(

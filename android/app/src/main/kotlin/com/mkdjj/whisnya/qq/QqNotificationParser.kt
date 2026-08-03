@@ -36,6 +36,9 @@ data class ParsedQqNotification(
 
 object QqNotificationParser {
     private const val QQ_PACKAGE = "com.tencent.mobileqq"
+    private val unreadCountSuffix = Regex(
+        "\\s*[（(]\\s*\\d+\\s*条\\s*(?:未读|新)?\\s*(?:消息|信息)\\s*[）)]\\s*$",
+    )
     private val ignoredPhrases = listOf(
         "qq正在运行",
         "qq服务",
@@ -95,7 +98,7 @@ object QqNotificationParser {
             snapshot.conversationTitle,
             snapshot.title,
             snapshot.messagingPersonName,
-        )?.let(::normalizeTitle) ?: return null
+        )?.let(::normalizeConversationTitle)?.takeIf(String::isNotEmpty) ?: return null
         val text = firstNonEmpty(
             snapshot.messagingTexts.lastOrNull(),
             snapshot.extraText,
@@ -119,9 +122,15 @@ object QqNotificationParser {
     }
 
     fun contactKey(packageName: String, title: String, shortcutId: String?): String =
-        sha256("${packageName.trim()}\n${normalizeTitle(title)}\n${shortcutId?.trim().orEmpty()}")
+        sha256(
+            "${packageName.trim()}\n${normalizeConversationTitle(title)}\n" +
+                shortcutId?.trim().orEmpty(),
+        )
 
     fun normalizeTitle(value: String): String = value.trim().replace(Regex("\\s+"), " ")
+
+    fun normalizeConversationTitle(value: String): String =
+        normalizeTitle(value).replace(unreadCountSuffix, "").trim()
 
     private fun firstNonEmpty(vararg values: String?): String? =
         values.firstOrNull { !it.isNullOrBlank() }

@@ -15,6 +15,13 @@ object QqReplyRoutingPolicy {
         if (deviceLocked) return QqDeliveryRoute.AbortLocked
         return QqDeliveryRoute.Accessibility
     }
+
+    fun failureCode(remoteInput: QqRemoteInputDisposition): String = when (remoteInput) {
+        QqRemoteInputDisposition.Unavailable -> "remote_input_unavailable"
+        QqRemoteInputDisposition.Disabled -> "remote_input_disabled"
+        QqRemoteInputDisposition.Failed -> "remote_input_failed"
+        QqRemoteInputDisposition.Sent -> ""
+    }
 }
 
 object QqNativeRunGuard {
