@@ -31,6 +31,7 @@ migrate_working_dir/
 
 # Local toolchain cache used by this workspace.
 .toolcache/
+.reference/
 .pub-cache/
 .pub/
 /build/

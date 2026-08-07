@@ -20,8 +20,7 @@ object QqAccessibilityReplyExecutor {
         val inputs = nodes.mapIndexedNotNull { index, node ->
             val candidate = QqAccessibilityNodeCandidate(
                 id = index.toString(),
-                editable = node.isEditable &&
-                    node.className?.toString() == "android.widget.EditText",
+                editable = node.isEditable,
                 visible = node.isVisibleToUser,
                 enabled = node.isEnabled,
                 supportsSetText = node.actionList.any {
@@ -45,7 +44,7 @@ object QqAccessibilityReplyExecutor {
 
         val refreshed = service.rootInActiveWindow ?: return false
         if (!hasExpectedTitle(refreshed, task.expectedTitles)) return false
-        val send = findSendButton(refreshed, input) ?: return false
+        val send = findSendButton(refreshed) ?: return false
         if (!QqAccessibilityTaskLauncher.canDeliver(task)) {
             QqAccessibilityTaskLauncher.finishAndContinue(service, task)
             return false
@@ -83,19 +82,28 @@ object QqAccessibilityReplyExecutor {
             if (!node.isVisibleToUser) return@any false
             val bounds = Rect().also(node::getBoundsInScreen)
             bounds.bottom <= maximumBottom &&
-                QqAccessibilitySelector.titleMatches(node.text?.toString(), expected)
+                QqAccessibilitySelector.nodeMatchesTitle(
+                    node.text?.toString(),
+                    node.contentDescription?.toString(),
+                    expected,
+                )
         }
     }
 
-    private fun findSendButton(
-        root: AccessibilityNodeInfo,
-        input: AccessibilityNodeInfo,
-    ): AccessibilityNodeInfo? {
+    private fun findSendButton(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
         val configuredId = QqNativeConfiguration.sendButtonViewId
         if (configuredId.isNotBlank()) {
             val configured = try {
                 root.findAccessibilityNodeInfosByViewId(configuredId)
-                    .filter { it.isVisibleToUser && it.isEnabled && it.isClickable }
+                    .filter {
+                        it.isVisibleToUser &&
+                            it.isEnabled &&
+                            it.isClickable &&
+                            QqAccessibilitySelector.isSendButton(
+                                it.text?.toString(),
+                                it.contentDescription?.toString(),
+                            )
+                    }
             } catch (_: RuntimeException) {
                 emptyList()
             }
@@ -115,15 +123,7 @@ object QqAccessibilityReplyExecutor {
         if (labeled.isNotEmpty()) {
             return QqAccessibilitySelector.onlyCandidate(labeled)
         }
-        val inputBounds = Rect().also(input::getBoundsInScreen)
-        val nearby = descendants(root)
-            .filter { it.isVisibleToUser && it.isEnabled && it.isClickable }
-            .filter {
-                val bounds = Rect().also(it::getBoundsInScreen)
-                bounds.left >= inputBounds.right &&
-                    bounds.centerY() in (inputBounds.top - 40)..(inputBounds.bottom + 40)
-            }
-        return QqAccessibilitySelector.onlyCandidate(nearby)
+        return null
     }
 
     private fun descendants(root: AccessibilityNodeInfo): List<AccessibilityNodeInfo> {

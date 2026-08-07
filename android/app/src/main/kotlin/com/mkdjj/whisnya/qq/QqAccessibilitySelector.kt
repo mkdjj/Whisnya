@@ -29,9 +29,20 @@ object QqAccessibilitySelector {
             .firstOrNull()
 
     fun isSendButton(text: String?, contentDescription: String?): Boolean {
-        val labels = setOf("发送", "Send")
-        return text?.trim() in labels || contentDescription?.trim() in labels
+        val labels = setOf("发送", "发送消息", "send", "send message")
+        fun matches(value: String?): Boolean = value
+            ?.trim()
+            ?.replace(Regex("\\s+"), " ")
+            ?.lowercase() in labels
+        return matches(text) || matches(contentDescription)
     }
+
+    fun nodeMatchesTitle(
+        text: String?,
+        contentDescription: String?,
+        expectedTitles: List<String>,
+    ): Boolean = titleMatches(text, expectedTitles) ||
+        titleMatches(contentDescription, expectedTitles)
 
     fun <T> onlyCandidate(values: List<T>): T? = values.singleOrNull()
 }

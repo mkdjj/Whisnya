@@ -22,16 +22,25 @@ object QqRemoteInputReplySender {
             .orEmpty()
             .mapNotNull { action ->
                 val inputs = action.remoteInputs.orEmpty().filter { it.allowFreeFormInput }
-                if (inputs.isEmpty()) null else Triple(priority(action), action, inputs.first())
+                if (inputs.isEmpty()) null else Triple(priority(action), action, inputs)
             }
             .sortedBy { it.first }
             .firstOrNull() ?: return QqRemoteInputResult.Unavailable
         val action = candidate.second
-        val input = candidate.third
+        val inputs = candidate.third
         return try {
-            val intent = Intent()
-            val results = Bundle().apply { putCharSequence(input.resultKey, reply) }
-            RemoteInput.addResultsToIntent(arrayOf(input), intent, results)
+            val intent = Intent().addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
+            val results = Bundle().apply {
+                inputs.forEach { input -> putCharSequence(input.resultKey, reply) }
+            }
+            RemoteInput.addResultsToIntent(
+                action.remoteInputs ?: inputs.toTypedArray(),
+                intent,
+                results,
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                RemoteInput.setResultsSource(intent, RemoteInput.SOURCE_FREE_FORM_INPUT)
+            }
             action.actionIntent.send(context, 0, intent)
             QqRemoteInputResult.Sent
         } catch (_: PendingIntent.CanceledException) {

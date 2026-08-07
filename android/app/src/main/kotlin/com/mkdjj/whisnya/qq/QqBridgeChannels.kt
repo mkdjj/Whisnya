@@ -36,6 +36,7 @@ object QqBridgeChannels {
                 when (call.method) {
                     "getNativeStatus" -> result.success(nativeStatus(app))
                     "startForegroundBridge" -> {
+                        QqNotificationListenerService.requestReconnect(app)
                         QqBridgeForegroundService.start(app)
                         result.success(true)
                     }
@@ -59,6 +60,7 @@ object QqBridgeChannels {
                     "isAccessibilityServiceEnabled" -> result.success(hasAccessibilityAccess(app))
                     "isQqInstalled" -> result.success(isQqInstalled(app))
                     "beginNotificationCapture" -> {
+                        QqNotificationListenerService.requestReconnect(app)
                         QqNotificationListenerService.beginCapture()
                         result.success(true)
                     }
@@ -68,6 +70,12 @@ object QqBridgeChannels {
                     }
                     "updateNativeQqSettings" -> {
                         QqNativeConfiguration.update(call.arguments as? Map<*, *> ?: emptyMap<Any, Any>())
+                        QqNotificationListenerService.nativeConfigurationUpdated()
+                        if (QqNativeConfiguration.enabled &&
+                            QqNativeConfiguration.mode == "notification"
+                        ) {
+                            QqNotificationListenerService.requestReconnect(app)
+                        }
                         QqBridgeForegroundService.refresh(app)
                         result.success(true)
                     }
@@ -123,6 +131,13 @@ object QqBridgeChannels {
         emit("notificationCapture", mapOf("active" to false, "captured" to true))
     }
 
+    fun notificationListenerState(context: Context, connected: Boolean) {
+        emit(
+            "permissionChanged",
+            nativeStatus(context) + mapOf("listenerConnected" to connected),
+        )
+    }
+
     fun runtimeControl(action: String) {
         invoke("qqRuntimeControl", mapOf("action" to action)) {}
     }
@@ -147,6 +162,7 @@ object QqBridgeChannels {
     private fun nativeStatus(context: Context): Map<String, Any?> = mapOf(
         "foregroundService" to QqBridgeForegroundService.running,
         "notificationAccess" to hasNotificationAccess(context),
+        "notificationListenerConnected" to QqNotificationListenerService.connected,
         "accessibilityAccess" to hasAccessibilityAccess(context),
         "notificationPermission" to hasNotificationPermission(context),
         "qqInstalled" to isQqInstalled(context),

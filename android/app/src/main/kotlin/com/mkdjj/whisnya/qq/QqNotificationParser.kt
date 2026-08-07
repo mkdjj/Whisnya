@@ -18,8 +18,11 @@ data class QqNotificationSnapshot(
     val title: String?,
     val messagingPersonName: String?,
     val messagingTexts: List<String>,
+    val textLines: List<String> = emptyList(),
     val extraText: String?,
     val bigText: String?,
+    val subText: String? = null,
+    val tickerText: String? = null,
     val shortcutId: String?,
 )
 
@@ -35,7 +38,7 @@ data class ParsedQqNotification(
 )
 
 object QqNotificationParser {
-    private const val QQ_PACKAGE = "com.tencent.mobileqq"
+    const val DEFAULT_QQ_PACKAGE = "com.tencent.mobileqq"
     private val unreadCountSuffix = Regex(
         "\\s*[（(]\\s*\\d+\\s*条\\s*(?:未读|新)?\\s*(?:消息|信息)\\s*[）)]\\s*$",
     )
@@ -48,8 +51,12 @@ object QqNotificationParser {
         "好友申请",
         "正在运行",
     )
+    private val ignoredTextPrefixes = listOf("qq正在运行", "qq服务", "正在运行")
 
-    fun parse(status: StatusBarNotification): ParsedQqNotification? {
+    fun parse(
+        status: StatusBarNotification,
+        expectedPackageName: String = QqNativeConfiguration.packageName,
+    ): ParsedQqNotification? {
         val notification = status.notification
         val messages = notification.extras
             .getParcelableArray(Notification.EXTRA_MESSAGES)
@@ -75,39 +82,57 @@ object QqNotificationParser {
                 latestMessage?.getCharSequence("sender")?.toString()
             },
             messagingTexts = messages.mapNotNull { it.getCharSequence("text")?.toString() },
+            textLines = notification.extras
+                .getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
+                .orEmpty()
+                .map(CharSequence::toString),
             extraText = notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString(),
             bigText = notification.extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString(),
+            subText = notification.extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString(),
+            tickerText = notification.tickerText?.toString(),
             shortcutId = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 notification.shortcutId
             } else {
                 null
             },
         )
-        return parseSnapshot(snapshot)
+        return parseSnapshot(snapshot, expectedPackageName)
     }
 
-    fun parseSnapshot(snapshot: QqNotificationSnapshot): ParsedQqNotification? {
-        if (snapshot.packageName != QQ_PACKAGE ||
+    fun parseSnapshot(
+        snapshot: QqNotificationSnapshot,
+        expectedPackageName: String = DEFAULT_QQ_PACKAGE,
+    ): ParsedQqNotification? {
+        if (snapshot.packageName != expectedPackageName.trim() ||
             snapshot.ongoing ||
             snapshot.groupSummary
         ) {
             return null
         }
-        val rawTitle = firstNonEmpty(
-            snapshot.conversationTitle,
-            snapshot.title,
-            snapshot.messagingPersonName,
-        ) ?: return null
-        if (snapshot.groupConversation && !hasUnreadCountSuffix(rawTitle)) return null
+        val rawTitle = selectConversationTitle(snapshot) ?: return null
+        if (snapshot.groupConversation &&
+            snapshot.shortcutId.isNullOrBlank() &&
+            !hasUnreadCountSuffix(rawTitle)
+        ) return null
         val title = normalizeConversationTitle(rawTitle).takeIf(String::isNotEmpty) ?: return null
         val text = firstNonEmpty(
             snapshot.messagingTexts.lastOrNull(),
             snapshot.extraText,
             snapshot.bigText,
+            snapshot.textLines.lastOrNull(),
+            snapshot.subText,
+            snapshot.tickerText,
         )?.trim().orEmpty()
         if (text.isEmpty()) return null
-        val searchable = "$title\n$text".lowercase()
-        if (ignoredPhrases.any(searchable::contains)) return null
+        val normalizedText = text.lowercase()
+        val titleCandidates = listOf(
+            snapshot.conversationTitle,
+            snapshot.title,
+            snapshot.messagingPersonName,
+        ).mapNotNull { it?.let(::normalizeConversationTitle)?.lowercase() }
+        if (titleCandidates.any(ignoredPhrases::contains) ||
+            ignoredTextPrefixes.any(normalizedText::startsWith)
+        ) return null
         val key = contactKey(snapshot.packageName, title, snapshot.shortcutId)
         val messageId = sha256("${snapshot.notificationKey}\n${snapshot.postTime}\n$text")
         return ParsedQqNotification(
@@ -132,6 +157,25 @@ object QqNotificationParser {
 
     fun normalizeConversationTitle(value: String): String =
         normalizeTitle(value).replace(unreadCountSuffix, "").trim()
+
+    private fun selectConversationTitle(snapshot: QqNotificationSnapshot): String? {
+        val conversationTitle = snapshot.conversationTitle
+        if (!conversationTitle.isNullOrBlank() && !isGenericTitle(conversationTitle)) {
+            return conversationTitle
+        }
+        return firstNonEmpty(
+            snapshot.title,
+            snapshot.messagingPersonName,
+            conversationTitle,
+        )
+    }
+
+    private fun isGenericTitle(value: String): Boolean {
+        val normalized = normalizeConversationTitle(value).lowercase()
+        return normalized == "qq" ||
+            normalized == "腾讯qq" ||
+            normalized.matches(Regex("\\d+\\s*条(?:新|未读)?(?:消息|信息)"))
+    }
 
     private fun hasUnreadCountSuffix(value: String): Boolean =
         unreadCountSuffix.containsMatchIn(normalizeTitle(value))

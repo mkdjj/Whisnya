@@ -1,32 +1,98 @@
 package com.mkdjj.whisnya.qq
 
+import android.content.ComponentName
+import android.content.Context
+import android.os.Build
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import java.util.LinkedHashMap
+
+private data class HeldQqNotification(
+    val statusBarNotification: StatusBarNotification,
+    val parsed: ParsedQqNotification,
+    val expiresAt: Long,
+)
 
 class QqNotificationListenerService : NotificationListenerService() {
     override fun onCreate() {
         super.onCreate()
+        instance = this
         QqFlutterEngineHolder.getOrCreate()
+    }
+
+    override fun onDestroy() {
+        connected = false
+        if (instance === this) instance = null
+        super.onDestroy()
+    }
+
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        connected = true
+        instance = this
+        QqBridgeChannels.notificationListenerState(this, true)
+        drainHeldNotifications()
+    }
+
+    override fun onListenerDisconnected() {
+        connected = false
+        QqBridgeChannels.notificationListenerState(this, false)
+        requestReconnect(this)
+        super.onListenerDisconnected()
     }
 
     override fun onNotificationPosted(status: StatusBarNotification?) {
         val value = status ?: return
-        val parsed = QqNotificationParser.parse(value) ?: return
+        val expectedPackage = QqNativeConfiguration.packageName
+        if (value.packageName != expectedPackage) return
+        val parsed = QqNotificationParser.parse(value, expectedPackage) ?: run {
+            QqBridgeChannels.emit(
+                "notificationRejected",
+                mapOf("success" to false, "errorCode" to "notification_format_unsupported"),
+            )
+            return
+        }
         val now = System.currentTimeMillis()
         if (captureUntil >= now) {
             captureUntil = 0
             QqBridgeChannels.notificationCaptured(parsed)
             return
         }
+        when (dispatchDecision()) {
+            QqNotificationDispatchDecision.Hold -> hold(value, parsed)
+            QqNotificationDispatchDecision.Dispatch -> dispatch(value, parsed)
+            QqNotificationDispatchDecision.Ignore -> Unit
+        }
+    }
+
+    private fun dispatch(
+        statusBarNotification: StatusBarNotification,
+        parsed: ParsedQqNotification,
+    ) {
         if (!QqNativeConfiguration.enabled ||
             !QqNativeConfiguration.runtimeActive ||
             QqNativeConfiguration.mode != "notification"
         ) return
-        QqPendingReplyStore.put(value, parsed)
+        QqPendingReplyStore.put(statusBarNotification, parsed)
         QqBridgeChannels.incomingNotification(parsed) { result ->
             handleFlutterResult(parsed, result)
         }
     }
+
+    private fun drainHeldNotifications() {
+        if (dispatchDecision() != QqNotificationDispatchDecision.Dispatch) return
+        takeHeld().forEach { held ->
+            dispatch(held.statusBarNotification, held.parsed)
+        }
+    }
+
+    private fun dispatchDecision(): QqNotificationDispatchDecision =
+        QqNotificationDispatchPolicy.decide(
+            dartSynchronized = QqNativeConfiguration.dartSynchronized,
+            enabled = QqNativeConfiguration.enabled,
+            runtimeActive = QqNativeConfiguration.runtimeActive,
+            mode = QqNativeConfiguration.mode,
+        )
 
     private fun handleFlutterResult(parsed: ParsedQqNotification, result: Map<*, *>?) {
         val resultGeneration = (result?.get("runGeneration") as? Number)?.toLong()
@@ -155,9 +221,48 @@ class QqNotificationListenerService : NotificationListenerService() {
     }
 
     companion object {
+        private const val COLD_START_TTL = 30_000L
+        private const val MAX_HELD_NOTIFICATIONS = 10
         @Volatile private var captureUntil: Long = 0
+        @Volatile private var instance: QqNotificationListenerService? = null
+        @Volatile var connected: Boolean = false
+            private set
+        private val heldNotifications = LinkedHashMap<String, HeldQqNotification>()
+
+        @Synchronized
+        private fun hold(status: StatusBarNotification, parsed: ParsedQqNotification) {
+            val now = System.currentTimeMillis()
+            heldNotifications.entries.removeAll { it.value.expiresAt <= now }
+            heldNotifications[parsed.notificationKey] = HeldQqNotification(
+                statusBarNotification = status,
+                parsed = parsed,
+                expiresAt = now + COLD_START_TTL,
+            )
+            while (heldNotifications.size > MAX_HELD_NOTIFICATIONS) {
+                heldNotifications.remove(heldNotifications.keys.first())
+            }
+        }
+
+        @Synchronized
+        private fun takeHeld(): List<HeldQqNotification> {
+            val now = System.currentTimeMillis()
+            val ready = heldNotifications.values.filter { it.expiresAt > now }
+            heldNotifications.clear()
+            return ready
+        }
+
+        fun nativeConfigurationUpdated() {
+            instance?.drainHeldNotifications()
+        }
+
+        fun requestReconnect(context: Context) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && !connected) {
+                requestRebind(ComponentName(context, QqNotificationListenerService::class.java))
+            }
+        }
 
         fun beginCapture() {
+            instance?.let(::requestReconnect)
             captureUntil = System.currentTimeMillis() + 60_000
             QqBridgeChannels.emit("notificationCapture", mapOf("active" to true))
         }

@@ -15,6 +15,7 @@ enum QqDiagnosticEventType {
   permissionChanged,
   captureStarted,
   captureCompleted,
+  notificationRejected,
   accessibilityAborted,
 }
 

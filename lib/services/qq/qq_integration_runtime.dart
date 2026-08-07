@@ -14,11 +14,10 @@ import '../ai/ai_gateway.dart';
 import '../local_storage_service.dart';
 import 'android/qq_native_bridge.dart';
 import 'background_character_chat_service.dart';
-import 'onebot/onebot_client.dart';
-import 'qq_contact_queue.dart';
+import 'local_bridge_server.dart';
+import 'qq_delivery_fence.dart';
 import 'qq_exceptions.dart';
 import 'qq_diagnostic_service.dart';
-import 'qq_delivery_fence.dart';
 import 'qq_message_debouncer.dart';
 import 'qq_message_processor.dart';
 import 'qq_reply_splitter.dart';
@@ -28,18 +27,24 @@ class QqIntegrationRuntime extends ChangeNotifier {
     required LocalStorageService storage,
     required AiGateway aiGateway,
     QqNativeBridge? nativeBridge,
+    LocalQqBridgeServer? localBridgeServer,
   }) : _storage = storage,
        _aiGateway = aiGateway,
-       nativeBridge = nativeBridge ?? QqNativeBridge();
+       nativeBridge = nativeBridge ?? QqNativeBridge() {
+    _localBridgeServer =
+        localBridgeServer ??
+        LocalQqBridgeServer(
+          onMessage: _handleLocalBridgeMessage,
+          loadConfig: _loadLocalBridgeConfig,
+          onStatusChanged: _onLocalBridgeStatusChanged,
+        );
+  }
 
   final LocalStorageService _storage;
   final AiGateway _aiGateway;
   final QqNativeBridge nativeBridge;
-  final _deliveryQueue = QqContactQueue(maxConcurrent: 2);
+  late final LocalQqBridgeServer _localBridgeServer;
   QqMessageProcessor? _processor;
-  OneBotClient? _oneBot;
-  StreamSubscription<UnifiedQqMessage>? _oneBotMessages;
-  StreamSubscription<QqConnectionState>? _oneBotStates;
   StreamSubscription<Map<String, dynamic>>? _nativeEvents;
   QqIntegrationSettings _settings = const QqIntegrationSettings();
   var _mergeWindowMilliseconds = -1;
@@ -48,20 +53,37 @@ class QqIntegrationRuntime extends ChangeNotifier {
   var _runGeneration = 0;
   var _accountId = '';
   var _nickname = '';
+  var _napcatConnected = false;
+  DateTime? _lastHeartbeatAt;
   DateTime? _lastMessageAt;
   DateTime? _lastReplyAt;
   var _lastError = '';
 
   bool get running => _running;
   bool get paused => _paused;
+  bool get bridgeServerRunning => _localBridgeServer.isRunning;
+  bool get bridgeOnline => _localBridgeServer.bridgeOnline;
+  int get bridgePort => _localBridgeServer.port;
+  bool get napcatConnected => _napcatConnected;
+  DateTime? get lastHeartbeatAt => _lastHeartbeatAt;
   String get accountId => _accountId;
   String get nickname => _nickname;
   DateTime? get lastMessageAt => _lastMessageAt;
   DateTime? get lastReplyAt => _lastReplyAt;
   String get lastError => _lastError;
   int get queuedMessages => _processor?.queuedCount ?? 0;
-  QqConnectionState get connectionState =>
-      _oneBot?.state ?? QqConnectionState.stopped;
+  QqConnectionState get connectionState {
+    if (!_running || _paused) return QqConnectionState.stopped;
+    if (_settings.mode == QqIntegrationMode.notification) {
+      return QqConnectionState.connected;
+    }
+    if (!_localBridgeServer.isRunning) return QqConnectionState.error;
+    if (!_localBridgeServer.bridgeOnline) return QqConnectionState.connecting;
+    if (_napcatConnected) return QqConnectionState.connected;
+    return _lastError.isEmpty
+        ? QqConnectionState.reconnecting
+        : QqConnectionState.error;
+  }
 
   Future<void> initialize() async {
     nativeBridge.onIncomingNotification = _onIncomingNotification;
@@ -83,6 +105,13 @@ class QqIntegrationRuntime extends ChangeNotifier {
     _running = true;
     _runGeneration++;
     _lastError = '';
+    if (settings.mode == QqIntegrationMode.oneBot) {
+      final token = await _storage.loadOrCreateLocalBridgeToken();
+      await _localBridgeServer.start(
+        port: localQqBridgeDefaultPort,
+        token: token,
+      );
+    }
     await _syncNativeSettings(settings, bindings: bindings);
     notifyListeners();
     try {
@@ -90,12 +119,10 @@ class QqIntegrationRuntime extends ChangeNotifier {
     } on Object {
       _running = false;
       _runGeneration++;
+      await _localBridgeServer.stop();
       await _syncNativeSettings(settings, bindings: bindings);
       notifyListeners();
       rethrow;
-    }
-    if (settings.mode == QqIntegrationMode.oneBot) {
-      await _startOneBot(settings);
     }
   }
 
@@ -128,18 +155,15 @@ class QqIntegrationRuntime extends ChangeNotifier {
     _runGeneration++;
     _processor?.setPaused(true);
     await nativeBridge.cancelPendingAccessibilityReply();
+    await _localBridgeServer.stop();
     await _syncNativeSettings(_settings);
-    await _oneBotMessages?.cancel();
-    await _oneBotStates?.cancel();
-    _oneBotMessages = null;
-    _oneBotStates = null;
-    await _oneBot?.dispose();
-    _oneBot = null;
     _processor?.dispose();
     _processor = null;
     _mergeWindowMilliseconds = -1;
     _accountId = '';
     _nickname = '';
+    _napcatConnected = false;
+    _lastHeartbeatAt = null;
     if (stopForeground) await nativeBridge.stopForegroundBridge();
     notifyListeners();
   }
@@ -159,35 +183,6 @@ class QqIntegrationRuntime extends ChangeNotifier {
     }
     await _syncNativeSettings(settings, bindings: bindings);
     notifyListeners();
-  }
-
-  Future<OneBotLoginInfo> testOneBotConnection(
-    QqIntegrationSettings settings,
-  ) async {
-    final error = settings.oneBotConfigurationError;
-    if (error != null) throw QqConfigurationException(error);
-    final token = await _storage.loadOneBotAccessToken();
-    final current = _oneBot;
-    if (current != null && current.isConnected) {
-      final data = await current.callAction('get_login_info');
-      final info = OneBotLoginInfo(
-        accountId: data['user_id']?.toString() ?? '',
-        nickname: data['nickname']?.toString() ?? '',
-      );
-      _rememberLogin(info);
-      return info;
-    }
-    final temporary = OneBotClient();
-    try {
-      final info = await temporary.connect(
-        settings.oneBotUri,
-        accessToken: token,
-      );
-      _rememberLogin(info);
-      return info;
-    } finally {
-      await temporary.dispose();
-    }
   }
 
   Future<Map<String, dynamic>> _onIncomingNotification(
@@ -216,6 +211,7 @@ class QqIntegrationRuntime extends ChangeNotifier {
           result.text,
           maxReplyCharacters: settings.maxReplyCharacters,
         );
+        _lastReplyAt = DateTime.now();
       }
       json['runGeneration'] = generation;
       notifyListeners();
@@ -274,15 +270,8 @@ class QqIntegrationRuntime extends ChangeNotifier {
       final error = endpointValidationError(endpoint);
       if (error != null) throw QqConfigurationException(error);
     }
-    if (settings.mode == QqIntegrationMode.oneBot) {
-      final error = settings.oneBotConfigurationError;
-      if (error != null) throw QqConfigurationException(error);
-    }
     if (nativeBridge.isAndroid) {
       final native = await nativeBridge.getNativeStatus();
-      if (native['qqInstalled'] != true) {
-        throw const QqConfigurationException('没有检测到配置包名对应的 QQ 应用。');
-      }
       if (native['notificationPermission'] != true) {
         throw const QqConfigurationException('请先允许 Whisnya 显示前台通知。');
       }
@@ -313,130 +302,91 @@ class QqIntegrationRuntime extends ChangeNotifier {
     )..setPaused(_paused);
   }
 
-  Future<void> _startOneBot(QqIntegrationSettings settings) async {
-    final client = OneBotClient();
-    _oneBot = client;
-    _oneBotMessages = client.messages.listen((message) {
-      unawaited(_handleOneBotMessage(message));
-    });
-    _oneBotStates = client.states.listen((state) {
-      if (state == QqConnectionState.authenticationFailed) {
-        _lastError = 'OneBot token authentication failed';
-      } else if (state == QqConnectionState.error) {
-        _lastError = 'OneBot connection error';
-      } else if (state == QqConnectionState.connected) {
-        _lastError = '';
-      }
-      notifyListeners();
-      unawaited(_syncNativeSettings(settings));
-      unawaited(
-        QqDiagnosticService(_storage).record(
-          settings: settings,
-          mode: QqIntegrationMode.oneBot,
-          eventType: QqDiagnosticEventType.connectionChanged,
-          success:
-              state != QqConnectionState.error &&
-              state != QqConnectionState.authenticationFailed,
-          transport: state.name,
-          errorCode:
-              state == QqConnectionState.error ||
-                  state == QqConnectionState.authenticationFailed
-              ? state.name
-              : '',
-        ),
-      );
-    });
-    final token = await _storage.loadOneBotAccessToken();
-    unawaited(
-      client.start(
-        uri: settings.oneBotUri,
-        accessToken: token,
-        autoReconnect: settings.oneBotAutoReconnect,
-        onConnected: _rememberLogin,
-      ),
+  Future<LocalQqBridgeConfig> _loadLocalBridgeConfig() async {
+    final settings = await _storage.loadQqIntegrationSettings();
+    final bindings = await _storage.loadQqContactBindings();
+    return LocalQqBridgeConfig(
+      enabled:
+          _running &&
+          !_paused &&
+          settings.enabled &&
+          settings.mode == QqIntegrationMode.oneBot,
+      allowUsers: [
+        for (final binding in bindings)
+          if (binding.mode == QqIntegrationMode.oneBot && binding.enabled)
+            binding.externalUserId,
+      ],
     );
   }
 
-  Future<void> _handleOneBotMessage(UnifiedQqMessage message) async {
-    final processor = _processor;
-    final client = _oneBot;
-    if (!_running || processor == null || client == null) return;
-    final generation = _runGeneration;
-    final settings = _settings;
-    _lastMessageAt = DateTime.now();
-    notifyListeners();
-    try {
-      final result = await processor.handle(message, settings: settings);
-      if (result.status != QqProcessStatus.reply) return;
-      var delivered = false;
-      await _deliveryQueue.run(message.externalUserId, () async {
-        if (!_canDeliver(generation, QqIntegrationMode.oneBot) ||
-            !identical(client, _oneBot)) {
-          return;
-        }
-        if (settings.replyDelayMilliseconds > 0) {
-          await Future<void>.delayed(
-            Duration(milliseconds: settings.replyDelayMilliseconds),
-          );
-        }
-        if (!_canDeliver(generation, QqIntegrationMode.oneBot) ||
-            !identical(client, _oneBot)) {
-          return;
-        }
-        final chunks = QqReplySplitter.splitOneBot(
-          result.text,
-          maxReplyCharacters: settings.maxReplyCharacters,
-          replyChunkCharacters: settings.replyChunkCharacters,
-        );
-        for (var index = 0; index < chunks.length; index++) {
-          if (!_canDeliver(generation, QqIntegrationMode.oneBot) ||
-              !identical(client, _oneBot)) {
-            return;
-          }
-          await client.sendPrivateMessage(
-            message.externalUserId,
-            chunks[index],
-          );
-          if (index + 1 < chunks.length) {
-            await Future<void>.delayed(const Duration(milliseconds: 300));
-          }
-        }
-        delivered = true;
-      });
-      if (!delivered) return;
-      _lastReplyAt = DateTime.now();
-      _lastError = '';
-      await QqDiagnosticService(_storage).record(
-        settings: _settings,
-        mode: QqIntegrationMode.oneBot,
-        eventType: QqDiagnosticEventType.replySent,
-        success: true,
-        messageId: message.messageId,
-        transport: 'oneBot',
-        replyLength: result.text.runes.length,
-      );
-    } on Object catch (error) {
-      _rememberError(error);
-      await QqDiagnosticService(_storage).record(
-        settings: _settings,
-        mode: QqIntegrationMode.oneBot,
-        eventType: QqDiagnosticEventType.replyFailed,
-        success: false,
-        messageId: message.messageId,
-        transport: 'oneBot',
-        errorCode: error.runtimeType.toString(),
-        errorSummary: 'OneBot reply delivery failed',
-      );
-    } finally {
-      notifyListeners();
+  Future<LocalQqBridgeMessageResult> _handleLocalBridgeMessage(
+    LocalQqBridgeMessage message,
+  ) async {
+    final settings = await _storage.loadQqIntegrationSettings();
+    if (!_running || _paused || settings.mode != QqIntegrationMode.oneBot) {
+      return const LocalQqBridgeMessageResult.noContent();
     }
-  }
-
-  void _rememberLogin(OneBotLoginInfo info) {
-    _accountId = info.accountId;
-    _nickname = info.nickname;
+    final generation = _runGeneration;
+    _lastMessageAt = DateTime.fromMillisecondsSinceEpoch(
+      message.timestamp * 1000,
+      isUtc: true,
+    );
+    notifyListeners();
+    _ensureProcessor(settings);
+    final result = await _processor!.handle(
+      UnifiedQqMessage(
+        source: QqIntegrationMode.oneBot,
+        messageId: message.messageId,
+        externalUserId: message.userId,
+        senderDisplayName: message.nickname,
+        text: message.text,
+        timestamp: _lastMessageAt ?? DateTime.now(),
+        rawConversationTitle: message.nickname,
+      ),
+      settings: settings,
+    );
+    if (!_canDeliver(generation, QqIntegrationMode.oneBot)) {
+      return const LocalQqBridgeMessageResult.noContent();
+    }
+    if (result.status == QqProcessStatus.ignored) {
+      return const LocalQqBridgeMessageResult.noContent();
+    }
+    if (result.status == QqProcessStatus.error) {
+      return LocalQqBridgeMessageResult.failure(result.message);
+    }
+    if (settings.replyDelayMilliseconds > 0) {
+      await Future<void>.delayed(
+        Duration(milliseconds: settings.replyDelayMilliseconds),
+      );
+    }
+    _lastReplyAt = DateTime.now();
     _lastError = '';
     notifyListeners();
+    return LocalQqBridgeMessageResult.reply(
+      reply: QqReplySplitter.forNotification(
+        result.text,
+        maxReplyCharacters: settings.maxReplyCharacters,
+      ),
+      sessionId: result.reply?.sessionId ?? '',
+      bindingId: result.reply?.bindingId ?? '',
+    );
+  }
+
+  void _onLocalBridgeStatusChanged(LocalQqBridgeStatus? status) {
+    if (status == null) {
+      _accountId = '';
+      _nickname = '';
+      _napcatConnected = false;
+      _lastHeartbeatAt = null;
+    } else {
+      _accountId = status.selfId;
+      _nickname = status.nickname;
+      _napcatConnected = status.connected;
+      _lastHeartbeatAt = _localBridgeServer.lastHeartbeatAt;
+      _lastError = status.lastError ?? '';
+    }
+    notifyListeners();
+    unawaited(_syncNativeSettings(_settings));
   }
 
   bool _canDeliver(int generation, QqIntegrationMode mode) =>
@@ -490,6 +440,11 @@ class QqIntegrationRuntime extends ChangeNotifier {
           eventType = QqDiagnosticEventType.captureStarted;
         }
         break;
+      case 'notificationRejected':
+        eventType = QqDiagnosticEventType.notificationRejected;
+        success = false;
+        transport = 'notificationListener';
+        break;
       case 'nativeError':
         eventType = QqDiagnosticEventType.replyFailed;
         success = false;
@@ -520,6 +475,7 @@ class QqIntegrationRuntime extends ChangeNotifier {
   @override
   void dispose() {
     unawaited(_nativeEvents?.cancel());
+    unawaited(_localBridgeServer.stop());
     super.dispose();
   }
 
@@ -534,11 +490,16 @@ class QqIntegrationRuntime extends ChangeNotifier {
           .where((binding) => binding.mode == settings.mode && binding.enabled)
           .length,
       'connectionState': connectionState.name,
+      'bridgeServerRunning': bridgeServerRunning,
+      'bridgePort': bridgePort,
+      'bridgeOnline': bridgeOnline,
+      'napcatConnected': _napcatConnected,
       'accountId': _accountId,
       'nickname': _nickname,
       'queuedMessages': queuedMessages,
       'lastMessageAt': _lastMessageAt?.toIso8601String() ?? '',
       'lastReplyAt': _lastReplyAt?.toIso8601String() ?? '',
+      'lastHeartbeatAt': _lastHeartbeatAt?.toIso8601String() ?? '',
       'lastError': _lastError,
       'runtimeActive': _running && !_paused,
       'runGeneration': _runGeneration,

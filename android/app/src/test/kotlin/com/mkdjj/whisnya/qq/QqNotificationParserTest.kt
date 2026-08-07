@@ -77,6 +77,55 @@ class QqNotificationParserTest {
     }
 
     @Test
+    fun `conversation notification with shortcut survives legacy group flag`() {
+        val parsed = QqNotificationParser.parseSnapshot(
+            snapshot(
+                groupConversation = true,
+                conversationTitle = "Alice",
+                shortcutId = "private-alice",
+            ),
+        )
+
+        assertEquals("Alice", parsed?.title)
+    }
+
+    @Test
+    fun `generic qq conversation title falls back to contact title`() {
+        val parsed = QqNotificationParser.parseSnapshot(
+            snapshot(
+                conversationTitle = "QQ",
+                title = "Alice",
+            ),
+        )
+
+        assertEquals("Alice", parsed?.title)
+    }
+
+    @Test
+    fun `configured qq package and text line fallback are supported`() {
+        val parsed = QqNotificationParser.parseSnapshot(
+            snapshot(
+                packageName = "com.tencent.tim",
+                messagingTexts = emptyList(),
+                extraText = null,
+                textLines = listOf("old", "latest"),
+            ),
+            expectedPackageName = "com.tencent.tim",
+        )
+
+        assertEquals("latest", parsed?.text)
+    }
+
+    @Test
+    fun `ordinary private text containing service words is not rejected`() {
+        val parsed = QqNotificationParser.parseSnapshot(
+            snapshot(title = "Alice", extraText = "我登录不上了"),
+        )
+
+        assertNotNull(parsed)
+    }
+
+    @Test
     fun `group compatibility checks only the selected title candidate`() {
         assertNull(
             QqNotificationParser.parseSnapshot(
@@ -112,6 +161,7 @@ class QqNotificationParserTest {
         conversationTitle: String? = "Alice",
         title: String? = "Alice",
         messagingTexts: List<String> = emptyList(),
+        textLines: List<String> = emptyList(),
         extraText: String? = "hello",
         messagingPersonName: String? = null,
         shortcutId: String? = null,
@@ -126,6 +176,7 @@ class QqNotificationParserTest {
         title = title,
         messagingPersonName = messagingPersonName,
         messagingTexts = messagingTexts,
+        textLines = textLines,
         extraText = extraText,
         bigText = null,
         shortcutId = shortcutId,

@@ -1,5 +1,12 @@
 # Whisnya
 
+## 1.5.0+22
+
+- Reworked NapCat integration into a small Node.js 20+ sidecar that runs in Termux and talks to Whisnya through an authenticated loopback-only HTTP API.
+- The sidecar handles OneBot v11 private text messages, action correlation and timeouts, reconnects, deduplication, and a fail-closed allowlist synchronized from Whisnya.
+- QQ notification listening now reconnects when the app resumes, parses MessagingStyle updates more defensively, and prefers RemoteInput before the strictly verified accessibility fallback.
+- Both QQ modes continue to use the same character sessions, memory, world books, summaries, AI pipeline, queue, and redacted diagnostics.
+
 ## 1.4.3+21
 
 - Added Android QQ private-chat auto-reply with mutually exclusive NapCat / OneBot 11 forward WebSocket and QQ notification-listener modes.
@@ -28,6 +35,11 @@
 [简体中文](README.zh-CN.md)
 
 Whisnya is a local-first Android and Windows AI role chat and TXT novel reader app built with Flutter.
+
+The QQ integration references the following MIT-licensed projects:
+[openclaw-onebot](https://github.com/LSTM-Kirigaya/openclaw-onebot) and
+[Read-KakaoTalk-Message](https://github.com/deunlee/Read-KakaoTalk-Message).
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for license details.
 
 ## Download
 
@@ -76,7 +88,7 @@ The APK will be generated at:
 build/app/outputs/flutter-apk/app-release.apk
 ```
 
-Current release version is `1.4.3+21`. Keep both `versionName` and `versionCode` increasing for every public release. The Android package name is
+Current release version is `1.5.0+22`. Keep both `versionName` and `versionCode` increasing for every public release. The Android package name is
 `com.mkdjj.whisnya`.
 
 For public distribution, configure your own Android signing key first:
@@ -92,7 +104,7 @@ Then edit `android/key.properties` with your real passwords. Both
 Recommended release asset name:
 
 ```text
-Whisnya-android-v1.4.3-release.apk
+Whisnya-android-v1.5.0-release.apk
 ```
 
 ## Other Platforms
@@ -114,7 +126,7 @@ Ship the whole `Release` folder, not only the `.exe`.
 Recommended Windows release asset name:
 
 ```text
-Whisnya-windows-x64-v1.4.3.zip
+Whisnya-windows-x64-v1.5.0.zip
 ```
 
 Generate iOS or macOS platform files, then build on macOS with Xcode installed:

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
@@ -47,6 +48,18 @@ void main() {
 
       await storage.clearOneBotAccessToken();
       expect(await storage.loadOneBotAccessToken(), isEmpty);
+    },
+  );
+
+  test(
+    'creates and reuses a 32-byte local bridge token in secure storage',
+    () async {
+      final first = await storage.loadOrCreateLocalBridgeToken();
+      final second = await storage.loadOrCreateLocalBridgeToken();
+
+      expect(first, second);
+      expect(base64Url.decode(base64Url.normalize(first)), hasLength(32));
+      expect(secureStorage.values['whisnya.qq.local_bridge_token'], first);
     },
   );
 

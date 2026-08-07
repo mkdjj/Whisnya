@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
@@ -150,6 +151,7 @@ class LocalStorageService {
   static const _secureApiKeyIndexKey = 'whisnya_api_endpoint_ids';
   static const _secureApiKeyPrefix = 'whisnya_api_key_';
   static const _secureOneBotAccessTokenKey = 'whisnya.qq.onebot.access_token';
+  static const _secureLocalBridgeTokenKey = 'whisnya.qq.local_bridge_token';
 
   final FlutterSecureStorage _secureStorage;
   final JsonFileStore jsonStore;
@@ -311,6 +313,19 @@ class LocalStorageService {
 
   Future<void> clearOneBotAccessToken() =>
       _secureStorage.delete(key: _secureOneBotAccessTokenKey);
+
+  Future<String> loadOrCreateLocalBridgeToken() async {
+    final existing =
+        (await _secureStorage.read(key: _secureLocalBridgeTokenKey))?.trim() ??
+        '';
+    if (existing.isNotEmpty) return existing;
+    final random = Random.secure();
+    final token = base64UrlEncode(
+      Uint8List.fromList(List<int>.generate(32, (_) => random.nextInt(256))),
+    ).replaceAll('=', '');
+    await _secureStorage.write(key: _secureLocalBridgeTokenKey, value: token);
+    return token;
+  }
 
   Future<List<QqDiagnosticEvent>> loadQqDiagnostics() async {
     final file = (await _paths).qqDiagnostics;

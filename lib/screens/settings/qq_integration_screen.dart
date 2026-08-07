@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../models/qq_contact_binding.dart';
 import '../../models/qq_integration_settings.dart';
 import '../../services/local_storage_service.dart';
+import '../../services/qq/local_bridge_server.dart';
 import '../../services/qq/qq_integration_runtime.dart';
 import '../../utils/app_i18n.dart';
 import 'qq_contact_bindings_screen.dart';
@@ -29,14 +31,12 @@ class QqIntegrationScreen extends StatefulWidget {
   State<QqIntegrationScreen> createState() => _QqIntegrationScreenState();
 }
 
-class _QqIntegrationScreenState extends State<QqIntegrationScreen> {
+class _QqIntegrationScreenState extends State<QqIntegrationScreen>
+    with WidgetsBindingObserver {
   QqIntegrationSettings _settings = const QqIntegrationSettings();
   List<QqContactBinding> _bindings = const [];
   Map<String, dynamic> _nativeStatus = const {};
-  final _host = TextEditingController();
-  final _port = TextEditingController();
-  final _path = TextEditingController();
-  final _token = TextEditingController();
+  final _bridgeToken = TextEditingController();
   final _maxReply = TextEditingController();
   final _chunk = TextEditingController();
   final _timeout = TextEditingController();
@@ -48,8 +48,16 @@ class _QqIntegrationScreenState extends State<QqIntegrationScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     widget.runtime?.addListener(_runtimeChanged);
     unawaited(_load());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_refreshNativeStatus());
+    }
   }
 
   void _runtimeChanged() {
@@ -59,7 +67,9 @@ class _QqIntegrationScreenState extends State<QqIntegrationScreen> {
   Future<void> _load() async {
     final settings = await widget.storage.loadQqIntegrationSettings();
     final bindings = await widget.storage.loadQqContactBindings();
-    final token = await widget.storage.loadOneBotAccessToken();
+    final bridgeToken = widget.isAndroid
+        ? await widget.storage.loadOrCreateLocalBridgeToken()
+        : '';
     var native = <String, dynamic>{};
     if (widget.isAndroid && widget.runtime != null) {
       native = await widget.runtime!.nativeBridge.getNativeStatus();
@@ -69,10 +79,7 @@ class _QqIntegrationScreenState extends State<QqIntegrationScreen> {
       _settings = settings;
       _bindings = bindings;
       _nativeStatus = native;
-      _host.text = settings.oneBotHost;
-      _port.text = '${settings.oneBotPort}';
-      _path.text = settings.oneBotPath;
-      _token.text = token;
+      _bridgeToken.text = bridgeToken;
       _maxReply.text = '${settings.maxReplyCharacters}';
       _chunk.text = '${settings.replyChunkCharacters}';
       _timeout.text = '${settings.requestTimeoutSeconds}';
@@ -82,13 +89,17 @@ class _QqIntegrationScreenState extends State<QqIntegrationScreen> {
     });
   }
 
+  Future<void> _refreshNativeStatus() async {
+    if (!widget.isAndroid || widget.runtime == null) return;
+    final native = await widget.runtime!.nativeBridge.getNativeStatus();
+    if (mounted) setState(() => _nativeStatus = native);
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     for (final controller in [
-      _host,
-      _port,
-      _path,
-      _token,
+      _bridgeToken,
       _maxReply,
       _chunk,
       _timeout,
@@ -126,42 +137,6 @@ class _QqIntegrationScreenState extends State<QqIntegrationScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
-  }
-
-  Future<void> _saveOneBot() async {
-    var value = _settings.copyWith(
-      oneBotHost: _host.text,
-      oneBotPort: int.tryParse(_port.text) ?? 0,
-      oneBotPath: _path.text,
-    );
-    final error = value.oneBotConfigurationError;
-    if (error != null && !value.isOneBotHostLoopback && !value.oneBotSecure) {
-      final accepted = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text(context.t('远程明文连接风险')),
-          content: Text(context.t('远程 ws 会暴露 QQ 消息和 token。确认仍要允许吗？')),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: Text(context.t('取消')),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: Text(context.t('我已了解并允许')),
-            ),
-          ],
-        ),
-      );
-      if (accepted != true) return;
-      value = value.copyWith(allowInsecureRemoteOneBot: true);
-    }
-    final finalError = value.oneBotConfigurationError;
-    if (finalError != null) throw StateError(finalError);
-    await widget.storage.saveOneBotAccessToken(_token.text);
-    await _save(value);
-    if (!mounted) return;
-    _snack(context.t('OneBot 配置已保存'));
   }
 
   Future<void> _saveReplySettings() async {
@@ -215,17 +190,27 @@ class _QqIntegrationScreenState extends State<QqIntegrationScreen> {
       ? context.t('无')
       : value.toLocal().toString().split('.').first;
 
-  Future<void> _testConnection() async {
-    final runtime = widget.runtime;
-    if (runtime == null) return;
-    await _saveOneBot();
-    final info = await runtime.testOneBotConnection(_settings);
-    if (!mounted) return;
-    _snack(
-      context.isEnglish
-          ? 'Connected: ${info.accountId} ${info.nickname}'
-          : '连接成功：${info.accountId} ${info.nickname}',
+  Future<void> _copyBridgeToken() async {
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(context.t('复制 Bridge Token')),
+        content: Text(context.t('Token 只能粘贴到本机 Termux，不要发送给别人。')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(context.t('取消')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(context.t('复制')),
+          ),
+        ],
+      ),
     );
+    if (accepted != true) return;
+    await Clipboard.setData(ClipboardData(text: _bridgeToken.text));
+    if (mounted) _snack(context.t('Bridge Token 已复制'));
   }
 
   Future<void> _openBindings() async {
@@ -317,23 +302,33 @@ class _QqIntegrationScreenState extends State<QqIntegrationScreen> {
     final runtime = widget.runtime;
     final statusText = context.isEnglish
         ? 'Connection: ${runtime?.connectionState.name ?? 'stopped'}\n'
+              'Bridge server: ${runtime?.bridgeServerRunning == true ? 'Running on 127.0.0.1:${runtime!.bridgePort}' : 'Stopped'}\n'
+              'Bridge: ${runtime?.bridgeOnline == true ? 'Online' : 'Offline'} · '
+              'NapCat: ${runtime?.napcatConnected == true ? 'Connected' : 'Disconnected'}\n'
               'QQ account: ${runtime?.accountId.isNotEmpty == true ? '${runtime!.accountId} ${runtime.nickname}' : 'None'}\n'
+              'Last heartbeat: ${_formatDateTime(runtime?.lastHeartbeatAt)}\n'
               'Last message: ${_formatDateTime(runtime?.lastMessageAt)}\n'
               'Last reply: ${_formatDateTime(runtime?.lastReplyAt)}\n'
               'Queue: ${runtime?.queuedMessages ?? 0}\n'
               'Last error: ${runtime?.lastError.isNotEmpty == true ? runtime!.lastError : 'None'}\n'
               'Contacts: ${_bindings.where((item) => item.mode == _settings.mode && item.enabled).length} · '
               'Notification access: ${_nativeStatus['notificationAccess'] == true ? 'On' : 'Off'} · '
+              'Listener: ${_nativeStatus['notificationListenerConnected'] == true ? 'Connected' : 'Disconnected'} · '
               'Foreground notification: ${_nativeStatus['notificationPermission'] == true ? 'On' : 'Off'} · '
               'Accessibility: ${_nativeStatus['accessibilityAccess'] == true ? 'On' : 'Off'}'
         : '连接：${runtime?.connectionState.name ?? 'stopped'}\n'
+              'Bridge 服务：${runtime?.bridgeServerRunning == true ? '运行于 127.0.0.1:${runtime!.bridgePort}' : '已停止'}\n'
+              'Bridge：${runtime?.bridgeOnline == true ? '在线' : '离线'} · '
+              'NapCat：${runtime?.napcatConnected == true ? '已连接' : '未连接'}\n'
               'QQ 账号：${runtime?.accountId.isNotEmpty == true ? '${runtime!.accountId} ${runtime.nickname}' : '无'}\n'
+              '最后心跳：${_formatDateTime(runtime?.lastHeartbeatAt)}\n'
               '最后消息：${_formatDateTime(runtime?.lastMessageAt)}\n'
               '最后回复：${_formatDateTime(runtime?.lastReplyAt)}\n'
               '队列：${runtime?.queuedMessages ?? 0}\n'
               '最后错误：${runtime?.lastError.isNotEmpty == true ? runtime!.lastError : '无'}\n'
               '联系人：${_bindings.where((item) => item.mode == _settings.mode && item.enabled).length} · '
               '通知读取：${_nativeStatus['notificationAccess'] == true ? '已开' : '未开'} · '
+              '监听服务：${_nativeStatus['notificationListenerConnected'] == true ? '已连接' : '未连接'} · '
               '前台通知：${_nativeStatus['notificationPermission'] == true ? '已开' : '未开'} · '
               '无障碍：${_nativeStatus['accessibilityAccess'] == true ? '已开' : '未开'}';
     return Scaffold(
@@ -476,68 +471,46 @@ class _QqIntegrationScreenState extends State<QqIntegrationScreen> {
     );
   }
 
-  Widget _oneBotSection() => _section(context.t('NapCat / OneBot 配置'), [
-    Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          TextField(
-            controller: _host,
-            decoration: const InputDecoration(labelText: 'Host'),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _port,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: 'Port'),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _path,
-            decoration: const InputDecoration(labelText: 'Path'),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _token,
-            obscureText: true,
-            decoration: InputDecoration(labelText: context.t('Token（仅安全存储）')),
-          ),
-        ],
+  Widget _oneBotSection() => _section(context.t('Termux / NapCat Bridge'), [
+    ListTile(
+      leading: const Icon(Icons.http_outlined),
+      title: Text(context.t('本地 Bridge 服务')),
+      subtitle: Text(
+        context.t(
+          '仅监听 127.0.0.1:$localQqBridgeDefaultPort，由 Termux 中的 qq_bridge 连接 NapCat。',
+        ),
       ),
     ),
-    SwitchListTile(
-      title: const Text('WSS'),
-      value: _settings.oneBotSecure,
-      onChanged: (value) => _save(_settings.copyWith(oneBotSecure: value)),
-    ),
-    SwitchListTile(
-      title: Text(context.t('自动重连')),
-      value: _settings.oneBotAutoReconnect,
-      onChanged: (value) =>
-          _save(_settings.copyWith(oneBotAutoReconnect: value)),
+    ListTile(
+      leading: const Icon(Icons.key_outlined),
+      title: const Text('Bridge Token'),
+      subtitle: Text(
+        context.t(_bridgeToken.text.isEmpty ? '尚未生成' : '已生成并保存在安全存储中，不会写入备份。'),
+      ),
+      trailing: IconButton(
+        tooltip: context.t('复制 Bridge Token'),
+        icon: const Icon(Icons.copy_outlined),
+        onPressed: _bridgeToken.text.isEmpty ? null : _copyBridgeToken,
+      ),
     ),
     Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Wrap(
         spacing: 8,
         children: [
-          FilledButton(
-            onPressed: () => _run(_saveOneBot),
-            child: Text(context.t('保存配置')),
-          ),
-          OutlinedButton(
-            onPressed: widget.runtime == null
-                ? null
-                : () => _run(_testConnection),
-            child: Text(context.t('测试连接')),
-          ),
-          TextButton(
+          FilledButton.icon(
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
                 builder: (_) => const QqTermuxHelpScreen(),
               ),
             ),
-            child: Text(context.t('Termux 帮助')),
+            icon: const Icon(Icons.menu_book_outlined),
+            label: Text(context.t('Termux 帮助')),
+          ),
+          TextButton.icon(
+            onPressed: _load,
+            icon: const Icon(Icons.refresh),
+            label: Text(context.t('刷新状态')),
           ),
         ],
       ),

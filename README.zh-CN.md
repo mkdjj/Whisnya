@@ -1,5 +1,12 @@
 # Whisnya
 
+## 1.5.0+22
+
+- NapCat 接入改为运行在 Termux 中的轻量 Node.js 20+ Sidecar，并通过仅监听本机回环地址、带 Token 鉴权的 HTTP API 与 Whisnya 通信。
+- Sidecar 负责 OneBot v11 私聊文字、action 对应与超时、断线重连、去重，以及从 Whisnya 同步且失败关闭的联系人白名单。
+- QQ 通知监听会在 App 恢复时请求重新绑定，更稳妥地解析 MessagingStyle 更新，并优先使用 RemoteInput，严格校验的无障碍仅作兜底。
+- 两种 QQ 模式继续共用角色独立会话、记忆、世界书、总结、AI、排队和脱敏诊断链路。
+
 ## 1.4.3+21
 
 - Android 新增 QQ 私聊自动回复，支持 NapCat / OneBot 11 正向 WebSocket 与 QQ 通知监听两种互斥模式。
@@ -28,6 +35,11 @@
 [English](README.md)
 
 Whisnya 是一个本地优先的 Android / Windows AI 角色聊天和 TXT 小说阅读 App，使用 Flutter 开发。
+
+QQ 接入部分参考以下 MIT 开源项目：
+[openclaw-onebot](https://github.com/LSTM-Kirigaya/openclaw-onebot) 和
+[Read-KakaoTalk-Message](https://github.com/deunlee/Read-KakaoTalk-Message)。
+许可证详情见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 ## 下载
 
@@ -75,7 +87,7 @@ APK 会生成在：
 build/app/outputs/flutter-apk/app-release.apk
 ```
 
-当前发布版本是 `1.4.3+21`。每次公开发版都要同时递增 `versionName`
+当前发布版本是 `1.5.0+22`。每次公开发版都要同时递增 `versionName`
 和 `versionCode`。Android 包名是 `com.mkdjj.whisnya`。
 
 如果要公开分发，请先配置自己的 Android 签名文件：
@@ -91,7 +103,7 @@ Copy-Item android/key.properties.example android/key.properties
 推荐发布文件名：
 
 ```text
-Whisnya-android-v1.4.3-release.apk
+Whisnya-android-v1.5.0-release.apk
 ```
 
 ## 其他平台
@@ -113,7 +125,7 @@ build/windows/x64/runner/Release/
 推荐 Windows 发布文件名：
 
 ```text
-Whisnya-windows-x64-v1.4.3.zip
+Whisnya-windows-x64-v1.5.0.zip
 ```
 
 iOS 或 macOS 需要先生成平台文件，然后在安装了 Xcode 的 macOS 上打包：

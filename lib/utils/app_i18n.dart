@@ -783,6 +783,18 @@ const _en = {
   '最多 200 条，不记录消息原文、回复原文、API Key 或 token':
       'Up to 200 entries; message text, reply text, API keys, and tokens are never logged',
   'NapCat / OneBot 配置': 'NapCat / OneBot settings',
+  'Termux / NapCat Bridge': 'Termux / NapCat Bridge',
+  '本地 Bridge 服务': 'Local Bridge service',
+  '仅监听 127.0.0.1:17891，由 Termux 中的 qq_bridge 连接 NapCat。':
+      'Listens only on 127.0.0.1:17891; qq_bridge in Termux connects to NapCat.',
+  '尚未生成': 'Not generated yet',
+  '已生成并保存在安全存储中，不会写入备份。':
+      'Generated and kept in secure storage; it is not included in backups.',
+  '复制 Bridge Token': 'Copy Bridge Token',
+  'Token 只能粘贴到本机 Termux，不要发送给别人。':
+      'Paste this token only into Termux on this device. Do not send it to anyone.',
+  'Bridge Token 已复制': 'Bridge Token copied',
+  '刷新状态': 'Refresh status',
   'Token（仅安全存储）': 'Token (secure storage only)',
   '自动重连': 'Auto reconnect',
   '保存配置': 'Save settings',
@@ -880,7 +892,26 @@ const _en = {
   'NapCat 是非官方 QQ 接入，可能掉线、失效或触发账号风险。':
       'NapCat is an unofficial QQ integration and may disconnect, stop working, or put the account at risk.',
   '复制安装命令': 'Copy install command',
+  '复制命令': 'Copy command',
   '安装 Termux。': 'Install Termux.',
+  '安装 Node.js、git、nano 和 curl。': 'Install Node.js, git, nano, and curl.',
+  '安装 NapCat，并登录一个不重要的 QQ 小号。':
+      'Install NapCat and sign in with a non-critical QQ account.',
+  '在 NapCat WebUI 启用 OneBot 11 正向 WebSocket，地址使用 ws://127.0.0.1:3001。':
+      'Enable the OneBot 11 forward WebSocket in NapCat WebUI at ws://127.0.0.1:3001.',
+  'clone Whisnya，进入 qq_bridge 并安装依赖。':
+      'Clone Whisnya, enter qq_bridge, and install dependencies.',
+  '复制 Whisnya 设置页中的 Bridge Token，粘贴到 config.json 的 whisnya.token。':
+      'Copy the Bridge Token from Whisnya settings and paste it into whisnya.token in config.json.',
+  '在 config.json 填写 NapCat OneBot URL 和 access token。':
+      'Set the NapCat OneBot URL and access token in config.json.',
+  '构建并启动 qq_bridge，再回到 Whisnya 查看 Bridge 与 NapCat 状态。':
+      'Build and start qq_bridge, then return to Whisnya to check Bridge and NapCat status.',
+  '在 Whisnya 添加白名单联系人、绑定角色并启动 QQ 自动回复。':
+      'Add allowlisted contacts in Whisnya, bind characters, and start QQ auto-reply.',
+  '安装 Termux 依赖': 'Install Termux dependencies',
+  '安装 NapCat': 'Install NapCat',
+  '安装并启动 QQ Bridge': 'Install and start QQ Bridge',
   '用下方命令安装 NapCat。': 'Install NapCat with the command below.',
   '登录一个不重要的 QQ 小号。': 'Sign in with a non-critical QQ account.',
   '在 WebUI 启用 OneBot 11 正向 WebSocket。':

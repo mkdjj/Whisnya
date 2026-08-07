@@ -5,6 +5,37 @@ import org.junit.Test
 
 class QqReplyRoutingPolicyTest {
     @Test
+    fun `notification waits for dart synchronization before deciding runtime state`() {
+        assertEquals(
+            QqNotificationDispatchDecision.Hold,
+            QqNotificationDispatchPolicy.decide(
+                dartSynchronized = false,
+                enabled = false,
+                runtimeActive = false,
+                mode = "disabled",
+            ),
+        )
+        assertEquals(
+            QqNotificationDispatchDecision.Dispatch,
+            QqNotificationDispatchPolicy.decide(
+                dartSynchronized = true,
+                enabled = true,
+                runtimeActive = true,
+                mode = "notification",
+            ),
+        )
+        assertEquals(
+            QqNotificationDispatchDecision.Ignore,
+            QqNotificationDispatchPolicy.decide(
+                dartSynchronized = true,
+                enabled = true,
+                runtimeActive = false,
+                mode = "notification",
+            ),
+        )
+    }
+
+    @Test
     fun `remote input success never enters accessibility`() {
         assertEquals(
             QqDeliveryRoute.Complete,

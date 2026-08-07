@@ -4,6 +4,24 @@ enum class QqRemoteInputDisposition { Sent, Unavailable, Failed, Disabled }
 
 enum class QqDeliveryRoute { Complete, Accessibility, AbortLocked, Abort }
 
+enum class QqNotificationDispatchDecision { Hold, Dispatch, Ignore }
+
+object QqNotificationDispatchPolicy {
+    fun decide(
+        dartSynchronized: Boolean,
+        enabled: Boolean,
+        runtimeActive: Boolean,
+        mode: String,
+    ): QqNotificationDispatchDecision {
+        if (!dartSynchronized) return QqNotificationDispatchDecision.Hold
+        return if (enabled && runtimeActive && mode == "notification") {
+            QqNotificationDispatchDecision.Dispatch
+        } else {
+            QqNotificationDispatchDecision.Ignore
+        }
+    }
+}
+
 object QqReplyRoutingPolicy {
     fun route(
         remoteInput: QqRemoteInputDisposition,

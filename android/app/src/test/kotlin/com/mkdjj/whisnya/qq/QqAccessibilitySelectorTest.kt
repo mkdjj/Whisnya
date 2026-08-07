@@ -27,7 +27,19 @@ class QqAccessibilitySelectorTest {
     fun `accepts exact send labels and never selects an unrelated button`() {
         assertTrue(QqAccessibilitySelector.isSendButton("发送", null))
         assertTrue(QqAccessibilitySelector.isSendButton(null, "Send"))
+        assertTrue(QqAccessibilitySelector.isSendButton(null, "发送消息"))
         assertFalse(QqAccessibilitySelector.isSendButton("转发", null))
+    }
+
+    @Test
+    fun `title may be exposed through content description`() {
+        assertTrue(
+            QqAccessibilitySelector.nodeMatchesTitle(
+                text = null,
+                contentDescription = " Alice   Zhang ",
+                expectedTitles = listOf("Alice Zhang"),
+            ),
+        )
     }
 
     @Test

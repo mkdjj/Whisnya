@@ -1,6 +1,8 @@
 package com.mkdjj.whisnya.qq
 
 object QqNativeConfiguration {
+    @Volatile var dartSynchronized: Boolean = false
+        private set
     @Volatile var enabled: Boolean = false
     @Volatile var mode: String = "disabled"
     @Volatile var remoteInputEnabled: Boolean = true
@@ -30,5 +32,6 @@ object QqNativeConfiguration {
         lastError = values["lastError"] as? String ?: lastError
         runtimeActive = values["runtimeActive"] as? Boolean ?: runtimeActive
         runGeneration = (values["runGeneration"] as? Number)?.toLong() ?: runGeneration
+        dartSynchronized = true
     }
 }

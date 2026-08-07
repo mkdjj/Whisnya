@@ -1,0 +1,11 @@
+{
+  "onebot": {
+    "url": "ws://127.0.0.1:3001",
+    "accessToken": ""
+  },
+  "whisnya": {
+    "url": "http://127.0.0.1:17891",
+    "token": "paste-token-from-whisnya"
+  },
+  "logLevel": "info"
+}
