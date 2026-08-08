@@ -17,6 +17,7 @@ enum QqDiagnosticEventType {
   captureCompleted,
   notificationRejected,
   accessibilityAborted,
+  accessibilityProgress,
 }
 
 class QqDiagnosticEvent {

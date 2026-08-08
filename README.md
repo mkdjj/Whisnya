@@ -1,5 +1,11 @@
 # Whisnya
 
+## 1.5.1+23
+
+- Fixed Android 14+ notification fallback launches by sending QQ's notification PendingIntent from the connected accessibility service with an explicit background-activity-start mode.
+- Accessibility fallback now waits for QQ to load, retries safely without re-opening the notification, and reports the exact stage when it cannot continue.
+- RemoteInput absence no longer appears as the final reply failure when accessibility fallback is enabled.
+
 ## 1.5.0+22
 
 - Reworked NapCat integration into a small Node.js 20+ sidecar that runs in Termux and talks to Whisnya through an authenticated loopback-only HTTP API.
@@ -88,7 +94,7 @@ The APK will be generated at:
 build/app/outputs/flutter-apk/app-release.apk
 ```
 
-Current release version is `1.5.0+22`. Keep both `versionName` and `versionCode` increasing for every public release. The Android package name is
+Current release version is `1.5.1+23`. Keep both `versionName` and `versionCode` increasing for every public release. The Android package name is
 `com.mkdjj.whisnya`.
 
 For public distribution, configure your own Android signing key first:
@@ -104,7 +110,7 @@ Then edit `android/key.properties` with your real passwords. Both
 Recommended release asset name:
 
 ```text
-Whisnya-android-v1.5.0-release.apk
+Whisnya-android-v1.5.1-release.apk
 ```
 
 ## Other Platforms
@@ -126,7 +132,7 @@ Ship the whole `Release` folder, not only the `.exe`.
 Recommended Windows release asset name:
 
 ```text
-Whisnya-windows-x64-v1.5.0.zip
+Whisnya-windows-x64-v1.5.1.zip
 ```
 
 Generate iOS or macOS platform files, then build on macOS with Xcode installed:

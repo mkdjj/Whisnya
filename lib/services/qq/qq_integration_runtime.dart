@@ -430,6 +430,13 @@ class QqIntegrationRuntime extends ChangeNotifier {
             : QqDiagnosticEventType.accessibilityAborted;
         transport = transport.isEmpty ? 'accessibility' : transport;
         break;
+      case 'accessibilityProgress':
+        eventType = QqDiagnosticEventType.accessibilityProgress;
+        success = true;
+        transport = transport.isEmpty ? 'accessibility' : transport;
+        details['errorCode'] =
+            details['stage']?.toString() ?? 'accessibility_progress';
+        break;
       case 'permissionChanged':
         eventType = QqDiagnosticEventType.permissionChanged;
         break;

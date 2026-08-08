@@ -4,18 +4,31 @@ import android.graphics.Rect
 import android.os.Bundle
 import android.view.accessibility.AccessibilityNodeInfo
 
+sealed class QqAccessibilityExecutionResult {
+    data object Complete : QqAccessibilityExecutionResult()
+    data class Retry(val stage: String) : QqAccessibilityExecutionResult()
+}
+
 object QqAccessibilityReplyExecutor {
-    fun execute(service: QqAccessibilityService, task: PendingAccessibilityReply): Boolean {
+    fun execute(
+        service: QqAccessibilityService,
+        task: PendingAccessibilityReply,
+    ): QqAccessibilityExecutionResult {
         if (task.clicked ||
             task.expiresAt <= System.currentTimeMillis() ||
             !QqAccessibilityTaskLauncher.canDeliver(task)
         ) {
             QqAccessibilityTaskLauncher.finishAndContinue(service, task)
-            return false
+            return QqAccessibilityExecutionResult.Complete
         }
-        val root = service.rootInActiveWindow ?: return false
-        if (root.packageName?.toString() != QqNativeConfiguration.packageName) return false
-        if (!hasExpectedTitle(root, task.expectedTitles)) return false
+        val root = service.rootInActiveWindow
+            ?: return QqAccessibilityExecutionResult.Retry("qq_window_not_opened")
+        if (root.packageName?.toString() != QqNativeConfiguration.packageName) {
+            return QqAccessibilityExecutionResult.Retry("qq_window_not_opened")
+        }
+        if (!hasExpectedTitle(root, task.expectedTitles)) {
+            return QqAccessibilityExecutionResult.Retry("title_not_found")
+        }
         val nodes = descendants(root)
         val inputs = nodes.mapIndexedNotNull { index, node ->
             val candidate = QqAccessibilityNodeCandidate(
@@ -31,23 +44,33 @@ object QqAccessibilityReplyExecutor {
             )
             if (candidate.editable) candidate to node else null
         }
-        val selected = QqAccessibilitySelector.selectInput(inputs.map { it.first }) ?: return false
+        val selected = QqAccessibilitySelector.selectInput(inputs.map { it.first })
+            ?: return QqAccessibilityExecutionResult.Retry("input_not_found")
         val input = inputs.first { it.first.id == selected.id }.second
         val arguments = Bundle().apply {
             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, task.text)
         }
         if (!QqAccessibilityTaskLauncher.canDeliver(task)) {
             QqAccessibilityTaskLauncher.finishAndContinue(service, task)
-            return false
+            return QqAccessibilityExecutionResult.Complete
         }
-        if (!input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)) return false
+        if (!input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)) {
+            return QqAccessibilityExecutionResult.Retry("set_text_failed")
+        }
 
-        val refreshed = service.rootInActiveWindow ?: return false
-        if (!hasExpectedTitle(refreshed, task.expectedTitles)) return false
-        val send = findSendButton(refreshed) ?: return false
+        val refreshed = service.rootInActiveWindow
+            ?: return QqAccessibilityExecutionResult.Retry("qq_window_not_opened")
+        if (refreshed.packageName?.toString() != QqNativeConfiguration.packageName) {
+            return QqAccessibilityExecutionResult.Retry("qq_window_not_opened")
+        }
+        if (!hasExpectedTitle(refreshed, task.expectedTitles)) {
+            return QqAccessibilityExecutionResult.Retry("title_not_found")
+        }
+        val send = findSendButton(refreshed)
+            ?: return QqAccessibilityExecutionResult.Retry("send_button_not_found")
         if (!QqAccessibilityTaskLauncher.canDeliver(task)) {
             QqAccessibilityTaskLauncher.finishAndContinue(service, task)
-            return false
+            return QqAccessibilityExecutionResult.Complete
         }
         task.clicked = true
         val clicked = send.performAction(AccessibilityNodeInfo.ACTION_CLICK)
@@ -57,7 +80,7 @@ object QqAccessibilityReplyExecutor {
                 task,
                 "click_failed",
             )
-            return false
+            return QqAccessibilityExecutionResult.Complete
         }
         val next = QqPendingReplyStore.finishAccessibility(task.id)
         QqBridgeChannels.emit(
@@ -72,7 +95,7 @@ object QqAccessibilityReplyExecutor {
         } else {
             continueQueue()
         }
-        return true
+        return QqAccessibilityExecutionResult.Complete
     }
 
     private fun hasExpectedTitle(root: AccessibilityNodeInfo, expected: List<String>): Boolean {

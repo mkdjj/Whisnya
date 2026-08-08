@@ -156,20 +156,23 @@ class QqNotificationListenerService : NotificationListenerService() {
                 }
                 is QqRemoteInputResult.Failed -> QqRemoteInputDisposition.Failed
             }
-        QqRemoteInputFailureReporter.report(
-            disposition = disposition,
-            concreteFailureCode = (remote as? QqRemoteInputResult.Failed)?.code,
-        ) { code ->
-            QqBridgeChannels.emit(
-                "remoteInputSend",
-                mapOf("success" to false, "errorCode" to code),
-            )
-        }
-        when (QqReplyRoutingPolicy.route(
+        val route = QqReplyRoutingPolicy.route(
             disposition,
             QqNativeConfiguration.accessibilityFallbackEnabled,
             QqPendingReplyStore.isDeviceLocked(this),
-        )) {
+        )
+        if (route != QqDeliveryRoute.Accessibility) {
+            QqRemoteInputFailureReporter.report(
+                disposition = disposition,
+                concreteFailureCode = (remote as? QqRemoteInputResult.Failed)?.code,
+            ) { code ->
+                QqBridgeChannels.emit(
+                    "remoteInputSend",
+                    mapOf("success" to false, "errorCode" to code),
+                )
+            }
+        }
+        when (route) {
             QqDeliveryRoute.Complete -> return
             QqDeliveryRoute.Abort -> {
                 QqPendingReplyStore.removeNotification(

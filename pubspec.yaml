@@ -1,7 +1,7 @@
 name: whisnya
 description: "A local-first AI role chat and TXT novel reader app."
 publish_to: 'none'
-version: 1.5.0+22
+version: 1.5.1+23
 
 environment:
   sdk: ^3.12.2

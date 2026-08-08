@@ -1,6 +1,8 @@
 package com.mkdjj.whisnya.qq
 
 import android.app.PendingIntent
+import android.app.ActivityOptions
+import android.os.Build
 import android.content.Context
 
 object QqAccessibilityTaskLauncher {
@@ -24,8 +26,26 @@ object QqAccessibilityTaskLauncher {
             finishAndContinue(context, task, "content_intent_missing")
             return
         }
+        val service = QqAccessibilityService.activeInstance()
+        if (service == null) {
+            finishAndContinue(context, task, "accessibility_service_disconnected")
+            return
+        }
         try {
-            contentIntent.send()
+            contentIntent.send(
+                service,
+                0,
+                null,
+                null,
+                null,
+                null,
+                backgroundLaunchOptions(),
+            )
+            QqBridgeChannels.emit(
+                "accessibilityProgress",
+                mapOf("success" to true, "stage" to "fallback_started"),
+            )
+            service.watch(task)
         } catch (_: PendingIntent.CanceledException) {
             finishAndContinue(context, task, "content_intent_cancelled")
         } catch (_: SecurityException) {
@@ -59,5 +79,25 @@ object QqAccessibilityTaskLauncher {
             "accessibilitySend",
             mapOf("success" to false, "errorCode" to code),
         )
+    }
+
+    private fun backgroundLaunchOptions(): android.os.Bundle? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return null
+        val launchMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
+            ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_ALWAYS
+        } else {
+            @Suppress("DEPRECATION")
+            ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+        }
+        val options = ActivityOptions.makeBasic()
+            .setPendingIntentBackgroundActivityStartMode(
+                launchMode,
+            )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            options.setPendingIntentCreatorBackgroundActivityStartMode(
+                launchMode,
+            )
+        }
+        return options.toBundle()
     }
 }
