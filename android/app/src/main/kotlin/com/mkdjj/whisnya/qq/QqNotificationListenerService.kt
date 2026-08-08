@@ -156,9 +156,12 @@ class QqNotificationListenerService : NotificationListenerService() {
                 }
                 is QqRemoteInputResult.Failed -> QqRemoteInputDisposition.Failed
             }
+        val accessibilityReady =
+            QqNativeConfiguration.accessibilityFallbackEnabled ||
+                QqAccessibilityService.activeInstance() != null
         val route = QqReplyRoutingPolicy.route(
             disposition,
-            QqNativeConfiguration.accessibilityFallbackEnabled,
+            accessibilityReady,
             QqPendingReplyStore.isDeviceLocked(this),
         )
         if (route != QqDeliveryRoute.Accessibility) {

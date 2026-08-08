@@ -43,7 +43,7 @@
             android:name=".qq.QqNotificationListenerService"
             android:label="Whisnya QQ 通知监听"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
@@ -52,7 +52,7 @@
             android:name=".qq.QqAccessibilityService"
             android:label="Whisnya QQ 自动回复"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
