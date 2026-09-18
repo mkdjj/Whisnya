@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -10,7 +9,6 @@ import 'package:whisnya/models/qq_integration_settings.dart';
 import 'package:whisnya/screens/settings/qq_contact_binding_edit_screen.dart';
 import 'package:whisnya/screens/settings/qq_contact_bindings_screen.dart';
 import 'package:whisnya/services/local_storage_service.dart';
-import 'package:whisnya/services/qq/android/qq_native_bridge.dart';
 import 'package:whisnya/utils/app_i18n.dart';
 
 void main() {
@@ -47,99 +45,6 @@ void main() {
     expect(storage.sessions.single.title, 'QQ · Alice');
   });
 
-  testWidgets(
-    'notification binding list never offers manual contact key input',
-    (tester) async {
-      final storage = _BindingStorage();
-      await tester.pumpWidget(
-        MaterialApp(
-          locale: const Locale('zh'),
-          supportedLocales: appSupportedLocales,
-          localizationsDelegates: appLocalizationsDelegates,
-          home: QqContactBindingsScreen(
-            storage: storage,
-            mode: QqIntegrationMode.notification,
-            isAndroid: false,
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('捕获下一条 QQ 私聊通知'), findsOneWidget);
-      expect(find.byKey(const ValueKey('qq-external-user-id')), findsNothing);
-    },
-  );
-
-  testWidgets('capture subscribes before requesting the next notification', (
-    tester,
-  ) async {
-    final storage = _BindingStorage();
-    final bridge = _ImmediateCaptureBridge();
-    addTearDown(bridge.dispose);
-    await tester.pumpWidget(
-      MaterialApp(
-        locale: const Locale('zh'),
-        supportedLocales: appSupportedLocales,
-        localizationsDelegates: appLocalizationsDelegates,
-        home: QqContactBindingsScreen(
-          storage: storage,
-          mode: QqIntegrationMode.notification,
-          nativeBridge: bridge,
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('捕获下一条 QQ 私聊通知'));
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 66));
-
-    final contactField = tester.widget<TextFormField>(
-      find.byKey(const ValueKey('qq-external-user-id')),
-    );
-    final nameField = tester.widget<TextFormField>(
-      find.byKey(const ValueKey('qq-display-name')),
-    );
-    expect(contactField.controller?.text, 'alice-key');
-    expect(nameField.controller?.text, 'Alice');
-  });
-
-  testWidgets('capture failure releases its listener and restores the action', (
-    tester,
-  ) async {
-    final storage = _BindingStorage();
-    final bridge = _FailingCaptureBridge();
-    addTearDown(bridge.dispose);
-    await tester.pumpWidget(
-      MaterialApp(
-        locale: const Locale('zh'),
-        supportedLocales: appSupportedLocales,
-        localizationsDelegates: appLocalizationsDelegates,
-        home: QqContactBindingsScreen(
-          storage: storage,
-          mode: QqIntegrationMode.notification,
-          nativeBridge: bridge,
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('捕获下一条 QQ 私聊通知'));
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 5));
-    await tester.pump();
-
-    expect(tester.takeException(), isNull);
-    expect(bridge.activeListeners, 0);
-    expect(bridge.cancelCalled, isTrue);
-    expect(find.byType(CircularProgressIndicator), findsNothing);
-
-    await tester.tap(find.text('捕获下一条 QQ 私聊通知'));
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 5));
-    await tester.pump();
-    expect(bridge.beginCalls, 2);
-  });
-
   testWidgets('binding deletion notifies the running integration immediately', (
     tester,
   ) async {
@@ -165,10 +70,7 @@ void main() {
         home: QqContactBindingsScreen(
           storage: storage,
           mode: QqIntegrationMode.oneBot,
-          isAndroid: false,
-          onBindingsChanged: (bindings) async {
-            snapshots.add([...bindings]);
-          },
+          onBindingsChanged: (bindings) async => snapshots.add([...bindings]),
         ),
       ),
     );
@@ -176,7 +78,7 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.delete_outline));
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(TextButton).at(1));
+    await tester.tap(find.text('只删除绑定'));
     await tester.pumpAndSettle();
 
     expect(storage.bindings, isEmpty);
@@ -253,52 +155,3 @@ AppCharacter _character(DateTime now) => AppCharacter(
   updatedAt: now,
   lastUsedAt: now,
 );
-
-final class _ImmediateCaptureBridge extends QqNativeBridge {
-  _ImmediateCaptureBridge() : super(isAndroid: false);
-
-  final _captured = StreamController<Map<String, dynamic>>.broadcast(
-    sync: true,
-  );
-
-  @override
-  Stream<Map<String, dynamic>> get capturedNotifications => _captured.stream;
-
-  @override
-  Future<void> beginNotificationCapture() async {
-    _captured.add(const {'contactKey': 'alice-key', 'title': 'Alice'});
-  }
-
-  @override
-  Future<void> cancelNotificationCapture() async {}
-
-  Future<void> dispose() => _captured.close();
-}
-
-final class _FailingCaptureBridge extends QqNativeBridge {
-  _FailingCaptureBridge() : super(isAndroid: false);
-
-  var activeListeners = 0;
-  var beginCalls = 0;
-  var cancelCalled = false;
-  late final _captured = StreamController<Map<String, dynamic>>.broadcast(
-    onListen: () => activeListeners++,
-    onCancel: () => activeListeners--,
-  );
-
-  @override
-  Stream<Map<String, dynamic>> get capturedNotifications => _captured.stream;
-
-  @override
-  Future<void> beginNotificationCapture() async {
-    beginCalls++;
-    throw StateError('capture unavailable');
-  }
-
-  @override
-  Future<void> cancelNotificationCapture() async {
-    cancelCalled = true;
-  }
-
-  Future<void> dispose() => _captured.close();
-}

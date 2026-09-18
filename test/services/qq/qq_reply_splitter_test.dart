@@ -13,11 +13,8 @@ void main() {
     expect(parts.join(), isNot(contains('�')));
   });
 
-  test('notification produces one complete truncated reply', () {
-    final reply = QqReplySplitter.forNotification(
-      '123456789',
-      maxReplyCharacters: 5,
-    );
+  test('truncate produces one complete limited reply', () {
+    final reply = QqReplySplitter.truncate('123456789', maxReplyCharacters: 5);
     expect(reply, '12345');
   });
 

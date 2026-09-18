@@ -33,7 +33,7 @@ void main() {
     expect(find.text('聊天气泡'), findsNothing);
   });
 
-  testWidgets('continuous role output switch follows reasoning switch', (
+  testWidgets('character inner voice sits between reasoning and bubbles', (
     tester,
   ) async {
     final storage = _MemoryStorage();
@@ -53,19 +53,27 @@ void main() {
     );
 
     final reasoning = find.byKey(const ValueKey('show-reasoning-setting'));
+    final innerVoice = find.byKey(
+      const ValueKey('show-character-inner-voice-setting'),
+    );
     final continuous = find.byKey(
       const ValueKey('split-role-messages-setting'),
     );
     expect(reasoning, findsOneWidget);
+    expect(innerVoice, findsOneWidget);
     expect(continuous, findsOneWidget);
     expect(
-      tester.getTopLeft(continuous).dy,
+      tester.getTopLeft(innerVoice).dy,
       greaterThan(tester.getTopLeft(reasoning).dy),
     );
+    expect(
+      tester.getTopLeft(continuous).dy,
+      greaterThan(tester.getTopLeft(innerVoice).dy),
+    );
 
-    await tester.tap(continuous);
+    await tester.tap(innerVoice);
     await tester.pump();
-    expect(storage.savedSettings.last.splitRoleMessages, isTrue);
+    expect(storage.savedSettings.last.showCharacterInnerVoice, isTrue);
   });
 
   testWidgets('settings exposes the memory context character limit', (

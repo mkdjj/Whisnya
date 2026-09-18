@@ -23,21 +23,16 @@ void main() {
     );
   });
 
-  test(
-    'notification contact key is stable and does not use notification key',
-    () {
-      final first = notificationContactKey(
-        packageName: 'com.tencent.mobileqq',
-        conversationTitle: '  Alice   Zhang ',
-        shortcutId: 'shortcut',
-      );
-      final second = notificationContactKey(
-        packageName: 'com.tencent.mobileqq',
-        conversationTitle: 'Alice Zhang',
-        shortcutId: 'shortcut',
-      );
-      expect(first, second);
-      expect(first, hasLength(64));
-    },
-  );
+  test('legacy notification aliases are ignored when loading bindings', () {
+    final binding = QqContactBinding.fromJson({
+      'id': 'b1',
+      'mode': 'oneBot',
+      'externalUserId': '10001',
+      'displayName': 'Alice',
+      'characterId': 'c1',
+      'sessionId': 's1',
+      'notificationTitleAliases': ['Alice'],
+    });
+    expect(binding.toJson(), isNot(contains('notificationTitleAliases')));
+  });
 }

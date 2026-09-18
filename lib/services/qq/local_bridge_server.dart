@@ -106,12 +106,14 @@ class LocalQqBridgeMessageResult {
   const LocalQqBridgeMessageResult.noContent()
     : disposition = LocalQqBridgeMessageDisposition.noContent,
       reply = '',
+      replies = const [],
       sessionId = '',
       bindingId = '',
       error = '';
 
   const LocalQqBridgeMessageResult.reply({
     required this.reply,
+    required this.replies,
     required this.sessionId,
     required this.bindingId,
   }) : disposition = LocalQqBridgeMessageDisposition.reply,
@@ -120,11 +122,13 @@ class LocalQqBridgeMessageResult {
   const LocalQqBridgeMessageResult.failure(this.error)
     : disposition = LocalQqBridgeMessageDisposition.failure,
       reply = '',
+      replies = const [],
       sessionId = '',
       bindingId = '';
 
   final LocalQqBridgeMessageDisposition disposition;
   final String reply;
+  final List<String> replies;
   final String sessionId;
   final String bindingId;
   final String error;
@@ -257,6 +261,7 @@ class LocalQqBridgeServer {
       case LocalQqBridgeMessageDisposition.reply:
         await _json(request.response, HttpStatus.ok, {
           'reply': result.reply,
+          'replies': result.replies,
           'sessionId': result.sessionId,
           'bindingId': result.bindingId,
         });

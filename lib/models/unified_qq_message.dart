@@ -9,7 +9,6 @@ class UnifiedQqMessage {
     required this.text,
     required this.timestamp,
     required this.rawConversationTitle,
-    this.nativeNotificationKey,
   });
 
   final QqIntegrationMode source;
@@ -19,7 +18,6 @@ class UnifiedQqMessage {
   final String text;
   final DateTime timestamp;
   final String rawConversationTitle;
-  final String? nativeNotificationKey;
 
   UnifiedQqMessage copyWith({
     QqIntegrationMode? source,
@@ -29,7 +27,6 @@ class UnifiedQqMessage {
     String? text,
     DateTime? timestamp,
     String? rawConversationTitle,
-    String? nativeNotificationKey,
   }) => UnifiedQqMessage(
     source: source ?? this.source,
     messageId: messageId ?? this.messageId,
@@ -38,7 +35,6 @@ class UnifiedQqMessage {
     text: text ?? this.text,
     timestamp: timestamp ?? this.timestamp,
     rawConversationTitle: rawConversationTitle ?? this.rawConversationTitle,
-    nativeNotificationKey: nativeNotificationKey ?? this.nativeNotificationKey,
   );
 
   factory UnifiedQqMessage.fromJson(Map<String, dynamic> json) =>
@@ -52,7 +48,6 @@ class UnifiedQqMessage {
             DateTime.tryParse(json['timestamp'] as String? ?? '') ??
             DateTime.now(),
         rawConversationTitle: json['rawConversationTitle'] as String? ?? '',
-        nativeNotificationKey: json['nativeNotificationKey'] as String?,
       );
 
   Map<String, dynamic> toJson() => {
@@ -63,7 +58,5 @@ class UnifiedQqMessage {
     'text': text,
     'timestamp': timestamp.toIso8601String(),
     'rawConversationTitle': rawConversationTitle,
-    if (nativeNotificationKey != null)
-      'nativeNotificationKey': nativeNotificationKey,
   };
 }

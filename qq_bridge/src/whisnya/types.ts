@@ -14,6 +14,7 @@ export interface WhisnyaMessage {
 
 export interface WhisnyaReply {
   reply: string;
+  replies?: string[];
   sessionId: string;
   bindingId: string;
 }

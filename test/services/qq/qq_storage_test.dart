@@ -27,29 +27,20 @@ void main() {
 
   tearDown(() => directory.delete(recursive: true));
 
-  test(
-    'stores settings under config and token only in secure storage',
-    () async {
-      await storage.saveQqIntegrationSettings(
-        const QqIntegrationSettings(
-          enabled: true,
-          mode: QqIntegrationMode.oneBot,
-        ),
-      );
-      await storage.saveOneBotAccessToken('top-secret');
-
-      final file = File(
-        '${directory.path}${Platform.pathSeparator}config'
-        '${Platform.pathSeparator}qq_integration.json',
-      );
-      expect(await file.exists(), isTrue);
-      expect(await file.readAsString(), isNot(contains('top-secret')));
-      expect(await storage.loadOneBotAccessToken(), 'top-secret');
-
-      await storage.clearOneBotAccessToken();
-      expect(await storage.loadOneBotAccessToken(), isEmpty);
-    },
-  );
+  test('stores settings under config', () async {
+    await storage.saveQqIntegrationSettings(
+      const QqIntegrationSettings(
+        enabled: true,
+        mode: QqIntegrationMode.oneBot,
+      ),
+    );
+    final file = File(
+      '${directory.path}${Platform.pathSeparator}config'
+      '${Platform.pathSeparator}qq_integration.json',
+    );
+    expect(await file.exists(), isTrue);
+    expect(await file.readAsString(), contains('oneBot'));
+  });
 
   test(
     'creates and reuses a 32-byte local bridge token in secure storage',
@@ -111,12 +102,12 @@ void main() {
     'backup includes qq settings and bindings but never secure token',
     () async {
       await storage.saveQqIntegrationSettings(
-        const QqIntegrationSettings(mode: QqIntegrationMode.notification),
+        const QqIntegrationSettings(mode: QqIntegrationMode.oneBot),
       );
       await storage.saveQqContactBinding(
         _binding(id: 'b1', externalUserId: 'key', sessionId: 's1'),
       );
-      await storage.saveOneBotAccessToken('never-export-this');
+      final bridgeToken = await storage.loadOrCreateLocalBridgeToken();
 
       final archive = ZipDecoder().decodeBytes(await storage.exportAllData());
       final names = archive.files.map((file) => file.name).toSet();
@@ -126,10 +117,7 @@ void main() {
           .where((file) => file.isFile)
           .expand((file) => file.content as List<int>)
           .toList();
-      expect(
-        String.fromCharCodes(allBytes),
-        isNot(contains('never-export-this')),
-      );
+      expect(String.fromCharCodes(allBytes), isNot(contains(bridgeToken)));
     },
   );
 }

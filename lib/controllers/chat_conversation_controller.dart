@@ -59,6 +59,7 @@ final class ChatConversationController {
         ChatReplyVariant(
           content: message.content,
           time: message.time,
+          innerVoice: message.innerVoice,
           endpointId: message.endpointId,
           endpointName: message.endpointName,
           model: message.model,
@@ -71,6 +72,124 @@ final class ChatConversationController {
       message.copyWith(
         variants: variants,
         selectedVariantIndex: variants.length - 1,
+      ),
+    );
+    return true;
+  }
+
+  bool setAssistantInnerVoice({
+    required int messageIndex,
+    required String replySnapshot,
+    required String innerVoice,
+    int? variantIndex,
+  }) {
+    final normalized = innerVoice.trim();
+    if (!_isAssistantIndex(messageIndex) || normalized.isEmpty) return false;
+    final message = _messages[messageIndex];
+    final variants = message.variants
+        .where((variant) => variant.content.trim().isNotEmpty)
+        .toList();
+
+    if (variantIndex != null) {
+      if (variantIndex < 0 || variantIndex >= variants.length) return false;
+      if (variants[variantIndex].content != replySnapshot) return false;
+      variants[variantIndex] = variants[variantIndex].copyWith(
+        innerVoice: normalized,
+      );
+      _replaceAt(messageIndex, message.copyWith(variants: variants));
+      return true;
+    }
+
+    // A base reply can be converted to candidate 0 while its voice is pending.
+    if (variants.isNotEmpty) {
+      if (variants.first.content != replySnapshot) return false;
+      variants[0] = variants.first.copyWith(innerVoice: normalized);
+      _replaceAt(messageIndex, message.copyWith(variants: variants));
+      return true;
+    }
+
+    if (message.content != replySnapshot) return false;
+    _replaceAt(messageIndex, message.copyWith(innerVoice: normalized));
+    return true;
+  }
+
+  String? assistantInnerVoiceAt({
+    required int messageIndex,
+    required String replySnapshot,
+    int? variantIndex,
+  }) {
+    if (!_isAssistantIndex(messageIndex)) return null;
+    final message = _messages[messageIndex];
+    final variants = message.variants
+        .where((variant) => variant.content.trim().isNotEmpty)
+        .toList();
+    if (variantIndex != null) {
+      if (variantIndex < 0 || variantIndex >= variants.length) return null;
+      return variants[variantIndex].content == replySnapshot
+          ? variants[variantIndex].innerVoice
+          : null;
+    }
+    if (variants.isNotEmpty) {
+      return variants.first.content == replySnapshot
+          ? variants.first.innerVoice
+          : null;
+    }
+    return message.content == replySnapshot ? message.innerVoice : null;
+  }
+
+  bool restoreAssistantInnerVoice({
+    required int messageIndex,
+    required String replySnapshot,
+    required String expectedInnerVoice,
+    required String previousInnerVoice,
+    int? variantIndex,
+  }) {
+    if (!_isAssistantIndex(messageIndex)) return false;
+    final message = _messages[messageIndex];
+    final variants = message.variants
+        .where((variant) => variant.content.trim().isNotEmpty)
+        .toList();
+    final expected = expectedInnerVoice.trim();
+    final previous = previousInnerVoice;
+
+    if (variantIndex != null) {
+      if (variantIndex < 0 || variantIndex >= variants.length) return false;
+      final variant = variants[variantIndex];
+      if (variant.content != replySnapshot ||
+          variant.innerVoice.trim() != expected) {
+        return false;
+      }
+      variants[variantIndex] = variant.copyWith(
+        innerVoice: previous,
+        clearInnerVoice: previous.trim().isEmpty,
+      );
+      _replaceAt(messageIndex, message.copyWith(variants: variants));
+      return true;
+    }
+
+    if (variants.isNotEmpty) {
+      final variant = variants.first;
+      if (variant.content != replySnapshot ||
+          variant.innerVoice.trim() != expected) {
+        return false;
+      }
+      variants[0] = variant.copyWith(
+        innerVoice: previous,
+        clearInnerVoice: previous.trim().isEmpty,
+      );
+      _replaceAt(messageIndex, message.copyWith(variants: variants));
+      return true;
+    }
+
+    if (message.content != replySnapshot ||
+        message.innerVoice.trim() != expected) {
+      return false;
+    }
+    _replaceAt(
+      messageIndex,
+      message.copyWith(
+        innerVoice: previous,
+        clearInnerVoice: previous.trim().isEmpty,
       ),
     );
     return true;

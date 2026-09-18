@@ -18,6 +18,7 @@ class AppSettings {
     this.userProfile = const UserProfile(),
     this.streamResponses = true,
     this.showReasoningContent = false,
+    this.showCharacterInnerVoice = false,
     this.splitRoleMessages = false,
     this.memoryContextMaxCharacters = 4000,
     this.useCustomChatSummaryItems = false,
@@ -45,6 +46,7 @@ class AppSettings {
   final UserProfile userProfile;
   final bool streamResponses;
   final bool showReasoningContent;
+  final bool showCharacterInnerVoice;
   final bool splitRoleMessages;
   final int memoryContextMaxCharacters;
   final bool useCustomChatSummaryItems;
@@ -82,6 +84,7 @@ class AppSettings {
     UserProfile? userProfile,
     bool? streamResponses,
     bool? showReasoningContent,
+    bool? showCharacterInnerVoice,
     bool? splitRoleMessages,
     int? memoryContextMaxCharacters,
     bool? useCustomChatSummaryItems,
@@ -119,6 +122,8 @@ class AppSettings {
       userProfile: userProfile ?? this.userProfile,
       streamResponses: streamResponses ?? this.streamResponses,
       showReasoningContent: showReasoningContent ?? this.showReasoningContent,
+      showCharacterInnerVoice:
+          showCharacterInnerVoice ?? this.showCharacterInnerVoice,
       splitRoleMessages: splitRoleMessages ?? this.splitRoleMessages,
       memoryContextMaxCharacters:
           (memoryContextMaxCharacters ?? this.memoryContextMaxCharacters).clamp(
@@ -173,6 +178,8 @@ class AppSettings {
       ),
       streamResponses: json?['streamResponses'] as bool? ?? true,
       showReasoningContent: json?['showReasoningContent'] as bool? ?? false,
+      showCharacterInnerVoice:
+          json?['showCharacterInnerVoice'] as bool? ?? false,
       splitRoleMessages: json?['splitRoleMessages'] as bool? ?? false,
       memoryContextMaxCharacters:
           ((json?['memoryContextMaxCharacters'] as num?)?.toInt() ?? 4000)
@@ -213,6 +220,7 @@ class AppSettings {
       'userProfile': userProfile.toJson(),
       'streamResponses': streamResponses,
       'showReasoningContent': showReasoningContent,
+      'showCharacterInnerVoice': showCharacterInnerVoice,
       'splitRoleMessages': splitRoleMessages,
       'memoryContextMaxCharacters': memoryContextMaxCharacters,
       'useCustomChatSummaryItems': useCustomChatSummaryItems,

@@ -6,9 +6,7 @@ void main() {
     const defaults = QqIntegrationSettings();
     expect(defaults.enabled, isFalse);
     expect(defaults.mode, QqIntegrationMode.disabled);
-    expect(defaults.oneBotHost, '127.0.0.1');
     expect(defaults.mergeWindowMilliseconds, 1800);
-    expect(defaults.notificationPackageName, 'com.tencent.mobileqq');
 
     final parsed = QqIntegrationSettings.fromJson({
       'mode': 'oneBot',
@@ -17,6 +15,7 @@ void main() {
       'maxReplyCharacters': 20,
       'replyChunkCharacters': 99999,
       'requestTimeoutSeconds': 5,
+      'oneBotHost': 'legacy.example',
       'oneBotPort': 90000,
       'quietHoursStartMinutes': -1,
       'quietHoursEndMinutes': 9999,
@@ -28,28 +27,37 @@ void main() {
     expect(parsed.maxReplyCharacters, 100);
     expect(parsed.replyChunkCharacters, 100);
     expect(parsed.requestTimeoutSeconds, 15);
-    expect(parsed.oneBotPort, 65535);
     expect(parsed.quietHoursStartMinutes, 0);
     expect(parsed.quietHoursEndMinutes, 1439);
+    expect(parsed.toJson(), isNot(contains('oneBotHost')));
+    expect(parsed.toJson(), isNot(contains('oneBotPort')));
   });
 
-  test('round trips every transport setting', () {
+  test('round trips onebot settings', () {
     final value = QqIntegrationSettings.fromJson({
       'enabled': true,
-      'mode': 'notification',
-      'defaultCharacterId': 'role',
+      'mode': 'oneBot',
       'oneBotHost': 'localhost',
       'oneBotPort': 4321,
       'oneBotPath': '/onebot',
       'oneBotSecure': true,
       'allowInsecureRemoteOneBot': true,
-      'accessibilityFallbackEnabled': true,
-      'returnAfterAccessibilitySend': false,
     });
     expect(
       QqIntegrationSettings.fromJson(value.toJson()).toJson(),
       value.toJson(),
     );
+  });
+
+  test('legacy notification mode is downgraded to disabled', () {
+    final value = QqIntegrationSettings.fromJson({
+      'enabled': true,
+      'mode': 'notification',
+      'notificationRemoteInputEnabled': true,
+    });
+    expect(value.mode, QqIntegrationMode.disabled);
+    expect(value.enabled, isFalse);
+    expect(value.toJson(), isNot(contains('notificationRemoteInputEnabled')));
   });
 
   test('quiet hours supports ranges crossing midnight', () {
@@ -61,23 +69,5 @@ void main() {
     expect(settings.isQuietAt(DateTime(2026, 8, 3, 23, 30)), isTrue);
     expect(settings.isQuietAt(DateTime(2026, 8, 4, 6, 59)), isTrue);
     expect(settings.isQuietAt(DateTime(2026, 8, 4, 12)), isFalse);
-  });
-
-  test('remote plaintext onebot is rejected unless explicitly allowed', () {
-    expect(
-      const QqIntegrationSettings(
-        mode: QqIntegrationMode.oneBot,
-        oneBotHost: '192.168.1.20',
-      ).oneBotConfigurationError,
-      isNotNull,
-    );
-    expect(
-      const QqIntegrationSettings(
-        mode: QqIntegrationMode.oneBot,
-        oneBotHost: '192.168.1.20',
-        allowInsecureRemoteOneBot: true,
-      ).oneBotConfigurationError,
-      isNull,
-    );
   });
 }

@@ -47,13 +47,16 @@ export class BridgeMessageRouter {
         text: message.text,
         timestamp: message.time,
       });
-      if (reply === null || !validReply(reply)) return;
-      const sent = await this.sendPrivateMessage(message.userId, reply.reply);
-      this.logger.info("private_reply_sent", {
-        user: redactId(message.userId),
-        messageId: sent.messageId,
-        textLength: reply.reply.length,
-      });
+      if (reply === null) return;
+      const replies = validReplies(reply);
+      for (const text of replies) {
+        const sent = await this.sendPrivateMessage(message.userId, text);
+        this.logger.info("private_reply_sent", {
+          user: redactId(message.userId),
+          messageId: sent.messageId,
+          textLength: text.length,
+        });
+      }
     } catch (error) {
       this.logger.warn("private_reply_failed", {
         user: redactId(message.userId),
@@ -64,8 +67,14 @@ export class BridgeMessageRouter {
   }
 }
 
-function validReply(value: WhisnyaReply): boolean {
-  return typeof value.reply === "string" && value.reply.trim().length > 0;
+function validReplies(value: WhisnyaReply): string[] {
+  const chunks = Array.isArray(value.replies)
+    ? value.replies.filter((item) => typeof item === "string" && item.trim().length > 0)
+    : [];
+  if (chunks.length > 0) return chunks;
+  return typeof value.reply === "string" && value.reply.trim().length > 0
+    ? [value.reply]
+    : [];
 }
 
 function redactId(value: string): string {

@@ -1,10 +1,8 @@
 class QqReplySplitter {
   const QqReplySplitter._();
 
-  static String forNotification(
-    String text, {
-    required int maxReplyCharacters,
-  }) => _takeRunes(text.trim(), maxReplyCharacters);
+  static String truncate(String text, {required int maxReplyCharacters}) =>
+      _takeRunes(text.trim(), maxReplyCharacters);
 
   static List<String> splitOneBot(
     String text, {

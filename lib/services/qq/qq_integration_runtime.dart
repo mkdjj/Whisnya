@@ -7,7 +7,6 @@ import 'package:flutter/foundation.dart';
 import '../../models/api_config.dart';
 import '../../models/qq_bridge_status.dart';
 import '../../models/qq_contact_binding.dart';
-import '../../models/qq_diagnostic_event.dart';
 import '../../models/qq_integration_settings.dart';
 import '../../models/unified_qq_message.dart';
 import '../ai/ai_gateway.dart';
@@ -17,7 +16,6 @@ import 'background_character_chat_service.dart';
 import 'local_bridge_server.dart';
 import 'qq_delivery_fence.dart';
 import 'qq_exceptions.dart';
-import 'qq_diagnostic_service.dart';
 import 'qq_message_debouncer.dart';
 import 'qq_message_processor.dart';
 import 'qq_reply_splitter.dart';
@@ -72,11 +70,9 @@ class QqIntegrationRuntime extends ChangeNotifier {
   DateTime? get lastReplyAt => _lastReplyAt;
   String get lastError => _lastError;
   int get queuedMessages => _processor?.queuedCount ?? 0;
+
   QqConnectionState get connectionState {
     if (!_running || _paused) return QqConnectionState.stopped;
-    if (_settings.mode == QqIntegrationMode.notification) {
-      return QqConnectionState.connected;
-    }
     if (!_localBridgeServer.isRunning) return QqConnectionState.error;
     if (!_localBridgeServer.bridgeOnline) return QqConnectionState.connecting;
     if (_napcatConnected) return QqConnectionState.connected;
@@ -86,7 +82,6 @@ class QqIntegrationRuntime extends ChangeNotifier {
   }
 
   Future<void> initialize() async {
-    nativeBridge.onIncomingNotification = _onIncomingNotification;
     nativeBridge.onRuntimeControl = _onRuntimeControl;
     nativeBridge.initialize();
     _nativeEvents = nativeBridge.statusEvents.listen(_handleNativeEvent);
@@ -105,13 +100,11 @@ class QqIntegrationRuntime extends ChangeNotifier {
     _running = true;
     _runGeneration++;
     _lastError = '';
-    if (settings.mode == QqIntegrationMode.oneBot) {
-      final token = await _storage.loadOrCreateLocalBridgeToken();
-      await _localBridgeServer.start(
-        port: localQqBridgeDefaultPort,
-        token: token,
-      );
-    }
+    final token = await _storage.loadOrCreateLocalBridgeToken();
+    await _localBridgeServer.start(
+      port: localQqBridgeDefaultPort,
+      token: token,
+    );
     await _syncNativeSettings(settings, bindings: bindings);
     notifyListeners();
     try {
@@ -131,7 +124,6 @@ class QqIntegrationRuntime extends ChangeNotifier {
     _paused = true;
     _runGeneration++;
     _processor?.setPaused(true);
-    await nativeBridge.cancelPendingAccessibilityReply();
     await _syncNativeSettings(_settings);
     notifyListeners();
   }
@@ -154,7 +146,6 @@ class QqIntegrationRuntime extends ChangeNotifier {
     _paused = false;
     _runGeneration++;
     _processor?.setPaused(true);
-    await nativeBridge.cancelPendingAccessibilityReply();
     await _localBridgeServer.stop();
     await _syncNativeSettings(_settings);
     _processor?.dispose();
@@ -178,48 +169,10 @@ class QqIntegrationRuntime extends ChangeNotifier {
     _settings = settings;
     if (_running) {
       _runGeneration++;
-      await nativeBridge.cancelPendingAccessibilityReply();
       _ensureProcessor(settings);
     }
     await _syncNativeSettings(settings, bindings: bindings);
     notifyListeners();
-  }
-
-  Future<Map<String, dynamic>> _onIncomingNotification(
-    Map<String, dynamic> arguments,
-  ) async {
-    try {
-      final settings = await _storage.loadQqIntegrationSettings();
-      if (!_running || settings.mode != QqIntegrationMode.notification) {
-        return const {'status': 'ignored'};
-      }
-      final generation = _runGeneration;
-      _lastMessageAt = DateTime.now();
-      notifyListeners();
-      _ensureProcessor(settings);
-      final message = UnifiedQqMessage.fromJson({
-        ...arguments,
-        'source': QqIntegrationMode.notification.name,
-      });
-      final result = await _processor!.handle(message, settings: settings);
-      if (!_canDeliver(generation, QqIntegrationMode.notification)) {
-        return const {'status': 'ignored'};
-      }
-      final json = result.toNativeJson();
-      if (result.status == QqProcessStatus.reply) {
-        json['text'] = QqReplySplitter.forNotification(
-          result.text,
-          maxReplyCharacters: settings.maxReplyCharacters,
-        );
-        _lastReplyAt = DateTime.now();
-      }
-      json['runGeneration'] = generation;
-      notifyListeners();
-      return json;
-    } on Object catch (error) {
-      _rememberError(error);
-      return const {'status': 'error', 'message': 'QQ 通知处理失败，请查看诊断日志。'};
-    }
   }
 
   Future<Map<String, dynamic>> _onRuntimeControl(
@@ -228,16 +181,12 @@ class QqIntegrationRuntime extends ChangeNotifier {
     switch (arguments['action']) {
       case 'start':
         if (!_running) await start();
-        break;
       case 'pause':
         await pause();
-        break;
       case 'continue':
         await resume();
-        break;
       case 'stop':
         await stop(stopForeground: false);
-        break;
     }
     return const {'status': 'ignored'};
   }
@@ -245,11 +194,16 @@ class QqIntegrationRuntime extends ChangeNotifier {
   Future<List<QqContactBinding>> _validateStart(
     QqIntegrationSettings settings,
   ) async {
-    if (!settings.enabled || settings.mode == QqIntegrationMode.disabled) {
-      throw const QqConfigurationException('请先开启 QQ 自动回复并选择模式。');
+    if (!settings.enabled || settings.mode != QqIntegrationMode.oneBot) {
+      throw const QqConfigurationException(
+        '请先开启 QQ 自动回复并选择 NapCat / OneBot 模式。',
+      );
     }
     final bindings = (await _storage.loadQqContactBindings())
-        .where((binding) => binding.mode == settings.mode && binding.enabled)
+        .where(
+          (binding) =>
+              binding.mode == QqIntegrationMode.oneBot && binding.enabled,
+        )
         .toList();
     if (bindings.isEmpty) {
       throw const QqConfigurationException('至少需要一个启用的联系人绑定。');
@@ -266,18 +220,15 @@ class QqIntegrationRuntime extends ChangeNotifier {
       final character = characters.firstWhere(
         (item) => item.id == binding.characterId,
       );
-      final endpoint = api.effectiveEndpoint(character.defaultEndpointId);
-      final error = endpointValidationError(endpoint);
+      final error = endpointValidationError(
+        api.effectiveEndpoint(character.defaultEndpointId),
+      );
       if (error != null) throw QqConfigurationException(error);
     }
     if (nativeBridge.isAndroid) {
       final native = await nativeBridge.getNativeStatus();
       if (native['notificationPermission'] != true) {
         throw const QqConfigurationException('请先允许 Whisnya 显示前台通知。');
-      }
-      if (settings.mode == QqIntegrationMode.notification &&
-          native['notificationAccess'] != true) {
-        throw const QqConfigurationException('请先开启 QQ 通知读取权限。');
       }
     }
     return bindings;
@@ -345,7 +296,7 @@ class QqIntegrationRuntime extends ChangeNotifier {
       ),
       settings: settings,
     );
-    if (!_canDeliver(generation, QqIntegrationMode.oneBot)) {
+    if (!_canDeliver(generation)) {
       return const LocalQqBridgeMessageResult.noContent();
     }
     if (result.status == QqProcessStatus.ignored) {
@@ -363,9 +314,14 @@ class QqIntegrationRuntime extends ChangeNotifier {
     _lastError = '';
     notifyListeners();
     return LocalQqBridgeMessageResult.reply(
-      reply: QqReplySplitter.forNotification(
+      reply: QqReplySplitter.truncate(
         result.text,
         maxReplyCharacters: settings.maxReplyCharacters,
+      ),
+      replies: QqReplySplitter.splitOneBot(
+        result.text,
+        maxReplyCharacters: settings.maxReplyCharacters,
+        replyChunkCharacters: settings.replyChunkCharacters,
       ),
       sessionId: result.reply?.sessionId ?? '',
       bindingId: result.reply?.bindingId ?? '',
@@ -373,6 +329,7 @@ class QqIntegrationRuntime extends ChangeNotifier {
   }
 
   void _onLocalBridgeStatusChanged(LocalQqBridgeStatus? status) {
+    final previousError = _lastError;
     if (status == null) {
       _accountId = '';
       _nickname = '';
@@ -386,96 +343,27 @@ class QqIntegrationRuntime extends ChangeNotifier {
       _lastError = status.lastError ?? '';
     }
     notifyListeners();
-    unawaited(_syncNativeSettings(_settings));
+    if (_lastError != previousError) {
+      unawaited(_syncNativeSettings(_settings));
+    }
   }
 
-  bool _canDeliver(int generation, QqIntegrationMode mode) =>
-      qqDeliveryPermitted(
-        running: _running,
-        paused: _paused,
-        currentGeneration: _runGeneration,
-        resultGeneration: generation,
-        settings: _settings,
-        mode: mode,
-      );
-
-  void _rememberError(Object error) {
-    _lastError = error.toString();
-    notifyListeners();
-    unawaited(_syncNativeSettings(_settings));
-  }
+  bool _canDeliver(int generation) => qqDeliveryPermitted(
+    running: _running,
+    paused: _paused,
+    currentGeneration: _runGeneration,
+    resultGeneration: generation,
+    settings: _settings,
+    mode: QqIntegrationMode.oneBot,
+  );
 
   void _handleNativeEvent(Map<String, dynamic> event) {
-    final type = event['type']?.toString() ?? '';
-    final rawDetails = event['details'];
-    final details = rawDetails is Map<Object?, Object?>
-        ? {
-            for (final item in rawDetails.entries)
-              item.key.toString(): item.value,
-          }
-        : const <String, dynamic>{};
-    QqDiagnosticEventType? eventType;
-    var success = details['success'] as bool? ?? true;
-    var transport = details['transport']?.toString() ?? '';
-    switch (type) {
-      case 'remoteInputSend':
-        eventType = success
-            ? QqDiagnosticEventType.replySent
-            : QqDiagnosticEventType.replyFailed;
-        transport = transport.isEmpty ? 'notificationRemoteInput' : transport;
-        break;
-      case 'accessibilitySend':
-        eventType = success
-            ? QqDiagnosticEventType.replySent
-            : QqDiagnosticEventType.accessibilityAborted;
-        transport = transport.isEmpty ? 'accessibility' : transport;
-        break;
-      case 'accessibilityProgress':
-        eventType = QqDiagnosticEventType.accessibilityProgress;
-        success = true;
-        transport = transport.isEmpty ? 'accessibility' : transport;
-        details['errorCode'] =
-            details['stage']?.toString() ?? 'accessibility_progress';
-        break;
-      case 'permissionChanged':
-        eventType = QqDiagnosticEventType.permissionChanged;
-        break;
-      case 'notificationCapture':
-        if (details['captured'] == true) {
-          eventType = QqDiagnosticEventType.captureCompleted;
-        } else if (details['active'] == true) {
-          eventType = QqDiagnosticEventType.captureStarted;
-        }
-        break;
-      case 'notificationRejected':
-        eventType = QqDiagnosticEventType.notificationRejected;
-        success = false;
-        transport = 'notificationListener';
-        break;
-      case 'nativeError':
-        eventType = QqDiagnosticEventType.replyFailed;
-        success = false;
-        break;
-    }
-    if (success && (type == 'remoteInputSend' || type == 'accessibilitySend')) {
-      _lastReplyAt = DateTime.now();
-      _lastError = '';
-    } else if (!success) {
-      _lastError = details['errorCode']?.toString() ?? 'native_error';
-    }
-    notifyListeners();
-    if (eventType != null) {
-      unawaited(
-        QqDiagnosticService(_storage).record(
-          settings: _settings,
-          mode: QqIntegrationMode.notification,
-          eventType: eventType,
-          success: success,
-          transport: transport,
-          errorCode: details['errorCode']?.toString() ?? '',
-          errorSummary: success ? '' : 'Native QQ reply operation failed',
-        ),
-      );
+    if (event['type'] == 'nativeError') {
+      final details = event['details'];
+      _lastError = details is Map
+          ? details['code']?.toString() ?? 'native_error'
+          : 'native_error';
+      notifyListeners();
     }
   }
 
@@ -494,7 +382,10 @@ class QqIntegrationRuntime extends ChangeNotifier {
     await nativeBridge.updateNativeQqSettings({
       ...settings.toJson(),
       'enabledContacts': activeBindings
-          .where((binding) => binding.mode == settings.mode && binding.enabled)
+          .where(
+            (binding) =>
+                binding.mode == QqIntegrationMode.oneBot && binding.enabled,
+          )
           .length,
       'connectionState': connectionState.name,
       'bridgeServerRunning': bridgeServerRunning,
@@ -509,7 +400,6 @@ class QqIntegrationRuntime extends ChangeNotifier {
       'lastHeartbeatAt': _lastHeartbeatAt?.toIso8601String() ?? '',
       'lastError': _lastError,
       'runtimeActive': _running && !_paused,
-      'runGeneration': _runGeneration,
     });
   }
 }

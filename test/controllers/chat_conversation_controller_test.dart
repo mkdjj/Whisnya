@@ -151,7 +151,14 @@ void main() {
 
   test('adds a variant by preserving a legacy assistant reply first', () {
     final controller = ChatConversationController(characterId: 'character');
-    controller.append(_message('assistant', 'original reply'));
+    controller.append(
+      ChatMessage(
+        role: 'assistant',
+        content: 'original reply',
+        innerVoice: 'original voice',
+        time: DateTime(2026),
+      ),
+    );
 
     final added = controller.addAssistantVariant(
       0,
@@ -161,8 +168,112 @@ void main() {
     expect(added, isTrue);
     expect(controller.messages.single.variantCount, 2);
     expect(controller.messages.single.variants.first.content, 'original reply');
+    expect(
+      controller.messages.single.variants.first.innerVoice,
+      'original voice',
+    );
     expect(controller.messages.single.effectiveContent, 'regenerated reply');
   });
+
+  test('sets inner voice only when the reply snapshot still matches', () {
+    final controller = ChatConversationController(characterId: 'character');
+    controller.append(_message('assistant', 'reply'));
+
+    expect(
+      controller.setAssistantInnerVoice(
+        messageIndex: 0,
+        replySnapshot: 'stale reply',
+        innerVoice: 'wrong voice',
+      ),
+      isFalse,
+    );
+    expect(controller.messages.single.effectiveInnerVoice, isEmpty);
+
+    expect(
+      controller.setAssistantInnerVoice(
+        messageIndex: 0,
+        replySnapshot: 'reply',
+        innerVoice: 'matching voice',
+      ),
+      isTrue,
+    );
+    expect(controller.messages.single.effectiveInnerVoice, 'matching voice');
+  });
+
+  test('restores inner voice only when the generated value still matches', () {
+    final controller = ChatConversationController(characterId: 'character');
+    controller.append(_message('assistant', 'reply'));
+
+    expect(
+      controller.setAssistantInnerVoice(
+        messageIndex: 0,
+        replySnapshot: 'reply',
+        innerVoice: 'generated voice',
+      ),
+      isTrue,
+    );
+    expect(
+      controller.restoreAssistantInnerVoice(
+        messageIndex: 0,
+        replySnapshot: 'reply',
+        expectedInnerVoice: 'another voice',
+        previousInnerVoice: '',
+      ),
+      isFalse,
+    );
+    expect(controller.messages.single.effectiveInnerVoice, 'generated voice');
+
+    expect(
+      controller.restoreAssistantInnerVoice(
+        messageIndex: 0,
+        replySnapshot: 'reply',
+        expectedInnerVoice: 'generated voice',
+        previousInnerVoice: '',
+      ),
+      isTrue,
+    );
+    expect(controller.messages.single.effectiveInnerVoice, isEmpty);
+  });
+
+  test(
+    'sets the requested variant voice without changing another candidate',
+    () {
+      final controller = ChatConversationController(characterId: 'character');
+      controller.append(
+        ChatMessage(
+          role: 'assistant',
+          content: 'A',
+          time: DateTime(2026),
+          variants: [
+            ChatReplyVariant(content: 'A', time: DateTime(2026)),
+            ChatReplyVariant(content: 'B', time: DateTime(2026, 2)),
+          ],
+          selectedVariantIndex: 1,
+        ),
+      );
+
+      expect(
+        controller.setAssistantInnerVoice(
+          messageIndex: 0,
+          variantIndex: 1,
+          replySnapshot: 'B',
+          innerVoice: 'B voice',
+        ),
+        isTrue,
+      );
+      expect(controller.messages.single.variants.first.innerVoice, isEmpty);
+      expect(controller.messages.single.effectiveInnerVoice, 'B voice');
+      expect(
+        controller.setAssistantInnerVoice(
+          messageIndex: 0,
+          variantIndex: 1,
+          replySnapshot: 'changed B',
+          innerVoice: 'stale voice',
+        ),
+        isFalse,
+      );
+    },
+  );
 
   test('switching a summarized assistant variant clears the summary', () {
     final controller = ChatConversationController(characterId: 'character');

@@ -150,7 +150,6 @@ class LocalStorageService {
 
   static const _secureApiKeyIndexKey = 'whisnya_api_endpoint_ids';
   static const _secureApiKeyPrefix = 'whisnya_api_key_';
-  static const _secureOneBotAccessTokenKey = 'whisnya.qq.onebot.access_token';
   static const _secureLocalBridgeTokenKey = 'whisnya.qq.local_bridge_token';
 
   final FlutterSecureStorage _secureStorage;
@@ -298,21 +297,6 @@ class LocalStorageService {
       );
     });
   }
-
-  Future<String> loadOneBotAccessToken() async =>
-      (await _secureStorage.read(key: _secureOneBotAccessTokenKey)) ?? '';
-
-  Future<void> saveOneBotAccessToken(String token) async {
-    final value = token.trim();
-    if (value.isEmpty) {
-      await clearOneBotAccessToken();
-      return;
-    }
-    await _secureStorage.write(key: _secureOneBotAccessTokenKey, value: value);
-  }
-
-  Future<void> clearOneBotAccessToken() =>
-      _secureStorage.delete(key: _secureOneBotAccessTokenKey);
 
   Future<String> loadOrCreateLocalBridgeToken() async {
     final existing =

@@ -33,7 +33,7 @@ class QqBridgeForegroundService : Service() {
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
-            ACTION_REFRESH -> showNotification()
+            ACTION_REFRESH -> Unit
             else -> QqBridgeChannels.runtimeControl("start")
         }
         showNotification()
@@ -59,7 +59,6 @@ class QqBridgeForegroundService : Service() {
     private fun showNotification() {
         val mode = when (QqNativeConfiguration.mode) {
             "oneBot" -> "NapCat / OneBot"
-            "notification" -> "通知监听"
             else -> "未启用"
         }
         val text = buildString {
@@ -77,15 +76,19 @@ class QqBridgeForegroundService : Service() {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
         }
-        val notification = builder
+        builder
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("QQ 自动回复")
             .setContentText(text)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(activityIntent())
-            .addAction(action("暂停", ACTION_PAUSE, 1))
-            .addAction(action("继续", ACTION_CONTINUE, 2))
+        if (QqNativeConfiguration.runtimeActive) {
+            builder.addAction(action("暂停", ACTION_PAUSE, 1))
+        } else {
+            builder.addAction(action("继续", ACTION_CONTINUE, 2))
+        }
+        val notification = builder
             .addAction(action("停止", ACTION_STOP, 3))
             .build()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {

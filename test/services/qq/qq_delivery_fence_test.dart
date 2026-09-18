@@ -5,7 +5,7 @@ import 'package:whisnya/services/qq/qq_delivery_fence.dart';
 void main() {
   const settings = QqIntegrationSettings(
     enabled: true,
-    mode: QqIntegrationMode.notification,
+    mode: QqIntegrationMode.oneBot,
   );
 
   test('stop pause and stale generations fence reply delivery', () {
@@ -20,7 +20,7 @@ void main() {
       currentGeneration: current,
       resultGeneration: result,
       settings: settings,
-      mode: QqIntegrationMode.notification,
+      mode: QqIntegrationMode.oneBot,
     );
 
     expect(permits(), isTrue);

@@ -20,6 +20,7 @@ import '../../models/world_book.dart';
 import '../../prompts/prompt_builder.dart';
 import '../../services/ai/ai_gateway.dart';
 import '../../services/ai_service.dart';
+import '../../services/chat/character_inner_voice_service.dart';
 import '../../services/chat/chat_summary_service.dart';
 import '../../services/chat/memory_context_service.dart';
 import '../../services/local_storage_service.dart';
@@ -36,6 +37,8 @@ import '../../widgets/app_background.dart';
 import '../../widgets/chat_bubble.dart';
 import '../../widgets/chat_bubble_preset_picker.dart';
 import '../../widgets/chat_input_composer.dart';
+import '../../widgets/chat/character_inner_voice_dialog.dart';
+import '../../widgets/chat/character_inner_voice_preview.dart';
 import '../../widgets/chat_variant_controls.dart';
 import '../../widgets/endpoint_picker.dart';
 import '../../widgets/message_content.dart';
@@ -97,6 +100,11 @@ class _ChatScreenState extends State<ChatScreen> {
   Completer<void>? _generationCompletion;
   StreamTextBuffer? _streamBuffer;
   String? _loadError;
+  var _nextInnerVoiceOperationId = 0;
+  final _innerVoiceOperations = <int, _InnerVoiceOperation>{};
+  final _failedInnerVoiceTargets = <int, _InnerVoiceTarget>{};
+  final _innerVoiceFailureTimers = <int, Timer>{};
+  Future<void> _chatSaveTail = Future<void>.value();
 
   bool get _hasActiveChatOperation =>
       _isLoading ||
@@ -134,11 +142,23 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant ChatScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.settings.showCharacterInnerVoice &&
+        !widget.settings.showCharacterInnerVoice) {
+      _cancelAllInnerVoiceOperations();
+      _clearInnerVoiceFailures();
+    }
+  }
+
+  @override
   void dispose() {
     _generationId++;
     _invalidateSummaryOperations();
     _cancelToken?.cancel();
     _summaryCancelToken?.cancel();
+    _cancelAllInnerVoiceOperations(updateUi: false);
+    _clearInnerVoiceFailures();
     _streamBuffer?.dispose();
     _toolBarTimer?.cancel();
     _inputController.dispose();
@@ -247,22 +267,38 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _saveCurrentChat() async {
     final session = _currentSession;
     final messages = List<ChatMessage>.of(_messages);
-    if (widget.storage.usesSessionStorage) {
-      await widget.storage.saveChatBySession(session, messages);
-    } else {
-      await widget.storage.saveChat(_character.id, messages);
-    }
+    await _enqueueChatSave(() async {
+      if (widget.storage.usesSessionStorage) {
+        await widget.storage.saveChatBySession(session, messages);
+      } else {
+        await widget.storage.saveChat(_character.id, messages);
+      }
+    });
   }
 
   Future<bool> _saveChatSnapshotIfSessionExists(
     ChatSession session,
     List<ChatMessage> messages,
   ) async {
-    if (widget.storage.usesSessionStorage) {
-      return widget.storage.saveChatBySessionIfExists(session, messages);
-    }
-    await widget.storage.saveChat(_character.id, messages);
-    return true;
+    return _enqueueChatSave(() async {
+      if (widget.storage.usesSessionStorage) {
+        return widget.storage.saveChatBySessionIfExists(session, messages);
+      }
+      await widget.storage.saveChat(_character.id, messages);
+      return true;
+    });
+  }
+
+  Future<T> _enqueueChatSave<T>(Future<T> Function() save) {
+    final result = Completer<T>();
+    _chatSaveTail = _chatSaveTail.then((_) async {
+      try {
+        result.complete(await save());
+      } catch (error, stackTrace) {
+        result.completeError(error, stackTrace);
+      }
+    });
+    return result.future;
   }
 
   Future<void> _saveCurrentSummary() async {
@@ -489,9 +525,34 @@ class _ChatScreenState extends State<ChatScreen> {
       });
       final session = _currentSession;
       final messages = List<ChatMessage>.of(_messages);
-      await _saveChatSnapshotIfSessionExists(session, messages);
+      final saved = await _saveChatSnapshotIfSessionExists(session, messages);
       if (_isCurrentGeneration(generationId, sessionId)) {
         setState(() => _isSending = false);
+      }
+      if (saved &&
+          mounted &&
+          generationId == _generationId &&
+          _session?.id == sessionId) {
+        final messageIndex = variantAt ?? _messages.length - 1;
+        final variantIndex = variantAt == null
+            ? null
+            : _messages[messageIndex].selectedVariantIndex;
+        unawaited(
+          _generateInnerVoiceForReply(
+            endpoint: endpoint,
+            session: session,
+            messageIndex: messageIndex,
+            variantIndex: variantIndex,
+            replySnapshot: reply,
+            characterDefinition: PromptBuilder.buildSystemPrompt(
+              _character,
+              userProfile: userProfile,
+            ),
+            recentMessages: contextMessages,
+            memoryContext: context.memoryPrompt,
+            chatSummary: _summary.summary,
+          ),
+        );
       }
     } catch (error) {
       if (!mounted ||
@@ -517,6 +578,292 @@ class _ChatScreenState extends State<ChatScreen> {
           _variantGenerationIndex == variantAt) {
         setState(() => _variantGenerationIndex = null);
       }
+    }
+  }
+
+  Future<void> _generateInnerVoiceForReply({
+    required AiEndpointConfig endpoint,
+    required ChatSession session,
+    required int messageIndex,
+    required int? variantIndex,
+    required String replySnapshot,
+    required String characterDefinition,
+    required List<ChatMessage> recentMessages,
+    required String memoryContext,
+    required String chatSummary,
+  }) async {
+    _InnerVoiceOperation? operation;
+    var failed = false;
+    try {
+      final latestSettings = await widget.storage.loadSettings();
+      if (!mounted ||
+          !widget.settings.showCharacterInnerVoice ||
+          !latestSettings.showCharacterInnerVoice ||
+          _session?.id != session.id ||
+          !_innerVoiceTargetExists(
+            messageIndex: messageIndex,
+            variantIndex: variantIndex,
+            replySnapshot: replySnapshot,
+          )) {
+        return;
+      }
+
+      final previousInnerVoice = _conversation.assistantInnerVoiceAt(
+        messageIndex: messageIndex,
+        variantIndex: variantIndex,
+        replySnapshot: replySnapshot,
+      );
+      if (previousInnerVoice == null) return;
+      final target = _InnerVoiceTarget(
+        sessionId: session.id,
+        messageIndex: messageIndex,
+        variantIndex: variantIndex,
+        replySnapshot: replySnapshot,
+      );
+      final activeOperation = _InnerVoiceOperation(
+        id: ++_nextInnerVoiceOperationId,
+        target: target,
+        cancelToken: AiCancelToken(),
+        previousInnerVoice: previousInnerVoice,
+      );
+      operation = activeOperation;
+      setState(() {
+        _clearInnerVoiceFailureAt(messageIndex);
+        _innerVoiceOperations[activeOperation.id] = activeOperation;
+      });
+
+      final requestMessages = const CharacterInnerVoiceService().buildMessages(
+        characterName: _character.name,
+        characterDefinition: characterDefinition,
+        assistantReply: replySnapshot,
+        recentMessages: recentMessages,
+        memoryContext: memoryContext,
+        chatSummary: chatSummary,
+      );
+      final raw = await widget.aiService.sendMessage(
+        apiKey: endpoint.apiKey,
+        baseUrl: endpoint.baseUrl,
+        model: endpoint.model,
+        messages: requestMessages,
+        cancelToken: activeOperation.cancelToken,
+        onUsage: (usage) => unawaited(
+          widget.storage.recordAiUsage(
+            requestType: 'characterInnerVoice',
+            model: endpoint.model,
+            usage: usage,
+            messages: requestMessages,
+            summaryUpdated: false,
+          ),
+        ),
+      );
+      final innerVoice = const CharacterInnerVoiceService().normalize(raw);
+      if (innerVoice.isEmpty) {
+        throw AiException('API 没有返回可用心声。');
+      }
+      activeOperation.generatedInnerVoice = innerVoice;
+
+      final currentSettings = await widget.storage.loadSettings();
+      if (!_isCurrentInnerVoiceOperation(activeOperation) ||
+          !currentSettings.showCharacterInnerVoice) {
+        return;
+      }
+      if (widget.storage.usesSessionStorage) {
+        final sessions = await widget.storage.loadChatSessions(
+          session.characterId,
+        );
+        if (!_isCurrentInnerVoiceOperation(activeOperation) ||
+            !sessions.any((item) => item.id == session.id)) {
+          return;
+        }
+      }
+
+      var updated = false;
+      setState(() {
+        updated = _conversation.setAssistantInnerVoice(
+          messageIndex: messageIndex,
+          variantIndex: variantIndex,
+          replySnapshot: replySnapshot,
+          innerVoice: innerVoice,
+        );
+      });
+      if (!updated || !_isCurrentInnerVoiceOperation(activeOperation)) return;
+      activeOperation.applied = true;
+
+      var messages = List<ChatMessage>.of(_messages);
+      if (_isSending &&
+          _variantGenerationIndex == null &&
+          messages.isNotEmpty &&
+          messages.last.isAssistant &&
+          messageIndex != messages.length - 1) {
+        messages = messages.sublist(0, messages.length - 1);
+      }
+      final saved = await _saveChatSnapshotIfSessionExists(session, messages);
+      if (!saved) throw StateError('当前对话已不存在。');
+
+      final settingsAfterSave = await widget.storage.loadSettings();
+      if (!_isCurrentInnerVoiceOperation(activeOperation) ||
+          !settingsAfterSave.showCharacterInnerVoice) {
+        await _rollbackInnerVoiceOperation(activeOperation);
+      }
+    } catch (_) {
+      final activeOperation = operation;
+      if (activeOperation != null) {
+        failed = _isCurrentInnerVoiceOperation(activeOperation);
+        await _rollbackInnerVoiceOperation(activeOperation);
+      }
+    } finally {
+      final activeOperation = operation;
+      if (activeOperation != null &&
+          mounted &&
+          identical(
+            _innerVoiceOperations[activeOperation.id],
+            activeOperation,
+          )) {
+        setState(() {
+          _innerVoiceOperations.remove(activeOperation.id);
+          if (failed &&
+              _innerVoiceTargetExists(
+                messageIndex: messageIndex,
+                variantIndex: variantIndex,
+                replySnapshot: replySnapshot,
+              )) {
+            _setInnerVoiceFailure(activeOperation.target);
+          }
+        });
+      }
+    }
+  }
+
+  bool _innerVoiceTargetExists({
+    required int messageIndex,
+    required int? variantIndex,
+    required String replySnapshot,
+  }) {
+    if (messageIndex < 0 || messageIndex >= _messages.length) return false;
+    final message = _messages[messageIndex];
+    if (!message.isAssistant) return false;
+    if (variantIndex != null) {
+      return variantIndex >= 0 &&
+          variantIndex < message.variants.length &&
+          message.variants[variantIndex].content == replySnapshot;
+    }
+    if (message.variants.isNotEmpty) {
+      return message.variants.first.content == replySnapshot;
+    }
+    return message.content == replySnapshot;
+  }
+
+  bool _isCurrentInnerVoiceOperation(_InnerVoiceOperation operation) =>
+      mounted &&
+      widget.settings.showCharacterInnerVoice &&
+      !operation.cancelled &&
+      identical(_innerVoiceOperations[operation.id], operation) &&
+      _session?.id == operation.target.sessionId &&
+      _innerVoiceTargetExists(
+        messageIndex: operation.target.messageIndex,
+        variantIndex: operation.target.variantIndex,
+        replySnapshot: operation.target.replySnapshot,
+      );
+
+  _InnerVoiceDisplayStatus _innerVoiceStatus(
+    int messageIndex,
+    ChatMessage message,
+  ) {
+    final sessionId = _session?.id;
+    if (sessionId == null) return _InnerVoiceDisplayStatus.idle;
+    for (final operation in _innerVoiceOperations.values) {
+      if (operation.target.matchesSelected(sessionId, messageIndex, message)) {
+        return _InnerVoiceDisplayStatus.generating;
+      }
+    }
+    final failedTarget = _failedInnerVoiceTargets[messageIndex];
+    if (failedTarget != null &&
+        failedTarget.matchesSelected(sessionId, messageIndex, message)) {
+      return _InnerVoiceDisplayStatus.failed;
+    }
+    return _InnerVoiceDisplayStatus.idle;
+  }
+
+  void _setInnerVoiceFailure(_InnerVoiceTarget target) {
+    _clearInnerVoiceFailureAt(target.messageIndex);
+    _failedInnerVoiceTargets[target.messageIndex] = target;
+    _innerVoiceFailureTimers[target.messageIndex] = Timer(
+      const Duration(seconds: 4),
+      () {
+        final current = _failedInnerVoiceTargets[target.messageIndex];
+        if (!mounted || current == null || !current.sameIdentity(target)) {
+          return;
+        }
+        setState(() => _clearInnerVoiceFailureAt(target.messageIndex));
+      },
+    );
+  }
+
+  void _clearInnerVoiceFailureAt(int messageIndex) {
+    _innerVoiceFailureTimers.remove(messageIndex)?.cancel();
+    _failedInnerVoiceTargets.remove(messageIndex);
+  }
+
+  void _clearInnerVoiceFailures() {
+    for (final timer in _innerVoiceFailureTimers.values) {
+      timer.cancel();
+    }
+    _innerVoiceFailureTimers.clear();
+    _failedInnerVoiceTargets.clear();
+  }
+
+  Future<void> _rollbackInnerVoiceOperation(
+    _InnerVoiceOperation operation, {
+    bool updateUi = true,
+  }) async {
+    if (!operation.applied) return;
+    operation.applied = false;
+    final generatedInnerVoice = operation.generatedInnerVoice;
+    final session = _session;
+    if (generatedInnerVoice == null ||
+        session == null ||
+        session.id != operation.target.sessionId) {
+      return;
+    }
+
+    var restored = false;
+    void restore() {
+      restored = _conversation.restoreAssistantInnerVoice(
+        messageIndex: operation.target.messageIndex,
+        variantIndex: operation.target.variantIndex,
+        replySnapshot: operation.target.replySnapshot,
+        expectedInnerVoice: generatedInnerVoice,
+        previousInnerVoice: operation.previousInnerVoice,
+      );
+    }
+
+    if (updateUi && mounted) {
+      setState(restore);
+    } else {
+      restore();
+    }
+    if (!restored) return;
+
+    final messages = List<ChatMessage>.of(_messages);
+    try {
+      await _saveChatSnapshotIfSessionExists(session, messages);
+    } on Object {
+      // The in-memory rollback is still authoritative for later chat saves.
+    }
+  }
+
+  void _cancelAllInnerVoiceOperations({bool updateUi = true}) {
+    final operations = _innerVoiceOperations.values.toList();
+    for (final operation in operations) {
+      operation.cancelled = true;
+      operation.cancelToken.cancel();
+      unawaited(_rollbackInnerVoiceOperation(operation, updateUi: false));
+    }
+    if (operations.isEmpty) return;
+    if (updateUi && mounted) {
+      setState(_innerVoiceOperations.clear);
+    } else {
+      _innerVoiceOperations.clear();
     }
   }
 
@@ -614,6 +961,8 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!mounted) return;
 
       if (target.id != beforeId) {
+        _cancelAllInnerVoiceOperations();
+        _clearInnerVoiceFailures();
         _invalidateSummaryOperations();
         _session = target;
         await _load();
@@ -788,6 +1137,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final previousMessages = [..._messages];
     final generationCompletion = _beginGenerationOperation();
     try {
+      _cancelAllInnerVoiceOperations();
       setState(() {
         _conversation.editUserMessageAndTruncate(index, edited, DateTime.now());
         _isSending = true;
@@ -811,7 +1161,10 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  void _stopGeneration() => unawaited(_cancelActiveGeneration());
+  void _stopGeneration() {
+    _cancelAllInnerVoiceOperations();
+    unawaited(_cancelActiveGeneration());
+  }
 
   void _cancelActiveSummary() {
     if (!_isSummarizing) return;
@@ -851,6 +1204,7 @@ class _ChatScreenState extends State<ChatScreen> {
     required bool showMessage,
     required bool persistPartialReply,
   }) async {
+    _cancelAllInnerVoiceOperations();
     _streamBuffer?.flush();
     _cancelToken?.cancel();
     _cancelToken = null;
@@ -976,11 +1330,16 @@ class _ChatScreenState extends State<ChatScreen> {
 
     if (!shouldClear || !_canMutateConversation) return;
 
-    if (widget.storage.usesSessionStorage) {
-      await widget.storage.saveChatBySession(_currentSession, const []);
-    } else {
-      await widget.storage.clearChat(_character.id);
-    }
+    _cancelAllInnerVoiceOperations();
+    _clearInnerVoiceFailures();
+    final session = _currentSession;
+    await _enqueueChatSave(() async {
+      if (widget.storage.usesSessionStorage) {
+        await widget.storage.saveChatBySession(session, const []);
+      } else {
+        await widget.storage.clearChat(_character.id);
+      }
+    });
     if (!mounted) return;
     setState(() {
       _conversation.clearMessages();
@@ -1546,6 +1905,8 @@ class _ChatScreenState extends State<ChatScreen> {
     );
     if (!confirmed || !_canMutateConversation) return;
 
+    _cancelAllInnerVoiceOperations();
+    _clearInnerVoiceFailures();
     final deletion = _conversation.deleteAt(index);
     if (deletion == ChatMessageDeletion.ignored) return;
     final truncatedTimeline = deletingVariant && hasFollowingMessages;
@@ -1807,6 +2168,7 @@ class _ChatScreenState extends State<ChatScreen> {
           final messageIndex =
               _messages.length - 1 - (index - (showTyping ? 1 : 0));
           final message = _messages[messageIndex];
+          final innerVoiceStatus = _innerVoiceStatus(messageIndex, message);
           return _MessageBubble(
             message: message,
             appearance: message.isUser
@@ -1817,6 +2179,21 @@ class _ChatScreenState extends State<ChatScreen> {
             searchQuery: _searchQuery,
             splitRoleMessages:
                 widget.settings.splitRoleMessages && message.isAssistant,
+            showCharacterInnerVoice: widget.settings.showCharacterInnerVoice,
+            isInnerVoiceGenerating:
+                innerVoiceStatus == _InnerVoiceDisplayStatus.generating,
+            isInnerVoiceFailed:
+                innerVoiceStatus == _InnerVoiceDisplayStatus.failed,
+            onOpenInnerVoice:
+                message.isAssistant &&
+                    message.effectiveInnerVoice.trim().isNotEmpty
+                ? () => showCharacterInnerVoiceDialog(
+                    context: context,
+                    character: _character,
+                    innerVoice: message.effectiveInnerVoice,
+                    messagesProvider: () => List<ChatMessage>.of(_messages),
+                  )
+                : null,
             isBusy: _isSummarizing,
             onSelectVariant: _canUseNonDestructiveControls
                 ? (variantIndex) =>
@@ -1936,6 +2313,10 @@ class _MessageBubble extends StatelessWidget {
     required this.isHighlighted,
     required this.searchQuery,
     required this.splitRoleMessages,
+    required this.showCharacterInnerVoice,
+    required this.isInnerVoiceGenerating,
+    required this.isInnerVoiceFailed,
+    this.onOpenInnerVoice,
     required this.isBusy,
     required this.onSelectVariant,
     this.onRegenerate,
@@ -1952,6 +2333,10 @@ class _MessageBubble extends StatelessWidget {
   final bool isHighlighted;
   final String searchQuery;
   final bool splitRoleMessages;
+  final bool showCharacterInnerVoice;
+  final bool isInnerVoiceGenerating;
+  final bool isInnerVoiceFailed;
+  final VoidCallback? onOpenInnerVoice;
   final bool isBusy;
   final ValueChanged<int>? onSelectVariant;
   final VoidCallback? onRegenerate;
@@ -1981,6 +2366,10 @@ class _MessageBubble extends StatelessWidget {
               isHighlighted: isHighlighted,
               searchQuery: searchQuery,
               splitRoleMessages: false,
+              showCharacterInnerVoice: showCharacterInnerVoice,
+              isInnerVoiceGenerating: isInnerVoiceGenerating,
+              isInnerVoiceFailed: isInnerVoiceFailed,
+              onOpenInnerVoice: onOpenInnerVoice,
               showFooter: index == segments.length - 1,
               controlMessage: controlMessage ?? message,
               isBusy: isBusy,
@@ -1999,13 +2388,23 @@ class _MessageBubble extends StatelessWidget {
     final maxBubbleWidth = isCompactWidth(screenWidth)
         ? screenWidth * 0.82
         : 760.0;
+    final showInnerVoiceCard =
+        showFooter &&
+        controls.isAssistant &&
+        showCharacterInnerVoice &&
+        (controls.effectiveInnerVoice.trim().isNotEmpty ||
+            isInnerVoiceGenerating ||
+            isInnerVoiceFailed);
 
-    return ChatBubble(
+    final bubble = ChatBubble(
       isUser: isUser,
       appearance: appearance,
       highlighted: isHighlighted,
       fallbackTextColor: chatTextColor,
       maxWidth: maxBubbleWidth,
+      margin: showInnerVoiceCard
+          ? EdgeInsets.zero
+          : const EdgeInsets.only(bottom: 10),
       child: Builder(
         builder: (context) {
           final theme = Theme.of(context);
@@ -2067,10 +2466,87 @@ class _MessageBubble extends StatelessWidget {
         },
       ),
     );
+    if (!showInnerVoiceCard) return bubble;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        bubble,
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: CharacterInnerVoicePreview(
+            innerVoice: controls.effectiveInnerVoice,
+            isGenerating: isInnerVoiceGenerating,
+            isFailed: isInnerVoiceFailed,
+            onTap: onOpenInnerVoice,
+            maxWidth: maxBubbleWidth,
+          ),
+        ),
+      ],
+    );
   }
 
   String _formatTime(DateTime time) {
     String two(int value) => value.toString().padLeft(2, '0');
     return '${two(time.hour)}:${two(time.minute)}';
   }
+}
+
+enum _InnerVoiceDisplayStatus { idle, generating, failed }
+
+final class _InnerVoiceTarget {
+  const _InnerVoiceTarget({
+    required this.sessionId,
+    required this.messageIndex,
+    required this.variantIndex,
+    required this.replySnapshot,
+  });
+
+  final String sessionId;
+  final int messageIndex;
+  final int? variantIndex;
+  final String replySnapshot;
+
+  bool sameIdentity(_InnerVoiceTarget other) =>
+      sessionId == other.sessionId &&
+      messageIndex == other.messageIndex &&
+      variantIndex == other.variantIndex &&
+      replySnapshot == other.replySnapshot;
+
+  bool matchesSelected(
+    String currentSessionId,
+    int currentMessageIndex,
+    ChatMessage message,
+  ) {
+    if (sessionId != currentSessionId || messageIndex != currentMessageIndex) {
+      return false;
+    }
+    if (variantIndex != null) {
+      return variantIndex! >= 0 &&
+          variantIndex! < message.variants.length &&
+          message.selectedVariantIndex == variantIndex &&
+          message.variants[variantIndex!].content == replySnapshot;
+    }
+    if (message.variants.isNotEmpty) {
+      return message.selectedVariantIndex == 0 &&
+          message.variants.first.content == replySnapshot;
+    }
+    return message.content == replySnapshot;
+  }
+}
+
+final class _InnerVoiceOperation {
+  _InnerVoiceOperation({
+    required this.id,
+    required this.target,
+    required this.cancelToken,
+    required this.previousInnerVoice,
+  });
+
+  final int id;
+  final _InnerVoiceTarget target;
+  final AiCancelToken cancelToken;
+  final String previousInnerVoice;
+  String? generatedInnerVoice;
+  var cancelled = false;
+  var applied = false;
 }

@@ -13,16 +13,12 @@ class QqContactBindingEditScreen extends StatefulWidget {
     required this.storage,
     required this.mode,
     this.binding,
-    this.capturedExternalUserId = '',
-    this.capturedDisplayName = '',
     super.key,
   });
 
   final LocalStorageService storage;
   final QqIntegrationMode mode;
   final QqContactBinding? binding;
-  final String capturedExternalUserId;
-  final String capturedDisplayName;
 
   @override
   State<QqContactBindingEditScreen> createState() =>
@@ -34,7 +30,6 @@ class _QqContactBindingEditScreenState
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _externalController;
   late final TextEditingController _nameController;
-  late final TextEditingController _aliasesController;
   List<AppCharacter> _characters = const [];
   String _characterId = '';
   var _enabled = true;
@@ -45,18 +40,9 @@ class _QqContactBindingEditScreenState
     super.initState();
     final binding = widget.binding;
     _externalController = TextEditingController(
-      text: binding?.externalUserId ?? widget.capturedExternalUserId,
+      text: binding?.externalUserId ?? '',
     );
-    _nameController = TextEditingController(
-      text: binding?.displayName ?? widget.capturedDisplayName,
-    );
-    _aliasesController = TextEditingController(
-      text:
-          binding?.notificationTitleAliases.join('\n') ??
-          (widget.capturedDisplayName.isEmpty
-              ? ''
-              : widget.capturedDisplayName),
-    );
+    _nameController = TextEditingController(text: binding?.displayName ?? '');
     _characterId = binding?.characterId ?? '';
     _enabled = binding?.enabled ?? true;
     unawaited(_load());
@@ -77,7 +63,6 @@ class _QqContactBindingEditScreenState
   void dispose() {
     _externalController.dispose();
     _nameController.dispose();
-    _aliasesController.dispose();
     super.dispose();
   }
 
@@ -121,7 +106,6 @@ class _QqContactBindingEditScreenState
         characterId: _characterId,
         sessionId: sessionId,
         enabled: _enabled,
-        notificationTitleAliases: _aliasesController.text.split('\n'),
         createdAt: widget.binding?.createdAt ?? now,
         updatedAt: now,
       );
@@ -142,81 +126,65 @@ class _QqContactBindingEditScreenState
   }
 
   @override
-  Widget build(BuildContext context) {
-    final isNotification = widget.mode == QqIntegrationMode.notification;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(context.t(widget.binding == null ? '添加联系人绑定' : '编辑联系人绑定')),
-        actions: [
-          TextButton(
-            onPressed: _saving ? null : _save,
-            child: Text(context.t('保存')),
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: Text(context.t(widget.binding == null ? '添加联系人绑定' : '编辑联系人绑定')),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : _save,
+          child: Text(context.t('保存')),
+        ),
+      ],
+    ),
+    body: Form(
+      key: _formKey,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          TextFormField(
+            key: const ValueKey('qq-external-user-id'),
+            controller: _externalController,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(
+              labelText: context.t('QQ 号'),
+              helperText: context.t('始终按字符串保存'),
+            ),
+            validator: (value) => value == null || value.trim().isEmpty
+                ? context.t('不能为空')
+                : null,
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            key: const ValueKey('qq-display-name'),
+            controller: _nameController,
+            decoration: InputDecoration(labelText: context.t('显示名')),
+            validator: (value) => value == null || value.trim().isEmpty
+                ? context.t('不能为空')
+                : null,
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            initialValue: _characters.any((item) => item.id == _characterId)
+                ? _characterId
+                : null,
+            decoration: InputDecoration(labelText: context.t('绑定角色')),
+            items: [
+              for (final character in _characters)
+                DropdownMenuItem(
+                  value: character.id,
+                  child: Text(character.name),
+                ),
+            ],
+            onChanged: (value) => setState(() => _characterId = value ?? ''),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(context.t('启用这个联系人')),
+            value: _enabled,
+            onChanged: (value) => setState(() => _enabled = value),
           ),
         ],
       ),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            TextFormField(
-              key: const ValueKey('qq-external-user-id'),
-              controller: _externalController,
-              readOnly: isNotification,
-              decoration: InputDecoration(
-                labelText: context.t(isNotification ? '通知联系人 Key' : 'QQ 号'),
-                helperText: context.t(
-                  isNotification ? '只能通过捕获 QQ 私聊通知生成' : '始终按字符串保存',
-                ),
-              ),
-              validator: (value) => value == null || value.trim().isEmpty
-                  ? context.t('不能为空')
-                  : null,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const ValueKey('qq-display-name'),
-              controller: _nameController,
-              decoration: InputDecoration(labelText: context.t('显示名')),
-              validator: (value) => value == null || value.trim().isEmpty
-                  ? context.t('不能为空')
-                  : null,
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              initialValue: _characters.any((item) => item.id == _characterId)
-                  ? _characterId
-                  : null,
-              decoration: InputDecoration(labelText: context.t('绑定角色')),
-              items: [
-                for (final character in _characters)
-                  DropdownMenuItem(
-                    value: character.id,
-                    child: Text(character.name),
-                  ),
-              ],
-              onChanged: (value) => setState(() => _characterId = value ?? ''),
-            ),
-            if (isNotification) ...[
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _aliasesController,
-                maxLines: 4,
-                decoration: InputDecoration(
-                  labelText: context.t('联系人标题别名'),
-                  helperText: context.t('每行一个；无障碍发送时只做精确匹配'),
-                ),
-              ),
-            ],
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(context.t('启用这个联系人')),
-              value: _enabled,
-              onChanged: (value) => setState(() => _enabled = value),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+    ),
+  );
 }

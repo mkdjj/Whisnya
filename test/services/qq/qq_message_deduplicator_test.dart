@@ -33,32 +33,6 @@ void main() {
     );
   });
 
-  test('notification weak duplicate is limited to a five second bucket', () {
-    final deduplicator = QqMessageDeduplicator();
-    final now = DateTime.utc(2026, 8, 3, 0, 0, 1);
-    expect(
-      deduplicator.isDuplicate(
-        message(id: 'n1', source: QqIntegrationMode.notification),
-        now: now,
-      ),
-      isFalse,
-    );
-    expect(
-      deduplicator.isDuplicate(
-        message(id: 'n2', source: QqIntegrationMode.notification),
-        now: now.add(const Duration(seconds: 2)),
-      ),
-      isTrue,
-    );
-    expect(
-      deduplicator.isDuplicate(
-        message(id: 'n3', source: QqIntegrationMode.notification),
-        now: now.add(const Duration(seconds: 6)),
-      ),
-      isFalse,
-    );
-  });
-
   test('keeps at most five hundred ids', () {
     final deduplicator = QqMessageDeduplicator();
     final now = DateTime.utc(2026, 8, 3);

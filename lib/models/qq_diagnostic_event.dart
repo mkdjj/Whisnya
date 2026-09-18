@@ -12,12 +12,7 @@ enum QqDiagnosticEventType {
   replySent,
   replyFailed,
   connectionChanged,
-  permissionChanged,
-  captureStarted,
-  captureCompleted,
-  notificationRejected,
-  accessibilityAborted,
-  accessibilityProgress,
+  legacyUnsupported,
 }
 
 class QqDiagnosticEvent {
@@ -56,7 +51,7 @@ class QqDiagnosticEvent {
     messageIdSuffix: json['messageIdSuffix'] as String? ?? '',
     eventType: QqDiagnosticEventType.values.firstWhere(
       (value) => value.name == json['eventType'],
-      orElse: () => QqDiagnosticEventType.replyFailed,
+      orElse: () => QqDiagnosticEventType.legacyUnsupported,
     ),
     success: json['success'] as bool? ?? false,
     transport: json['transport'] as String? ?? '',

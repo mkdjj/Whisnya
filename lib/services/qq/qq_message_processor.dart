@@ -19,7 +19,6 @@ class QqProcessResult {
   const QqProcessResult._({
     required this.status,
     this.reply,
-    this.expectedTitles = const [],
     this.reason = '',
     this.message = '',
   });
@@ -27,21 +26,14 @@ class QqProcessResult {
   const QqProcessResult.ignored([String reason = ''])
     : this._(status: QqProcessStatus.ignored, reason: reason);
 
-  const QqProcessResult.reply(
-    UnifiedQqReply reply, {
-    List<String> expectedTitles = const [],
-  }) : this._(
-         status: QqProcessStatus.reply,
-         reply: reply,
-         expectedTitles: expectedTitles,
-       );
+  const QqProcessResult.reply(UnifiedQqReply reply)
+    : this._(status: QqProcessStatus.reply, reply: reply);
 
   const QqProcessResult.error(String message)
     : this._(status: QqProcessStatus.error, message: message);
 
   final QqProcessStatus status;
   final UnifiedQqReply? reply;
-  final List<String> expectedTitles;
   final String reason;
   final String message;
 
@@ -54,7 +46,6 @@ class QqProcessResult {
       'text': reply!.text,
       'bindingId': reply!.bindingId,
       'sessionId': reply!.sessionId,
-      'expectedTitles': expectedTitles,
     },
     QqProcessStatus.error => {'status': 'error', 'message': message},
   };
@@ -232,14 +223,7 @@ class QqMessageProcessor {
         durationMilliseconds: DateTime.now().difference(started).inMilliseconds,
         replyLength: reply.text.runes.length,
       );
-      return QqProcessResult.reply(
-        reply,
-        expectedTitles: {
-          binding.displayName,
-          ...binding.notificationTitleAliases,
-          message.rawConversationTitle,
-        }.where((title) => title.trim().isNotEmpty).toList(),
-      );
+      return QqProcessResult.reply(reply);
     } on Object catch (error) {
       await _diagnostics.record(
         settings: settings,
@@ -262,13 +246,7 @@ class QqMessageProcessor {
       final reply = await _commands.handle(command, binding);
       return reply == null
           ? const QqProcessResult.ignored('notCommand')
-          : QqProcessResult.reply(
-              reply,
-              expectedTitles: {
-                binding.displayName,
-                ...binding.notificationTitleAliases,
-              }.toList(),
-            );
+          : QqProcessResult.reply(reply);
     } on Object {
       return const QqProcessResult.error('QQ 命令处理失败，请查看诊断日志。');
     }

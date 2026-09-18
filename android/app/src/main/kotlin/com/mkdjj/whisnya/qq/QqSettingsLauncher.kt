@@ -7,16 +7,6 @@ import android.os.Build
 import android.provider.Settings
 
 object QqSettingsLauncher {
-    fun notificationListener(context: Context) = open(
-        context,
-        Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS),
-    )
-
-    fun accessibility(context: Context) = open(
-        context,
-        Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS),
-    )
-
     fun batteryOptimization(context: Context) = open(
         context,
         Intent(

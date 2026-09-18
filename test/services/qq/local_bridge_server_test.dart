@@ -104,6 +104,7 @@ void main() {
           ? const LocalQqBridgeMessageResult.failure('ai_failed')
           : const LocalQqBridgeMessageResult.reply(
               reply: 'hello',
+              replies: ['hello', 'world'],
               sessionId: 'session',
               bindingId: 'binding',
             ),
@@ -114,6 +115,7 @@ void main() {
     expect(success.statusCode, HttpStatus.ok);
     expect(jsonDecode(success.body), {
       'reply': 'hello',
+      'replies': ['hello', 'world'],
       'sessionId': 'session',
       'bindingId': 'binding',
     });

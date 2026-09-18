@@ -1,19 +1,23 @@
 # Whisnya
 
+## 1.5.1+23
+
+- 已删除 QQ 通知监听、RemoteInput 和无障碍回复链路。
+- QQ 自动回复现在只保留 Termux + NapCat / OneBot 本地 Bridge。
+- 旧的通知模式配置会降级为关闭状态，不会启动已移除的链路。
+
 ## 1.5.0+22
 
 - NapCat 接入改为运行在 Termux 中的轻量 Node.js 20+ Sidecar，并通过仅监听本机回环地址、带 Token 鉴权的 HTTP API 与 Whisnya 通信。
 - Sidecar 负责 OneBot v11 私聊文字、action 对应与超时、断线重连、去重，以及从 Whisnya 同步且失败关闭的联系人白名单。
-- QQ 通知监听会在 App 恢复时请求重新绑定，更稳妥地解析 MessagingStyle 更新，并优先使用 RemoteInput，严格校验的无障碍仅作兜底。
-- 两种 QQ 模式继续共用角色独立会话、记忆、世界书、总结、AI、排队和脱敏诊断链路。
+- QQ Bridge 继续共用角色独立会话、记忆、世界书、总结、AI、排队和脱敏诊断链路。
 
 ## 1.4.3+21
 
-- Android 新增 QQ 私聊自动回复，支持 NapCat / OneBot 11 正向 WebSocket 与 QQ 通知监听两种互斥模式。
-- 两种模式共用联系人白名单、角色独立会话、长期记忆、当前会话记忆、世界书、总结、去重、合并与排队处理。
-- 通知模式优先使用 RemoteInput 快捷回复；可选无障碍仅作严格校验标题后的兜底，锁屏或无法确认目标时不会发送。
+- Android 新增 QQ 私聊自动回复、联系人白名单和角色独立会话。
+- QQ 接入共用长期记忆、当前会话记忆、世界书、总结、去重、合并与排队处理。
 - 设置中可管理联系人绑定、连接与权限、回复参数、静默时段、双语帮助和脱敏诊断日志。
-- NapCat 与无障碍均为非官方接入方式，可能失效或带来账号风险；建议只使用不重要的 QQ 小号。
+- NapCat 为非官方接入方式，可能失效或带来账号风险；建议只使用不重要的 QQ 小号。
 
 ## 1.4.2+20
 
@@ -36,9 +40,8 @@
 
 Whisnya 是一个本地优先的 Android / Windows AI 角色聊天和 TXT 小说阅读 App，使用 Flutter 开发。
 
-QQ 接入部分参考以下 MIT 开源项目：
-[openclaw-onebot](https://github.com/LSTM-Kirigaya/openclaw-onebot) 和
-[Read-KakaoTalk-Message](https://github.com/deunlee/Read-KakaoTalk-Message)。
+QQ 接入部分参考 MIT 开源项目
+[openclaw-onebot](https://github.com/LSTM-Kirigaya/openclaw-onebot)。
 许可证详情见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 ## 下载
@@ -87,7 +90,7 @@ APK 会生成在：
 build/app/outputs/flutter-apk/app-release.apk
 ```
 
-当前发布版本是 `1.5.0+22`。每次公开发版都要同时递增 `versionName`
+当前发布版本是 `1.5.1+23`。每次公开发版都要同时递增 `versionName`
 和 `versionCode`。Android 包名是 `com.mkdjj.whisnya`。
 
 如果要公开分发，请先配置自己的 Android 签名文件：
@@ -103,7 +106,7 @@ Copy-Item android/key.properties.example android/key.properties
 推荐发布文件名：
 
 ```text
-Whisnya-android-v1.5.0-release.apk
+Whisnya-android-v1.5.1-release.apk
 ```
 
 ## 其他平台
@@ -125,7 +128,7 @@ build/windows/x64/runner/Release/
 推荐 Windows 发布文件名：
 
 ```text
-Whisnya-windows-x64-v1.5.0.zip
+Whisnya-windows-x64-v1.5.1.zip
 ```
 
 iOS 或 macOS 需要先生成平台文件，然后在安装了 Xcode 的 macOS 上打包：
@@ -172,13 +175,13 @@ app_data/
 
 App 内的“导出全部数据”会生成 zip 备份，里面使用 `app_data/` 下的相对文件结构。
 API Key 默认不会导出，只有在导出前明确勾选“包含 API Key”时才会写入备份。
-OneBot token 使用系统安全存储，不会写入全量备份；QQ 设置和联系人绑定会随普通备份导出。
+本地 Bridge Token 使用系统安全存储，不会写入全量备份；QQ 设置和联系人绑定会随普通备份导出。
 导入时会自动修复当前平台的数据路径，所以备份可以在 Whisnya 的 Android、Windows、macOS 和 iOS 版本之间迁移。
 
 ## 隐私说明
 
 Whisnya 是本地优先应用。聊天记录、小说原文、角色数据、图片、设置和 API 配置默认保存在本地。配置第三方 API 后，聊天或总结时的请求内容会发送给对应模型服务商。
 
-启用 QQ 通知监听后，只有明确绑定的联系人消息会被处理；消息会写入本地聊天记录，并发送给你为对应角色配置的模型 API。诊断日志不保存消息或回复原文。
+Termux Bridge 只处理明确绑定的 QQ 联系人；消息会写入本地聊天记录，并发送给对应角色配置的模型 API。诊断日志不保存消息或回复原文。
 
 不要公开分享包含 API Key、聊天记录、小说原文或其他隐私内容的备份文件。

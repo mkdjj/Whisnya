@@ -37,6 +37,12 @@ class ChatInputComposer extends StatelessWidget {
   Widget build(BuildContext context) {
     final alpha = inputOpacity.clamp(0, 1).toDouble();
     final colors = Theme.of(context).colorScheme;
+    final inputBorder = OutlineInputBorder(
+      borderSide: BorderSide(color: colors.outline.withValues(alpha: alpha)),
+    );
+    final focusedInputBorder = OutlineInputBorder(
+      borderSide: BorderSide(color: colors.primary.withValues(alpha: alpha)),
+    );
     return SafeArea(
       top: false,
       child: Center(
@@ -72,10 +78,10 @@ class ChatInputComposer extends StatelessWidget {
                       decoration: InputDecoration(
                         hintText: context.t('输入消息'),
                         isDense: true,
-                        border: InputBorder.none,
-                        enabledBorder: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        disabledBorder: InputBorder.none,
+                        border: inputBorder,
+                        enabledBorder: inputBorder,
+                        focusedBorder: focusedInputBorder,
+                        disabledBorder: inputBorder,
                       ),
                     ),
                   ),

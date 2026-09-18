@@ -876,6 +876,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             SwitchListTile(
+              key: const ValueKey('show-character-inner-voice-setting'),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+              secondary: const Icon(Icons.favorite_border),
+              title: Text(context.t('显示角色心声')),
+              subtitle: Text(context.t('为角色回复生成并显示虚构的内心独白')),
+              value: _settings.showCharacterInnerVoice,
+              onChanged: (value) => _applySettings(
+                _settings.copyWith(showCharacterInnerVoice: value),
+              ),
+            ),
+            SwitchListTile(
               key: const ValueKey('split-role-messages-setting'),
               contentPadding: const EdgeInsets.symmetric(horizontal: 20),
               secondary: const Icon(Icons.format_line_spacing),
@@ -900,7 +911,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 icon: Icons.chat_bubble_outline,
                 title: context.t('QQ 私聊自动回复'),
                 subtitle: Platform.isAndroid
-                    ? context.t('NapCat / OneBot 或通知监听')
+                    ? context.t('NapCat / Termux 本地 Bridge')
                     : context.t('当前仅 Android 支持手机后台 QQ 接入'),
                 onTap: Platform.isAndroid && widget.qqRuntime != null
                     ? _openQqIntegration

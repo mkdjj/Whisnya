@@ -42,6 +42,29 @@ void main() {
     expect(restored.splitRoleMessages, isTrue);
   });
 
+  test('character inner voice defaults off and stays independent', () {
+    const defaults = AppSettings();
+    expect(defaults.showCharacterInnerVoice, isFalse);
+
+    final enabled = defaults.copyWith(showCharacterInnerVoice: true);
+    expect(enabled.showCharacterInnerVoice, isTrue);
+    expect(enabled.showReasoningContent, isFalse);
+    expect(enabled.toJson()['showCharacterInnerVoice'], isTrue);
+
+    final restored = AppSettings.fromJson(const {
+      'showReasoningContent': true,
+      'showCharacterInnerVoice': true,
+    });
+    expect(restored.showReasoningContent, isTrue);
+    expect(restored.showCharacterInnerVoice, isTrue);
+    expect(
+      AppSettings.fromJson(const {
+        'showReasoningContent': true,
+      }).showCharacterInnerVoice,
+      isFalse,
+    );
+  });
+
   test('memory context character limit defaults, clamps, and round trips', () {
     expect(const AppSettings().memoryContextMaxCharacters, 4000);
     expect(

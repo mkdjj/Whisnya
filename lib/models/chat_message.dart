@@ -8,6 +8,7 @@ class ChatMessage {
     required this.role,
     required this.content,
     required this.time,
+    this.innerVoice = '',
     this.endpointId,
     this.endpointName,
     this.model,
@@ -18,6 +19,7 @@ class ChatMessage {
   final String role;
   final String content;
   final DateTime time;
+  final String innerVoice;
   final String? endpointId;
   final String? endpointName;
   final String? model;
@@ -41,6 +43,11 @@ class ChatMessage {
   }
 
   String get effectiveContent => selectedVariant?.content ?? content;
+  String get effectiveInnerVoice {
+    final selected = selectedVariant;
+    return selected == null ? innerVoice : selected.innerVoice;
+  }
+
   DateTime get effectiveTime => selectedVariant?.time ?? time;
   String? get effectiveEndpointId => selectedVariant?.endpointId ?? endpointId;
   String? get effectiveEndpointName =>
@@ -52,6 +59,8 @@ class ChatMessage {
     String? role,
     String? content,
     DateTime? time,
+    String? innerVoice,
+    bool clearInnerVoice = false,
     String? endpointId,
     String? endpointName,
     String? model,
@@ -61,6 +70,7 @@ class ChatMessage {
     role: role ?? this.role,
     content: content ?? this.content,
     time: time ?? this.time,
+    innerVoice: clearInnerVoice ? '' : innerVoice ?? this.innerVoice,
     endpointId: endpointId ?? this.endpointId,
     endpointName: endpointName ?? this.endpointName,
     model: model ?? this.model,
@@ -87,6 +97,7 @@ class ChatMessage {
       role: json['role'] as String? ?? 'user',
       content: json['content'] as String? ?? '',
       time: DateTime.tryParse(json['time'] as String? ?? '') ?? DateTime.now(),
+      innerVoice: json['innerVoice'] as String? ?? '',
       endpointId: json['endpointId'] as String? ?? json['provider'] as String?,
       endpointName: json['endpointName'] as String?,
       model: json['model'] as String?,
@@ -101,6 +112,8 @@ class ChatMessage {
       'role': role,
       'content': effectiveContent,
       'time': effectiveTime.toIso8601String(),
+      if (effectiveInnerVoice.trim().isNotEmpty)
+        'innerVoice': effectiveInnerVoice,
       if (effectiveEndpointId != null) 'endpointId': effectiveEndpointId,
       if (effectiveEndpointName != null) 'endpointName': effectiveEndpointName,
       if (effectiveModel != null) 'model': effectiveModel,

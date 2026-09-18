@@ -1,4 +1,4 @@
-enum QqIntegrationMode { disabled, oneBot, notification }
+enum QqIntegrationMode { disabled, oneBot }
 
 QqIntegrationMode qqIntegrationModeFromJson(Object? value) {
   final name = value is String ? value : '';
@@ -12,7 +12,6 @@ class QqIntegrationSettings {
   const QqIntegrationSettings({
     this.enabled = false,
     this.mode = QqIntegrationMode.disabled,
-    this.defaultCharacterId = '',
     this.mergeWindowMilliseconds = 1800,
     this.replyDelayMilliseconds = 500,
     this.maxReplyCharacters = 1200,
@@ -21,24 +20,11 @@ class QqIntegrationSettings {
     this.quietHoursEnabled = false,
     this.quietHoursStartMinutes = 0,
     this.quietHoursEndMinutes = 0,
-    this.oneBotHost = '127.0.0.1',
-    this.oneBotPort = 3001,
-    this.oneBotPath = '',
-    this.oneBotSecure = false,
-    this.oneBotAutoReconnect = true,
-    this.allowInsecureRemoteOneBot = false,
-    this.notificationPackageName = 'com.tencent.mobileqq',
-    this.notificationRemoteInputEnabled = true,
-    this.accessibilityFallbackEnabled = false,
-    this.returnAfterAccessibilitySend = true,
-    this.accessibilitySendButtonViewId = '',
-    this.sendFailureNotice = true,
     this.diagnosticLoggingEnabled = true,
   });
 
   final bool enabled;
   final QqIntegrationMode mode;
-  final String defaultCharacterId;
   final int mergeWindowMilliseconds;
   final int replyDelayMilliseconds;
   final int maxReplyCharacters;
@@ -47,51 +33,7 @@ class QqIntegrationSettings {
   final bool quietHoursEnabled;
   final int quietHoursStartMinutes;
   final int quietHoursEndMinutes;
-  final String oneBotHost;
-  final int oneBotPort;
-  final String oneBotPath;
-  final bool oneBotSecure;
-  final bool oneBotAutoReconnect;
-  final bool allowInsecureRemoteOneBot;
-  final String notificationPackageName;
-  final bool notificationRemoteInputEnabled;
-  final bool accessibilityFallbackEnabled;
-  final bool returnAfterAccessibilitySend;
-  final String accessibilitySendButtonViewId;
-  final bool sendFailureNotice;
   final bool diagnosticLoggingEnabled;
-
-  bool get isOneBotHostLoopback {
-    final host = oneBotHost.trim().toLowerCase();
-    return host == 'localhost' ||
-        host == '::1' ||
-        host == '[::1]' ||
-        host.startsWith('127.');
-  }
-
-  String? get oneBotConfigurationError {
-    if (oneBotHost.trim().isEmpty) return 'OneBot Host 不能为空。';
-    if (oneBotPort < 1 || oneBotPort > 65535) return 'OneBot 端口无效。';
-    if (!oneBotSecure && !isOneBotHostLoopback && !allowInsecureRemoteOneBot) {
-      return '远程明文 WebSocket 默认禁止，请使用 WSS 或明确允许风险。';
-    }
-    return null;
-  }
-
-  Uri get oneBotUri {
-    final rawPath = oneBotPath.trim();
-    final path = rawPath.isEmpty
-        ? ''
-        : rawPath.startsWith('/')
-        ? rawPath
-        : '/$rawPath';
-    return Uri(
-      scheme: oneBotSecure ? 'wss' : 'ws',
-      host: oneBotHost.trim(),
-      port: oneBotPort,
-      path: path,
-    );
-  }
 
   bool isQuietAt(DateTime time) {
     if (!quietHoursEnabled) return false;
@@ -106,7 +48,6 @@ class QqIntegrationSettings {
   QqIntegrationSettings copyWith({
     bool? enabled,
     QqIntegrationMode? mode,
-    String? defaultCharacterId,
     int? mergeWindowMilliseconds,
     int? replyDelayMilliseconds,
     int? maxReplyCharacters,
@@ -115,23 +56,10 @@ class QqIntegrationSettings {
     bool? quietHoursEnabled,
     int? quietHoursStartMinutes,
     int? quietHoursEndMinutes,
-    String? oneBotHost,
-    int? oneBotPort,
-    String? oneBotPath,
-    bool? oneBotSecure,
-    bool? oneBotAutoReconnect,
-    bool? allowInsecureRemoteOneBot,
-    String? notificationPackageName,
-    bool? notificationRemoteInputEnabled,
-    bool? accessibilityFallbackEnabled,
-    bool? returnAfterAccessibilitySend,
-    String? accessibilitySendButtonViewId,
-    bool? sendFailureNotice,
     bool? diagnosticLoggingEnabled,
   }) => QqIntegrationSettings.fromJson({
     'enabled': enabled ?? this.enabled,
     'mode': (mode ?? this.mode).name,
-    'defaultCharacterId': defaultCharacterId ?? this.defaultCharacterId,
     'mergeWindowMilliseconds':
         mergeWindowMilliseconds ?? this.mergeWindowMilliseconds,
     'replyDelayMilliseconds':
@@ -144,35 +72,19 @@ class QqIntegrationSettings {
     'quietHoursStartMinutes':
         quietHoursStartMinutes ?? this.quietHoursStartMinutes,
     'quietHoursEndMinutes': quietHoursEndMinutes ?? this.quietHoursEndMinutes,
-    'oneBotHost': oneBotHost ?? this.oneBotHost,
-    'oneBotPort': oneBotPort ?? this.oneBotPort,
-    'oneBotPath': oneBotPath ?? this.oneBotPath,
-    'oneBotSecure': oneBotSecure ?? this.oneBotSecure,
-    'oneBotAutoReconnect': oneBotAutoReconnect ?? this.oneBotAutoReconnect,
-    'allowInsecureRemoteOneBot':
-        allowInsecureRemoteOneBot ?? this.allowInsecureRemoteOneBot,
-    'notificationPackageName':
-        notificationPackageName ?? this.notificationPackageName,
-    'notificationRemoteInputEnabled':
-        notificationRemoteInputEnabled ?? this.notificationRemoteInputEnabled,
-    'accessibilityFallbackEnabled':
-        accessibilityFallbackEnabled ?? this.accessibilityFallbackEnabled,
-    'returnAfterAccessibilitySend':
-        returnAfterAccessibilitySend ?? this.returnAfterAccessibilitySend,
-    'accessibilitySendButtonViewId':
-        accessibilitySendButtonViewId ?? this.accessibilitySendButtonViewId,
-    'sendFailureNotice': sendFailureNotice ?? this.sendFailureNotice,
     'diagnosticLoggingEnabled':
         diagnosticLoggingEnabled ?? this.diagnosticLoggingEnabled,
   });
 
   factory QqIntegrationSettings.fromJson(Map<String, dynamic>? json) {
     final value = json ?? const <String, dynamic>{};
+    final mode = qqIntegrationModeFromJson(value['mode']);
     final maxReply = _int(value['maxReplyCharacters'], 1200, 100, 8000);
     return QqIntegrationSettings(
-      enabled: value['enabled'] as bool? ?? false,
-      mode: qqIntegrationModeFromJson(value['mode']),
-      defaultCharacterId: (value['defaultCharacterId'] as String? ?? '').trim(),
+      enabled:
+          (value['enabled'] as bool? ?? false) &&
+          mode != QqIntegrationMode.disabled,
+      mode: mode,
       mergeWindowMilliseconds: _int(
         value['mergeWindowMilliseconds'],
         1800,
@@ -196,26 +108,6 @@ class QqIntegrationSettings {
       quietHoursEnabled: value['quietHoursEnabled'] as bool? ?? false,
       quietHoursStartMinutes: _int(value['quietHoursStartMinutes'], 0, 0, 1439),
       quietHoursEndMinutes: _int(value['quietHoursEndMinutes'], 0, 0, 1439),
-      oneBotHost: (value['oneBotHost'] as String? ?? '127.0.0.1').trim(),
-      oneBotPort: _int(value['oneBotPort'], 3001, 1, 65535),
-      oneBotPath: (value['oneBotPath'] as String? ?? '').trim(),
-      oneBotSecure: value['oneBotSecure'] as bool? ?? false,
-      oneBotAutoReconnect: value['oneBotAutoReconnect'] as bool? ?? true,
-      allowInsecureRemoteOneBot:
-          value['allowInsecureRemoteOneBot'] as bool? ?? false,
-      notificationPackageName:
-          (value['notificationPackageName'] as String? ??
-                  'com.tencent.mobileqq')
-              .trim(),
-      notificationRemoteInputEnabled:
-          value['notificationRemoteInputEnabled'] as bool? ?? true,
-      accessibilityFallbackEnabled:
-          value['accessibilityFallbackEnabled'] as bool? ?? false,
-      returnAfterAccessibilitySend:
-          value['returnAfterAccessibilitySend'] as bool? ?? true,
-      accessibilitySendButtonViewId:
-          (value['accessibilitySendButtonViewId'] as String? ?? '').trim(),
-      sendFailureNotice: value['sendFailureNotice'] as bool? ?? true,
       diagnosticLoggingEnabled:
           value['diagnosticLoggingEnabled'] as bool? ?? true,
     );
@@ -224,7 +116,6 @@ class QqIntegrationSettings {
   Map<String, dynamic> toJson() => {
     'enabled': enabled,
     'mode': mode.name,
-    'defaultCharacterId': defaultCharacterId,
     'mergeWindowMilliseconds': mergeWindowMilliseconds,
     'replyDelayMilliseconds': replyDelayMilliseconds,
     'maxReplyCharacters': maxReplyCharacters,
@@ -233,18 +124,6 @@ class QqIntegrationSettings {
     'quietHoursEnabled': quietHoursEnabled,
     'quietHoursStartMinutes': quietHoursStartMinutes,
     'quietHoursEndMinutes': quietHoursEndMinutes,
-    'oneBotHost': oneBotHost,
-    'oneBotPort': oneBotPort,
-    'oneBotPath': oneBotPath,
-    'oneBotSecure': oneBotSecure,
-    'oneBotAutoReconnect': oneBotAutoReconnect,
-    'allowInsecureRemoteOneBot': allowInsecureRemoteOneBot,
-    'notificationPackageName': notificationPackageName,
-    'notificationRemoteInputEnabled': notificationRemoteInputEnabled,
-    'accessibilityFallbackEnabled': accessibilityFallbackEnabled,
-    'returnAfterAccessibilitySend': returnAfterAccessibilitySend,
-    'accessibilitySendButtonViewId': accessibilitySendButtonViewId,
-    'sendFailureNotice': sendFailureNotice,
     'diagnosticLoggingEnabled': diagnosticLoggingEnabled,
   };
 }

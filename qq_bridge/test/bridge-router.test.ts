@@ -46,6 +46,31 @@ describe("BridgeMessageRouter", () => {
     expect(send).toHaveBeenCalledWith("allowed", "hi");
   });
 
+  it("sends Whisnya reply chunks in order", async () => {
+    const client = {
+      getConfig: vi.fn(async () => ({ enabled: true, allowUsers: ["allowed"] })),
+      sendMessage: vi.fn(async () => ({
+        reply: "first second",
+        replies: ["first", "second"],
+        sessionId: "s",
+        bindingId: "b",
+      })),
+    };
+    const sent: string[] = [];
+    const router = new BridgeMessageRouter(
+      client,
+      async (_userId, text) => {
+        sent.push(text);
+        return { messageId: `sent-${sent.length}` };
+      },
+    );
+    await router.syncConfig();
+
+    await router.handle(message);
+
+    expect(sent).toEqual(["first", "second"]);
+  });
+
   it.each([401, 500])("does not send or throw when Whisnya returns HTTP %s", async (status) => {
     const client = {
       getConfig: vi.fn(async () => ({ enabled: true, allowUsers: ["allowed"] })),

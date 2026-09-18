@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -75,8 +76,8 @@ void main() {
     await storage.saveQqContactBinding(
       QqContactBinding(
         id: 'binding',
-        mode: QqIntegrationMode.notification,
-        externalUserId: 'contact',
+        mode: QqIntegrationMode.oneBot,
+        externalUserId: '10001',
         displayName: 'Alice',
         characterId: character.id,
         sessionId: session.id,
@@ -87,7 +88,7 @@ void main() {
     await storage.saveQqIntegrationSettings(
       const QqIntegrationSettings(
         enabled: true,
-        mode: QqIntegrationMode.notification,
+        mode: QqIntegrationMode.oneBot,
       ),
     );
     bridge = _TrackingNativeBridge();
@@ -98,45 +99,73 @@ void main() {
     );
     await runtime.initialize();
     await runtime.start();
-    bridge.cancelCalls = 0;
   });
 
   tearDown(() async {
     await runtime.stop();
     runtime.dispose();
-    await directory.delete(recursive: true);
+    for (var attempt = 0; attempt < 5; attempt++) {
+      try {
+        await directory.delete(recursive: true);
+        break;
+      } on FileSystemException {
+        if (attempt == 4) rethrow;
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+    }
   });
 
-  test(
-    'pause immediately cancels pending native accessibility replies',
-    () async {
-      await runtime.pause();
+  test('pause marks the native bridge runtime inactive', () async {
+    await runtime.pause();
 
-      expect(bridge.cancelCalls, 1);
-      expect(bridge.nativeUpdates.last['runtimeActive'], isFalse);
-    },
-  );
+    expect(bridge.nativeUpdates.last['runtimeActive'], isFalse);
+  });
 
-  test('binding changes invalidate queued accessibility replies', () async {
+  test('binding changes refresh the native contact count', () async {
     final settings = await storage.loadQqIntegrationSettings();
 
     await runtime.applySettings(settings, bindings: const []);
 
-    expect(bridge.cancelCalls, 1);
     expect(bridge.nativeUpdates.last['enabledContacts'], 0);
+  });
+
+  test('unchanged bridge heartbeat does not refresh native settings', () async {
+    final updatesBeforeHeartbeat = bridge.nativeUpdates.length;
+    final token = await storage.loadOrCreateLocalBridgeToken();
+    final client = HttpClient();
+    try {
+      final request = await client.postUrl(
+        Uri.parse('http://127.0.0.1:${runtime.bridgePort}/v1/qq/status'),
+      );
+      request.headers
+        ..set(HttpHeaders.authorizationHeader, 'Bearer $token')
+        ..set(HttpHeaders.contentTypeHeader, ContentType.json.mimeType)
+        ..set('X-Whisnya-Bridge-Version', '1');
+      request.write(
+        jsonEncode({
+          'connected': true,
+          'selfId': '90001',
+          'nickname': 'Bot',
+          'lastMessageAt': null,
+          'lastError': null,
+        }),
+      );
+      final response = await request.close();
+      await response.drain<void>();
+      expect(response.statusCode, HttpStatus.noContent);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    } finally {
+      client.close(force: true);
+    }
+
+    expect(bridge.nativeUpdates, hasLength(updatesBeforeHeartbeat));
   });
 }
 
 final class _TrackingNativeBridge extends QqNativeBridge {
   _TrackingNativeBridge() : super(isAndroid: false);
 
-  int cancelCalls = 0;
   final nativeUpdates = <Map<String, dynamic>>[];
-
-  @override
-  Future<void> cancelPendingAccessibilityReply() async {
-    cancelCalls++;
-  }
 
   @override
   Future<void> updateNativeQqSettings(Map<String, dynamic> settings) async {

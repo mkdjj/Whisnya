@@ -2,24 +2,21 @@
 
 ## 1.5.1+23
 
-- Fixed Android 14+ notification fallback launches by sending QQ's notification PendingIntent from the connected accessibility service with an explicit background-activity-start mode.
-- Accessibility fallback now waits for QQ to load, retries safely without re-opening the notification, and reports the exact stage when it cannot continue.
-- RemoteInput absence no longer appears as the final reply failure when accessibility fallback is enabled.
+- Removed the QQ notification-listener, RemoteInput, and accessibility reply paths.
+- QQ auto-reply now uses only the Termux + NapCat / OneBot loopback Bridge.
+- Legacy notification-mode settings load as disabled instead of starting an unsupported transport.
 
 ## 1.5.0+22
 
 - Reworked NapCat integration into a small Node.js 20+ sidecar that runs in Termux and talks to Whisnya through an authenticated loopback-only HTTP API.
 - The sidecar handles OneBot v11 private text messages, action correlation and timeouts, reconnects, deduplication, and a fail-closed allowlist synchronized from Whisnya.
-- QQ notification listening now reconnects when the app resumes, parses MessagingStyle updates more defensively, and prefers RemoteInput before the strictly verified accessibility fallback.
-- Both QQ modes continue to use the same character sessions, memory, world books, summaries, AI pipeline, queue, and redacted diagnostics.
+- The QQ Bridge uses the same character sessions, memory, world books, summaries, AI pipeline, queue, and redacted diagnostics as in-app chat.
 
 ## 1.4.3+21
 
-- Added Android QQ private-chat auto-reply with mutually exclusive NapCat / OneBot 11 forward WebSocket and QQ notification-listener modes.
-- Both modes share strict contact bindings, dedicated character sessions, character/session memory, world books, summaries, deduplication, merging, and queued processing.
-- Notification mode prefers RemoteInput quick reply. Optional accessibility is a strictly verified fallback and never sends while locked or when the target cannot be confirmed.
+- Added Android QQ private-chat auto-reply, strict contact bindings, dedicated character sessions, memory, world books, summaries, deduplication, merging, and queued processing.
 - Settings now manage bindings, connection and permissions, reply controls, quiet hours, bilingual help, and redacted diagnostics.
-- NapCat and accessibility are unofficial integrations that may stop working or put an account at risk. Use only a non-critical QQ account.
+- NapCat is an unofficial integration that may stop working or put an account at risk. Use only a non-critical QQ account.
 
 ## 1.4.2+20
 
@@ -42,9 +39,8 @@
 
 Whisnya is a local-first Android and Windows AI role chat and TXT novel reader app built with Flutter.
 
-The QQ integration references the following MIT-licensed projects:
-[openclaw-onebot](https://github.com/LSTM-Kirigaya/openclaw-onebot) and
-[Read-KakaoTalk-Message](https://github.com/deunlee/Read-KakaoTalk-Message).
+The QQ integration references the MIT-licensed
+[openclaw-onebot](https://github.com/LSTM-Kirigaya/openclaw-onebot) project.
 See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for license details.
 
 ## Download
@@ -180,8 +176,8 @@ app_data/
 The in-app full-data export creates a zip backup with relative files under `app_data/`.
 API keys are excluded by default and are only included when you explicitly enable
 that option before exporting.
-The OneBot token stays in platform secure storage and is never included in a full
-backup. QQ settings and contact bindings are included in regular backups.
+The local Bridge token stays in platform secure storage and is never included in
+a full backup. QQ settings and contact bindings are included in regular backups.
 Import repairs saved paths for the current platform, so backups can be moved between
 Android, Windows, macOS, and iOS builds of Whisnya.
 
@@ -191,9 +187,9 @@ Whisnya is local-first. Chat records, novel text, character data, images, settin
 and API configuration are stored locally by default. After you configure a third-party
 API endpoint, request content is sent to that model provider when you chat or summarize.
 
-When QQ notification listening is enabled, only explicitly bound contact messages are
-processed. Their content is saved to local chat history and sent to the model API
-configured for the bound character. Diagnostic logs do not store message or reply text.
+The Termux Bridge accepts only explicitly bound QQ contacts. Their content is saved
+to local chat history and sent to the model API configured for the bound character.
+Diagnostic logs do not store message or reply text.
 
 Do not publicly share backups that contain API keys, chat records, novel text, or
 other private data.

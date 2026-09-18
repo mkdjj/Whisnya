@@ -23,6 +23,52 @@ void main() {
     expect(message.effectiveEndpointId, 'old-endpoint');
     expect(message.effectiveEndpointName, 'Old endpoint');
     expect(message.effectiveModel, 'old-model');
+    expect(message.innerVoice, isEmpty);
+    expect(message.effectiveInnerVoice, isEmpty);
+  });
+
+  test('round trips top-level inner voice without variants', () {
+    final message = ChatMessage(
+      role: 'assistant',
+      content: 'reply',
+      innerVoice: 'unsaid thought',
+      time: originalTime,
+    );
+
+    final restored = ChatMessage.fromJson(message.toJson());
+
+    expect(restored.innerVoice, 'unsaid thought');
+    expect(restored.effectiveInnerVoice, 'unsaid thought');
+    expect(restored.toJson()['innerVoice'], 'unsaid thought');
+  });
+
+  test('selected variant owns its inner voice even when empty', () {
+    final message = ChatMessage(
+      role: 'assistant',
+      content: 'legacy reply',
+      innerVoice: 'legacy voice',
+      time: originalTime,
+      variants: [
+        ChatReplyVariant(
+          content: 'first reply',
+          innerVoice: 'first voice',
+          time: originalTime,
+        ),
+        ChatReplyVariant(content: 'second reply', time: newerTime),
+      ],
+      selectedVariantIndex: 1,
+    );
+
+    expect(message.effectiveContent, 'second reply');
+    expect(message.effectiveInnerVoice, isEmpty);
+    expect(message.toJson().containsKey('innerVoice'), isFalse);
+
+    final first = message.copyWith(selectedVariantIndex: 0);
+    expect(first.effectiveContent, 'first reply');
+    expect(first.effectiveInnerVoice, 'first voice');
+
+    final restored = ChatMessage.fromJson(first.toJson());
+    expect(restored.variants.first.innerVoice, 'first voice');
   });
 
   test('round trips variants and clamps an out-of-range selected index', () {
@@ -95,5 +141,30 @@ void main() {
     expect(message.variantCount, 0);
     expect(message.effectiveContent, 'legacy reply');
     expect(message.toJson().containsKey('variants'), isFalse);
+    expect(message.effectiveInnerVoice, isEmpty);
+  });
+
+  test('reply variant inner voice is optional and round trips', () {
+    final variant = ChatReplyVariant(
+      content: 'reply',
+      innerVoice: 'voice',
+      time: newerTime,
+    );
+
+    expect(ChatReplyVariant.fromJson(variant.toJson()).innerVoice, 'voice');
+    expect(
+      ChatReplyVariant.fromJson({
+        'content': 'legacy',
+        'time': originalTime.toIso8601String(),
+      }).innerVoice,
+      isEmpty,
+    );
+    expect(
+      ChatReplyVariant(
+        content: 'empty',
+        time: originalTime,
+      ).toJson().containsKey('innerVoice'),
+      isFalse,
+    );
   });
 }

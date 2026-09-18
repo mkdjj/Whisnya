@@ -22,6 +22,420 @@ import 'package:whisnya/utils/app_i18n.dart';
 import 'package:whisnya/widgets/message_bubble_parts.dart';
 
 void main() {
+  testWidgets('inner voice off makes no extra AI request', (tester) async {
+    final character = _character();
+    final storage = _SessionStorage(
+      character: character,
+      sessions: [_session(openingMessageInitialized: true)],
+    );
+    final gateway = _InnerVoiceGateway();
+    await _pumpChat(tester, storage, character, gateway: gateway);
+
+    await _send(tester, '你好');
+    await _pumpUntil(tester, () => storage.chats['session']!.length == 2);
+
+    expect(gateway.voiceCallCount, 0);
+    expect(find.text('心声生成中…'), findsNothing);
+  });
+
+  testWidgets('main reply is saved before inner voice and success updates it', (
+    tester,
+  ) async {
+    final character = _character();
+    const settings = AppSettings(showCharacterInnerVoice: true);
+    final storage = _SessionStorage(
+      character: character,
+      sessions: [_session(openingMessageInitialized: true)],
+      settings: settings,
+    );
+    final gateway = _InnerVoiceGateway();
+    await _pumpChat(
+      tester,
+      storage,
+      character,
+      gateway: gateway,
+      settings: settings,
+    );
+
+    await _send(tester, '你好');
+    await _pumpUntil(tester, () => gateway.voiceCallCount == 1);
+
+    expect(storage.chats['session']!.last.effectiveContent, '主回复');
+    expect(storage.chats['session']!.last.effectiveInnerVoice, isEmpty);
+    expect(find.text('心声生成中…'), findsOneWidget);
+    expect(gateway.voiceModels.single, 'model');
+    expect(
+      gateway.voiceMessages.single.map((item) => item['content']).join('\n'),
+      isNot(contains('reasoning_content')),
+    );
+
+    gateway.completeVoice('角色心声：其实我很开心。');
+    await _pumpUntil(
+      tester,
+      () => storage.chats['session']!.last.effectiveInnerVoice == '其实我很开心。',
+    );
+
+    expect(find.textContaining('其实我很开心。'), findsOneWidget);
+    expect(storage.usageTypes, contains('characterInnerVoice'));
+  });
+
+  testWidgets('inner voice failure preserves the completed reply', (
+    tester,
+  ) async {
+    final character = _character();
+    const settings = AppSettings(showCharacterInnerVoice: true);
+    final storage = _SessionStorage(
+      character: character,
+      sessions: [_session(openingMessageInitialized: true)],
+      settings: settings,
+    );
+    final gateway = _InnerVoiceGateway();
+    await _pumpChat(
+      tester,
+      storage,
+      character,
+      gateway: gateway,
+      settings: settings,
+    );
+
+    await _send(tester, '你好');
+    await _pumpUntil(tester, () => gateway.voiceCallCount == 1);
+    gateway.failVoice(StateError('network'));
+    await _pumpUntil(tester, () => find.text('心声生成失败').evaluate().isNotEmpty);
+
+    expect(storage.chats['session']!.last.effectiveContent, '主回复');
+    expect(storage.chats['session']!.last.effectiveInnerVoice, isEmpty);
+    expect(find.byType(AlertDialog), findsNothing);
+
+    await tester.pump(const Duration(seconds: 5));
+    expect(find.text('心声生成失败'), findsNothing);
+  });
+
+  testWidgets(
+    'inner voice settings load failure stays inside background task',
+    (tester) async {
+      final character = _character();
+      const settings = AppSettings(showCharacterInnerVoice: true);
+      final storage = _SessionStorage(
+        character: character,
+        sessions: [_session(openingMessageInitialized: true)],
+        settings: settings,
+      )..settingsLoadFailures.add(2);
+      final gateway = _InnerVoiceGateway();
+      await _pumpChat(
+        tester,
+        storage,
+        character,
+        gateway: gateway,
+        settings: settings,
+      );
+
+      await _send(tester, '你好');
+      await _pumpUntil(tester, () => storage.chats['session']!.length == 2);
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(tester.takeException(), isNull);
+      expect(gateway.voiceCallCount, 0);
+      expect(storage.chats['session']!.last.effectiveContent, '主回复');
+    },
+  );
+
+  testWidgets('failed inner voice persistence rolls back the in-memory value', (
+    tester,
+  ) async {
+    final character = _character();
+    const enabled = AppSettings(showCharacterInnerVoice: true);
+    final storage = _SessionStorage(
+      character: character,
+      sessions: [_session(openingMessageInitialized: true)],
+      settings: enabled,
+    );
+    final gateway = _InnerVoiceGateway();
+    await _pumpChat(
+      tester,
+      storage,
+      character,
+      gateway: gateway,
+      settings: enabled,
+    );
+
+    await _send(tester, '你好');
+    await _pumpUntil(tester, () => gateway.voiceCallCount == 1);
+    storage.safeSaveError = StateError('心声保存失败');
+    gateway.completeVoice('不应留在内存');
+    await _pumpUntil(tester, () => find.text('心声生成失败').evaluate().isNotEmpty);
+
+    storage.safeSaveError = null;
+    storage.settings = const AppSettings();
+    await _pumpChat(tester, storage, character, settings: storage.settings);
+    storage.settings = enabled;
+    await _pumpChat(tester, storage, character, settings: enabled);
+
+    expect(find.textContaining('不应留在内存'), findsNothing);
+    expect(storage.chats['session']!.last.effectiveInnerVoice, isEmpty);
+  });
+
+  testWidgets('deleting while inner voice saves cannot resurrect the reply', (
+    tester,
+  ) async {
+    final character = _character();
+    const settings = AppSettings(showCharacterInnerVoice: true);
+    final storage = _SessionStorage(
+      character: character,
+      sessions: [_session(openingMessageInitialized: true)],
+      settings: settings,
+    );
+    final gateway = _InnerVoiceGateway();
+    await _pumpChat(
+      tester,
+      storage,
+      character,
+      gateway: gateway,
+      settings: settings,
+    );
+
+    await _send(tester, '你好');
+    await _pumpUntil(tester, () => gateway.voiceCallCount == 1);
+    storage.safeSaveGate = Completer<void>();
+    final safeSavesBeforeVoice = storage.safeSaveCallCount;
+    gateway.completeVoice('晚到的心声');
+    await _pumpUntil(
+      tester,
+      () => storage.safeSaveCallCount > safeSavesBeforeVoice,
+    );
+
+    final replyBubble = find.ancestor(
+      of: find.text('主回复'),
+      matching: find.byType(Card),
+    );
+    await tester.tap(
+      find.descendant(of: replyBubble, matching: find.byTooltip('删除消息')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除'));
+    await tester.pump();
+
+    storage.safeSaveGate!.complete();
+    await tester.pumpAndSettle();
+
+    expect(storage.chats['session'], hasLength(1));
+    expect(storage.chats['session']!.single.role, 'user');
+  });
+
+  testWidgets('turning off latest setting discards a late inner voice', (
+    tester,
+  ) async {
+    final character = _character();
+    const enabled = AppSettings(showCharacterInnerVoice: true);
+    final storage = _SessionStorage(
+      character: character,
+      sessions: [_session(openingMessageInitialized: true)],
+      settings: enabled,
+    );
+    final gateway = _InnerVoiceGateway();
+    await _pumpChat(
+      tester,
+      storage,
+      character,
+      gateway: gateway,
+      settings: enabled,
+    );
+
+    await _send(tester, '你好');
+    await _pumpUntil(tester, () => gateway.voiceCallCount == 1);
+    storage.settings = const AppSettings();
+    gateway.completeVoice('不应写入');
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(storage.chats['session']!.last.effectiveInnerVoice, isEmpty);
+    expect(find.textContaining('不应写入'), findsNothing);
+  });
+
+  testWidgets('late inner voice from session A cannot enter session B', (
+    tester,
+  ) async {
+    final character = _character();
+    const settings = AppSettings(showCharacterInnerVoice: true);
+    final sessionA = _session(
+      id: 'session-a',
+      title: '对话 A',
+      openingMessageInitialized: true,
+    );
+    final sessionB = _session(
+      id: 'session-b',
+      title: '对话 B',
+      openingMessageInitialized: true,
+    );
+    final storage = _SessionStorage(
+      character: character,
+      sessions: [sessionA, sessionB],
+      settings: settings,
+    );
+    final gateway = _InnerVoiceGateway();
+    await _pumpChat(
+      tester,
+      storage,
+      character,
+      gateway: gateway,
+      session: sessionA,
+      settings: settings,
+    );
+
+    await _send(tester, 'A 的问题');
+    await _pumpUntil(tester, () => gateway.voiceCallCount == 1);
+    await tester.tap(find.byIcon(Icons.forum_outlined));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('对话 B'));
+    await tester.pumpAndSettle();
+    gateway.completeVoice('A 的晚到心声');
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(storage.chats['session-a']!.last.effectiveInnerVoice, isEmpty);
+    expect(storage.chats['session-b'], isEmpty);
+    expect(find.textContaining('A 的晚到心声'), findsNothing);
+  });
+
+  testWidgets('regenerated candidate owns its generated inner voice', (
+    tester,
+  ) async {
+    final character = _character();
+    const settings = AppSettings(showCharacterInnerVoice: true);
+    final storage = _SessionStorage(
+      character: character,
+      sessions: [_session(openingMessageInitialized: true)],
+      chat: [_message('user', '问题'), _message('assistant', '候选 A')],
+      settings: settings,
+    );
+    final gateway = _InnerVoiceGateway(mainReply: '候选 B');
+    await _pumpChat(
+      tester,
+      storage,
+      character,
+      gateway: gateway,
+      settings: settings,
+    );
+
+    await tester.tap(find.text('重新生成'));
+    await _pumpUntil(tester, () => gateway.voiceCallCount == 1);
+    gateway.completeVoice('候选 B 心声');
+    await _pumpUntil(
+      tester,
+      () => storage.chats['session']!.last.effectiveInnerVoice == '候选 B 心声',
+    );
+
+    final message = storage.chats['session']!.last;
+    expect(message.variantCount, 2);
+    expect(message.variants[0].innerVoice, isEmpty);
+    expect(message.variants[1].innerVoice, '候选 B 心声');
+  });
+
+  testWidgets(
+    'stored inner voice is hidden while off and split shows it once',
+    (tester) async {
+      final character = _character();
+      final message = ChatMessage(
+        role: 'assistant',
+        content: '第一行\n\n第二行',
+        innerVoice: '保留的心声',
+        time: DateTime(2026),
+      );
+      final storage = _SessionStorage(
+        character: character,
+        sessions: [_session(openingMessageInitialized: true)],
+        chat: [message],
+      );
+
+      await _pumpChat(tester, storage, character);
+      expect(find.textContaining('保留的心声'), findsNothing);
+
+      const enabled = AppSettings(
+        showCharacterInnerVoice: true,
+        splitRoleMessages: true,
+      );
+      storage.settings = enabled;
+      await _pumpChat(tester, storage, character, settings: enabled);
+      expect(
+        find.byKey(const ValueKey('character-inner-voice-preview')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('保留的心声'), findsOneWidget);
+    },
+  );
+
+  testWidgets('switching candidates changes voice without another request', (
+    tester,
+  ) async {
+    final character = _character();
+    const settings = AppSettings(showCharacterInnerVoice: true);
+    final storage = _SessionStorage(
+      character: character,
+      sessions: [_session(openingMessageInitialized: true)],
+      chat: [
+        _message('user', '问题'),
+        ChatMessage(
+          role: 'assistant',
+          content: '候选 A',
+          time: DateTime(2026),
+          variants: [
+            ChatReplyVariant(
+              content: '候选 A',
+              innerVoice: 'A 的心声',
+              time: DateTime(2026),
+            ),
+            ChatReplyVariant(
+              content: '候选 B',
+              innerVoice: 'B 的心声',
+              time: DateTime(2026),
+            ),
+          ],
+          selectedVariantIndex: 1,
+        ),
+      ],
+      settings: settings,
+    );
+    final gateway = _InnerVoiceGateway();
+    await _pumpChat(
+      tester,
+      storage,
+      character,
+      gateway: gateway,
+      settings: settings,
+    );
+
+    expect(find.textContaining('B 的心声'), findsOneWidget);
+    await tester.tap(find.byTooltip('上一个候选'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('A 的心声'), findsOneWidget);
+    expect(find.textContaining('B 的心声'), findsNothing);
+    expect(gateway.voiceCallCount, 0);
+  });
+
+  testWidgets('opening and loaded history never backfill inner voice', (
+    tester,
+  ) async {
+    final character = _character(openingMessage: '开场白');
+    const settings = AppSettings(showCharacterInnerVoice: true);
+    final storage = _SessionStorage(
+      character: character,
+      sessions: [_session()],
+      chat: [_message('assistant', '已有历史')],
+      settings: settings,
+    );
+    final gateway = _InnerVoiceGateway();
+
+    await _pumpChat(
+      tester,
+      storage,
+      character,
+      gateway: gateway,
+      settings: settings,
+    );
+
+    expect(gateway.voiceCallCount, 0);
+    expect(storage.chats['session']!.single.content, '已有历史');
+  });
+
   testWidgets(
     'a cleared initialized session does not insert its opening again',
     (tester) async {
@@ -532,7 +946,7 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('sending keeps the keyboard and borderless input visible', (
+  testWidgets('sending keeps the keyboard and opacity-aware input visible', (
     tester,
   ) async {
     final character = _character();
@@ -558,10 +972,19 @@ void main() {
     expect(field.focusNode, isNotNull);
     expect(field.focusNode!.hasFocus, isTrue);
     expect(tester.testTextInput.isVisible, isTrue);
-    expect(field.decoration?.border, InputBorder.none);
-    expect(field.decoration?.enabledBorder, InputBorder.none);
-    expect(field.decoration?.focusedBorder, InputBorder.none);
-    expect(field.decoration?.disabledBorder, InputBorder.none);
+    final borders = [
+      field.decoration?.border,
+      field.decoration?.enabledBorder,
+      field.decoration?.focusedBorder,
+      field.decoration?.disabledBorder,
+    ];
+    for (final border in borders) {
+      expect(border, isA<OutlineInputBorder>());
+      expect(
+        (border! as OutlineInputBorder).borderSide.color.a,
+        closeTo(character.inputOpacity, 0.001),
+      );
+    }
 
     await tester.tap(find.byIcon(Icons.stop));
     await tester.pumpAndSettle();
@@ -1186,6 +1609,7 @@ Future<void> _pumpChat(
   AppCharacter character, {
   AiGateway? gateway,
   ChatSession? session,
+  AppSettings? settings,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -1196,7 +1620,7 @@ Future<void> _pumpChat(
         storage: storage,
         aiService: gateway ?? _RecordingGateway(),
         character: character,
-        settings: const AppSettings(),
+        settings: settings ?? storage.settings,
         session: session ?? storage.sessions.first,
       ),
     ),
@@ -1308,6 +1732,7 @@ final class _SessionStorage extends LocalStorageService {
     ChatSummary? summary,
     this.worldBooks = const [],
     this.worldBookEntries = const {},
+    this.settings = const AppSettings(),
   }) : sessions = [...sessions],
        chats = {
          for (final session in sessions) session.id: [...chat],
@@ -1332,7 +1757,11 @@ final class _SessionStorage extends LocalStorageService {
   Completer<void>? apiLoadGate;
   Completer<void>? safeSaveGate;
   Object? safeSaveError;
+  AppSettings settings;
+  final usageTypes = <String>[];
   var safeSaveCallCount = 0;
+  var settingsLoadCallCount = 0;
+  final settingsLoadFailures = <int>{};
 
   @override
   bool get usesSessionStorage => true;
@@ -1344,7 +1773,13 @@ final class _SessionStorage extends LocalStorageService {
   }
 
   @override
-  Future<AppSettings> loadSettings() async => const AppSettings();
+  Future<AppSettings> loadSettings() async {
+    settingsLoadCallCount++;
+    if (settingsLoadFailures.contains(settingsLoadCallCount)) {
+      throw StateError('设置读取失败');
+    }
+    return settings;
+  }
 
   @override
   Future<List<AppCharacter>> loadCharacters() async => [character];
@@ -1450,7 +1885,59 @@ final class _SessionStorage extends LocalStorageService {
     required AiUsage usage,
     required List<Map<String, String>> messages,
     required bool summaryUpdated,
-  }) async {}
+  }) async {
+    usageTypes.add(requestType);
+  }
+}
+
+final class _InnerVoiceGateway extends _RecordingGateway {
+  _InnerVoiceGateway({this.mainReply = '主回复'});
+
+  final String mainReply;
+  final voiceMessages = <List<Map<String, String>>>[];
+  final voiceModels = <String>[];
+  final _voices = <Completer<String>>[];
+
+  int get voiceCallCount => _voices.length;
+
+  @override
+  Stream<String> streamMessage({
+    required String apiKey,
+    required String baseUrl,
+    required String model,
+    required List<Map<String, String>> messages,
+    double temperature = 0.8,
+    AiCancelToken? cancelToken,
+    bool includeReasoning = false,
+    void Function(AiUsage usage)? onUsage,
+  }) async* {
+    this.messages = messages;
+    yield mainReply;
+  }
+
+  @override
+  Future<String> sendMessage({
+    required String apiKey,
+    required String baseUrl,
+    required String model,
+    required List<Map<String, String>> messages,
+    double temperature = 0.8,
+    AiCancelToken? cancelToken,
+    void Function(AiUsage usage)? onUsage,
+  }) {
+    voiceMessages.add(messages);
+    voiceModels.add(model);
+    onUsage?.call(const AiUsage(promptTokens: 5, completionTokens: 2));
+    final completer = Completer<String>();
+    _voices.add(completer);
+    return completer.future;
+  }
+
+  void completeVoice(String value, [int index = 0]) =>
+      _voices[index].complete(value);
+
+  void failVoice(Object error, [int index = 0]) =>
+      _voices[index].completeError(error);
 }
 
 class _RecordingGateway implements AiGateway {
