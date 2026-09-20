@@ -24,6 +24,7 @@ import '../../services/chat/character_inner_voice_service.dart';
 import '../../services/chat/chat_summary_service.dart';
 import '../../services/chat/memory_context_service.dart';
 import '../../services/local_storage_service.dart';
+import '../../services/storage/session_operation_coordinator.dart';
 import '../../utils/app_i18n.dart';
 import '../../utils/chat_context_policy.dart';
 import '../../utils/chat_search.dart';
@@ -105,6 +106,14 @@ class _ChatScreenState extends State<ChatScreen> {
   final _failedInnerVoiceTargets = <int, _InnerVoiceTarget>{};
   final _innerVoiceFailureTimers = <int, Timer>{};
   Future<void> _chatSaveTail = Future<void>.value();
+  final _draft = ValueNotifier<ChatMessage?>(null);
+  void Function(String state)? _finalizeDraft;
+  int _generationEpoch = 0;
+  int _conversationRevision = 0;
+  SessionOperationToken? _generationStorageToken;
+  bool _hasUnsavedReply = false;
+  bool _isClearing = false;
+  int _loadOperationId = 0;
 
   bool get _hasActiveChatOperation =>
       _isLoading ||
@@ -113,13 +122,17 @@ class _ChatScreenState extends State<ChatScreen> {
       _isCancellingGeneration ||
       _isOpeningSessionList;
   bool get _canMutateConversation =>
+      !_isClearing &&
       !_isLoading &&
       !_isSending &&
       !_isSummarizing &&
       !_isCancellingGeneration &&
       !_isOpeningSessionList;
   bool get _canUseNonDestructiveControls =>
-      !_isLoading && !_isSummarizing && !_isCancellingGeneration;
+      !_isClearing &&
+      !_isLoading &&
+      !_isSummarizing &&
+      !_isCancellingGeneration;
 
   ChatBubbleAppearance get _roleBubbleAppearance => resolveBubbleAppearance(
     presetId: _character.roleBubblePresetId,
@@ -138,6 +151,31 @@ class _ChatScreenState extends State<ChatScreen> {
     super.initState();
     _character = widget.character;
     _conversation = ChatConversationController(characterId: _character.id);
+    widget.storage.datasetEpochListenable.addListener(_datasetChanged);
+    unawaited(_load());
+  }
+
+  void _datasetChanged() {
+    _generationId++;
+    _conversationRevision++;
+    _cancelToken?.cancel();
+    _summaryCancelToken?.cancel();
+    _invalidateSummaryOperations();
+    _cancelAllInnerVoiceOperations();
+    _streamBuffer?.dispose();
+    _finalizeDraft = null;
+    _draft.value = null;
+    if (_generationCompletion != null) {
+      _completeGenerationOperation(_generationCompletion!);
+    }
+    if (!mounted) return;
+    setState(() {
+      _isSending = false;
+      _isSummarizing = false;
+      _hasUnsavedReply = false;
+      _session = null;
+      _conversation.clearMessages();
+    });
     unawaited(_load());
   }
 
@@ -153,6 +191,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    widget.storage.datasetEpochListenable.removeListener(_datasetChanged);
     _generationId++;
     _invalidateSummaryOperations();
     _cancelToken?.cancel();
@@ -160,6 +199,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _cancelAllInnerVoiceOperations(updateUi: false);
     _clearInnerVoiceFailures();
     _streamBuffer?.dispose();
+    _draft.dispose();
     _toolBarTimer?.cancel();
     _inputController.dispose();
     _inputFocusNode.dispose();
@@ -168,6 +208,12 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _load() async {
+    final epoch = widget.storage.datasetEpoch;
+    final operationId = ++_loadOperationId;
+    bool current() =>
+        mounted &&
+        epoch == widget.storage.datasetEpoch &&
+        operationId == _loadOperationId;
     setState(() {
       _isLoading = true;
       _loadError = null;
@@ -175,6 +221,16 @@ class _ChatScreenState extends State<ChatScreen> {
 
     try {
       final apiConfig = await widget.storage.loadApiConfig();
+      if (!current()) return;
+      if (widget.storage.usesSessionStorage) {
+        final characters = await widget.storage.loadCharacters();
+        if (!current()) return;
+        final refreshed = characters
+            .where((item) => item.id == _character.id)
+            .firstOrNull;
+        if (refreshed == null) throw StateError('当前数据集中没有此角色，请返回角色列表');
+        _character = refreshed;
+      }
       var activeSession =
           _session ??
           widget.session ??
@@ -185,6 +241,12 @@ class _ChatScreenState extends State<ChatScreen> {
         final storedSessions = await widget.storage.loadChatSessions(
           activeSession.characterId,
         );
+        if (!current()) return;
+        if (!storedSessions.any((item) => item.id == activeSession.id)) {
+          activeSession = await widget.storage.getOrCreateRecentChatSession(
+            _character.id,
+          );
+        }
         for (final storedSession in storedSessions) {
           if (storedSession.id == activeSession.id) {
             activeSession = storedSession;
@@ -201,6 +263,7 @@ class _ChatScreenState extends State<ChatScreen> {
       final selectedEndpointId =
           apiConfig.effectiveEndpoint(_character.defaultEndpointId)?.id ?? '';
       var messages = [...chat];
+      if (!current()) return;
 
       if (widget.storage.usesSessionStorage) {
         if (!activeSession.openingMessageInitialized) {
@@ -214,7 +277,12 @@ class _ChatScreenState extends State<ChatScreen> {
                 endpointName: apiConfig.endpointById(selectedEndpointId)?.name,
               ),
             ];
-            await widget.storage.saveChatBySession(activeSession, messages);
+            final saved = await widget.storage.saveChatBySessionIfExists(
+              activeSession,
+              messages,
+              token: await widget.storage.captureSessionToken(activeSession),
+            );
+            if (!saved || !current()) return;
           }
           activeSession = await widget.storage.markOpeningMessageInitialized(
             sessionId: activeSession.id,
@@ -235,7 +303,7 @@ class _ChatScreenState extends State<ChatScreen> {
         await widget.storage.saveChat(_character.id, messages);
       }
 
-      if (!mounted) return;
+      if (!current()) return;
       setState(() {
         _apiConfig = apiConfig;
         _session = activeSession;
@@ -244,7 +312,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _isLoading = false;
       });
     } catch (error) {
-      if (!mounted) return;
+      if (!current()) return;
       setState(() {
         _loadError = error.toString();
         _isLoading = false;
@@ -267,27 +335,50 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _saveCurrentChat() async {
     final session = _currentSession;
     final messages = List<ChatMessage>.of(_messages);
+    final epoch = widget.storage.datasetEpoch;
     await _enqueueChatSave(() async {
+      if (epoch != widget.storage.datasetEpoch) throw StateError('数据集已更新');
       if (widget.storage.usesSessionStorage) {
         await widget.storage.saveChatBySession(session, messages);
       } else {
         await widget.storage.saveChat(_character.id, messages);
       }
     });
+    if (_isCurrentConversation(epoch, session.id) && _hasUnsavedReply) {
+      setState(() => _hasUnsavedReply = false);
+    }
   }
 
   Future<bool> _saveChatSnapshotIfSessionExists(
     ChatSession session,
-    List<ChatMessage> messages,
-  ) async {
-    return _enqueueChatSave(() async {
+    List<ChatMessage> messages, {
+    SessionOperationToken? token,
+  }) async {
+    final epoch = widget.storage.datasetEpoch;
+    final saved = await _enqueueChatSave(() async {
+      if (epoch != widget.storage.datasetEpoch) return false;
       if (widget.storage.usesSessionStorage) {
-        return widget.storage.saveChatBySessionIfExists(session, messages);
+        return widget.storage.saveChatBySessionIfExists(
+          session,
+          messages,
+          token: token,
+        );
       }
       await widget.storage.saveChat(_character.id, messages);
       return true;
     });
+    if (saved &&
+        _isCurrentConversation(epoch, session.id) &&
+        _hasUnsavedReply) {
+      setState(() => _hasUnsavedReply = false);
+    }
+    return saved;
   }
+
+  bool _isCurrentConversation(int epoch, String? sessionId) =>
+      mounted &&
+      epoch == widget.storage.datasetEpoch &&
+      _session?.id == sessionId;
 
   Future<T> _enqueueChatSave<T>(Future<T> Function() save) {
     final result = Completer<T>();
@@ -305,15 +396,43 @@ class _ChatScreenState extends State<ChatScreen> {
     await _saveSummary(_summary);
   }
 
-  Future<void> _saveSummary(ChatSummary summary) async {
+  Future<void> _saveSummary(
+    ChatSummary summary, {
+    SessionOperationToken? token,
+  }) async {
     if (widget.storage.usesSessionStorage) {
-      await widget.storage.saveSummaryBySession(summary);
+      await widget.storage.saveSummaryBySession(summary, token: token);
     } else {
       await widget.storage.saveSummary(summary);
     }
   }
 
+  Future<void> _recordUsage({
+    required String requestType,
+    required String model,
+    required AiUsage usage,
+    required List<Map<String, String>> messages,
+    required bool summaryUpdated,
+  }) async {
+    final epoch = widget.storage.datasetEpoch;
+    try {
+      await widget.storage.recordAiUsage(
+        requestType: requestType,
+        model: model,
+        usage: usage,
+        messages: messages,
+        summaryUpdated: summaryUpdated,
+      );
+    } catch (error) {
+      if (mounted && epoch == widget.storage.datasetEpoch) {
+        context.showSnack('用量统计保存失败：$error');
+      }
+    }
+  }
+
   Future<void> _send() async {
+    final epoch = widget.storage.datasetEpoch;
+    final entrySessionId = _session?.id;
     final text = _inputController.text.trim();
     if (text.isEmpty || !_canMutateConversation) {
       return;
@@ -321,7 +440,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
     _invalidateSummaryOperations();
     final endpoint = await _reloadEndpoint();
-    if (endpoint == null || !_canMutateConversation) return;
+    if (endpoint == null ||
+        !_canMutateConversation ||
+        !_isCurrentConversation(epoch, entrySessionId)) {
+      return;
+    }
 
     final sessionId = _currentSession.id;
     final userMessage = ChatMessage(
@@ -343,7 +466,7 @@ class _ChatScreenState extends State<ChatScreen> {
       try {
         await _saveCurrentChat();
       } catch (error) {
-        if (!mounted) return;
+        if (!mounted || !_isCurrentConversation(epoch, sessionId)) return;
         setState(() {
           _conversation.replaceMessages(previousMessages);
           _isSending = false;
@@ -353,7 +476,7 @@ class _ChatScreenState extends State<ChatScreen> {
         return;
       }
 
-      if (!mounted || !_isSending || _session?.id != sessionId) return;
+      if (!_isCurrentConversation(epoch, sessionId) || !_isSending) return;
 
       await _requestAssistantReply(endpoint);
     } finally {
@@ -362,10 +485,12 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<AiEndpointConfig?> _reloadEndpoint() async {
+    final epoch = widget.storage.datasetEpoch;
+    final sessionId = _session?.id;
     try {
       final config = await widget.storage.loadApiConfig();
       final endpoint = config.effectiveEndpoint(_selectedEndpointId);
-      if (!mounted) return null;
+      if (!mounted || !_isCurrentConversation(epoch, sessionId)) return null;
       setState(() {
         _apiConfig = config;
         _selectedEndpointId = endpoint?.id ?? '';
@@ -377,7 +502,9 @@ class _ChatScreenState extends State<ChatScreen> {
       }
       return endpoint;
     } catch (error) {
-      if (mounted) context.showSnack(error.toString());
+      if (mounted && _isCurrentConversation(epoch, sessionId)) {
+        context.showSnack(error.toString());
+      }
       return null;
     }
   }
@@ -388,10 +515,61 @@ class _ChatScreenState extends State<ChatScreen> {
   }) async {
     final generationId = ++_generationId;
     final sessionId = _currentSession.id;
+    final session = _currentSession;
+    _generationEpoch = widget.storage.datasetEpoch;
+    final epoch = _generationEpoch;
     final cancelToken = AiCancelToken();
     _cancelToken = cancelToken;
     StreamTextBuffer? requestBuffer;
+    var networkCompleted = false;
+    var committed = false;
+    ChatMessage? assistantMessage;
+    var reply = '';
+    var reasoning = '';
+    var placeholder = false;
+    SessionOperationToken? storageToken;
+    void finalize(String state) {
+      if (committed || !_isCurrentGeneration(generationId, sessionId)) return;
+      committed = true;
+      if (variantAt != null && state != 'completed') return;
+      if (reply.trim().isEmpty) {
+        if (placeholder) _conversation.dropEmptyAssistantTail();
+        _draft.value = null;
+        return;
+      }
+      final message = assistantMessage!.copyWith(
+        content: reply,
+        reasoningContent: reasoning,
+        replyState: state,
+      );
+      if (variantAt != null) {
+        _conversation.addAssistantVariant(
+          variantAt,
+          ChatReplyVariant(
+            content: reply,
+            reasoningContent: reasoning,
+            replyState: state,
+            time: message.time,
+            endpointId: endpoint.id,
+            endpointName: endpoint.name,
+            model: endpoint.model,
+          ),
+        );
+      } else if (placeholder) {
+        _conversation.replaceLast(message);
+      } else {
+        _conversation.append(message);
+      }
+      _draft.value = null;
+    }
+
+    _finalizeDraft = finalize;
     try {
+      if (widget.storage.usesSessionStorage) {
+        storageToken = await widget.storage.captureSessionToken(session);
+      }
+      if (!_isCurrentGeneration(generationId, sessionId)) return;
+      _generationStorageToken = storageToken;
       final summaryUpdated = variantAt == null
           ? await _updateRollingSummary(endpoint, generationId, cancelToken)
           : false;
@@ -445,7 +623,7 @@ class _ChatScreenState extends State<ChatScreen> {
         messages: contextMessages,
       );
       final streamResponses = widget.settings.streamResponses;
-      final assistantMessage = ChatMessage(
+      assistantMessage = ChatMessage(
         role: 'assistant',
         content: '',
         time: DateTime.now(),
@@ -455,77 +633,75 @@ class _ChatScreenState extends State<ChatScreen> {
       );
       if (streamResponses && variantAt == null) {
         setState(() {
-          _conversation.append(assistantMessage);
+          _conversation.append(assistantMessage!);
+          placeholder = true;
+          _draft.value = assistantMessage;
         });
       }
 
-      var reply = '';
       requestBuffer = StreamTextBuffer(
         onFlush: (delta) {
-          reply += delta;
           if (!streamResponses ||
               !_isCurrentGeneration(generationId, sessionId)) {
             return;
           }
           if (variantAt == null) {
-            setState(() {
-              _conversation.replaceLast(
-                assistantMessage.copyWith(content: reply),
-              );
-            });
+            _draft.value = assistantMessage!.copyWith(
+              content: reply,
+              reasoningContent: reasoning,
+            );
           }
         },
       );
       _streamBuffer = requestBuffer;
-      await for (final chunk in widget.aiService.streamMessage(
+      final request = AiRequest(
         apiKey: endpoint.apiKey,
         baseUrl: endpoint.baseUrl,
         model: endpoint.model,
         messages: requestMessages,
-        cancelToken: cancelToken,
-        includeReasoning: widget.settings.showReasoningContent,
-        onUsage: (usage) => unawaited(
-          widget.storage.recordAiUsage(
-            requestType: variantAt == null
-                ? 'characterChat'
-                : 'characterChatVariant',
-            model: endpoint.model,
-            usage: usage,
-            messages: requestMessages,
-            summaryUpdated: summaryUpdated,
-          ),
-        ),
-      )) {
+        stream: streamResponses,
+        includeReasoning: true,
+      );
+      await for (final chunk in _responseDeltas(request, cancelToken)) {
         if (!_isCurrentGeneration(generationId, sessionId)) return;
-        requestBuffer.add(chunk);
+        reply += chunk.contentDelta;
+        reasoning += chunk.reasoningDelta;
+        requestBuffer.add(
+          chunk.contentDelta.isEmpty ? '\u200b' : chunk.contentDelta,
+        );
+        final usage = chunk.usage;
+        if (usage != null) {
+          await widget.storage
+              .recordAiUsage(
+                requestType: variantAt == null
+                    ? 'characterChat'
+                    : 'characterChatVariant',
+                model: endpoint.model,
+                usage: usage,
+                messages: requestMessages,
+                summaryUpdated: summaryUpdated,
+              )
+              .catchError((Object error) {
+                if (mounted && epoch == widget.storage.datasetEpoch) {
+                  this.context.showSnack('用量统计保存失败：$error');
+                }
+              });
+        }
       }
       requestBuffer.flush();
       if (reply.trim().isEmpty) {
         throw AiException('API 没有返回可用回复。');
       }
       if (!_isCurrentGeneration(generationId, sessionId)) return;
-      setState(() {
-        final finalMessage = assistantMessage.copyWith(content: reply);
-        if (variantAt != null) {
-          _conversation.addAssistantVariant(
-            variantAt,
-            ChatReplyVariant(
-              content: reply,
-              time: DateTime.now(),
-              endpointId: endpoint.id,
-              endpointName: endpoint.name,
-              model: endpoint.model,
-            ),
-          );
-        } else if (streamResponses) {
-          _conversation.replaceLast(finalMessage);
-        } else {
-          _conversation.append(finalMessage);
-        }
-      });
-      final session = _currentSession;
+      networkCompleted = true;
+      setState(() => finalize('completed'));
       final messages = List<ChatMessage>.of(_messages);
-      final saved = await _saveChatSnapshotIfSessionExists(session, messages);
+      final saved = await _saveChatSnapshotIfSessionExists(
+        session,
+        messages,
+        token: storageToken,
+      );
+      if (!saved) throw StateError('对话已更新或删除，回复未保存');
       if (_isCurrentGeneration(generationId, sessionId)) {
         setState(() => _isSending = false);
       }
@@ -557,13 +733,32 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (error) {
       if (!mounted ||
           generationId != _generationId ||
-          _session?.id != sessionId) {
+          _session?.id != sessionId ||
+          epoch != widget.storage.datasetEpoch) {
         return;
       }
-      setState(() {
-        if (variantAt == null) _conversation.dropEmptyAssistantTail();
-        _isSending = false;
-      });
+      requestBuffer?.flush();
+      if (!networkCompleted) {
+        setState(() => finalize('interrupted'));
+        if (variantAt == null && reply.trim().isNotEmpty) {
+          try {
+            final saved = await _saveChatSnapshotIfSessionExists(
+              session,
+              List<ChatMessage>.of(_messages),
+              token: storageToken,
+            );
+            if (!saved) throw StateError('对话已更新');
+          } catch (_) {
+            if (mounted && epoch == widget.storage.datasetEpoch) {
+              _hasUnsavedReply = true;
+            }
+          }
+        }
+      } else {
+        _hasUnsavedReply = true;
+      }
+      if (!mounted || epoch != widget.storage.datasetEpoch) return;
+      setState(() => _isSending = false);
       context.showSnack(error.toString());
     } finally {
       final ownedBuffer = requestBuffer;
@@ -573,6 +768,7 @@ class _ChatScreenState extends State<ChatScreen> {
         if (identical(_streamBuffer, ownedBuffer)) _streamBuffer = null;
       }
       if (identical(_cancelToken, cancelToken)) _cancelToken = null;
+      if (identical(_finalizeDraft, finalize)) _finalizeDraft = null;
       if (mounted &&
           generationId == _generationId &&
           _variantGenerationIndex == variantAt) {
@@ -592,11 +788,15 @@ class _ChatScreenState extends State<ChatScreen> {
     required String memoryContext,
     required String chatSummary,
   }) async {
+    final revision = _conversationRevision;
+    final epoch = widget.storage.datasetEpoch;
     _InnerVoiceOperation? operation;
     var failed = false;
     try {
       final latestSettings = await widget.storage.loadSettings();
       if (!mounted ||
+          revision != _conversationRevision ||
+          epoch != widget.storage.datasetEpoch ||
           !widget.settings.showCharacterInnerVoice ||
           !latestSettings.showCharacterInnerVoice ||
           _session?.id != session.id ||
@@ -625,7 +825,19 @@ class _ChatScreenState extends State<ChatScreen> {
         target: target,
         cancelToken: AiCancelToken(),
         previousInnerVoice: previousInnerVoice,
+        revision: revision,
+        epoch: epoch,
       );
+      if (widget.storage.usesSessionStorage) {
+        activeOperation.storageToken = await widget.storage.captureSessionToken(
+          session,
+        );
+      }
+      if (!mounted ||
+          revision != _conversationRevision ||
+          epoch != widget.storage.datasetEpoch) {
+        return;
+      }
       operation = activeOperation;
       setState(() {
         _clearInnerVoiceFailureAt(messageIndex);
@@ -647,7 +859,7 @@ class _ChatScreenState extends State<ChatScreen> {
         messages: requestMessages,
         cancelToken: activeOperation.cancelToken,
         onUsage: (usage) => unawaited(
-          widget.storage.recordAiUsage(
+          _recordUsage(
             requestType: 'characterInnerVoice',
             model: endpoint.model,
             usage: usage,
@@ -697,7 +909,11 @@ class _ChatScreenState extends State<ChatScreen> {
           messageIndex != messages.length - 1) {
         messages = messages.sublist(0, messages.length - 1);
       }
-      final saved = await _saveChatSnapshotIfSessionExists(session, messages);
+      final saved = await _saveChatSnapshotIfSessionExists(
+        session,
+        messages,
+        token: activeOperation.storageToken,
+      );
       if (!saved) throw StateError('当前对话已不存在。');
 
       final settingsAfterSave = await widget.storage.loadSettings();
@@ -755,6 +971,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   bool _isCurrentInnerVoiceOperation(_InnerVoiceOperation operation) =>
       mounted &&
+      operation.revision == _conversationRevision &&
+      operation.epoch == widget.storage.datasetEpoch &&
       widget.settings.showCharacterInnerVoice &&
       !operation.cancelled &&
       identical(_innerVoiceOperations[operation.id], operation) &&
@@ -818,6 +1036,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }) async {
     if (!operation.applied) return;
     operation.applied = false;
+    if (operation.epoch != widget.storage.datasetEpoch) return;
     final generatedInnerVoice = operation.generatedInnerVoice;
     final session = _session;
     if (generatedInnerVoice == null ||
@@ -846,13 +1065,18 @@ class _ChatScreenState extends State<ChatScreen> {
 
     final messages = List<ChatMessage>.of(_messages);
     try {
-      await _saveChatSnapshotIfSessionExists(session, messages);
+      await _saveChatSnapshotIfSessionExists(
+        session,
+        messages,
+        token: operation.storageToken,
+      );
     } on Object {
       // The in-memory rollback is still authoritative for later chat saves.
     }
   }
 
   void _cancelAllInnerVoiceOperations({bool updateUi = true}) {
+    _conversationRevision++;
     final operations = _innerVoiceOperations.values.toList();
     for (final operation in operations) {
       operation.cancelled = true;
@@ -869,9 +1093,71 @@ class _ChatScreenState extends State<ChatScreen> {
 
   bool _isCurrentGeneration(int generationId, String sessionId) =>
       mounted &&
+      _generationEpoch == widget.storage.datasetEpoch &&
       generationId == _generationId &&
       _isSending &&
       _session?.id == sessionId;
+
+  Stream<AiResponseDelta> _responseDeltas(
+    AiRequest request,
+    AiCancelToken token,
+  ) async* {
+    final gateway = widget.aiService;
+    if (gateway is StructuredAiGateway) {
+      if (request.stream) {
+        await for (final delta
+            in (gateway as StructuredAiGateway).streamResponse(
+              request,
+              cancelToken: token,
+            )) {
+          yield delta;
+        }
+      } else {
+        final response = await (gateway as StructuredAiGateway).sendResponse(
+          request,
+          cancelToken: token,
+        );
+        yield AiResponseDelta(
+          contentDelta: response.content,
+          reasoningDelta: response.reasoningContent,
+          usage: response.usage,
+        );
+      }
+      return;
+    }
+    AiUsage? usage;
+    await for (final text in gateway.streamMessage(
+      apiKey: request.apiKey,
+      baseUrl: request.baseUrl,
+      model: request.model,
+      messages: request.messages,
+      cancelToken: token,
+      onUsage: (value) => usage = value,
+    )) {
+      yield AiResponseDelta(contentDelta: text);
+    }
+    if (usage != null) yield AiResponseDelta(usage: usage);
+  }
+
+  Future<void> _retryReplySave() async {
+    if (!_hasUnsavedReply || !_canMutateConversation) return;
+    final session = _currentSession;
+    final epoch = widget.storage.datasetEpoch;
+    try {
+      final saved = await _saveChatSnapshotIfSessionExists(
+        session,
+        List.of(_messages),
+      );
+      if (!saved) throw StateError('目标对话不存在');
+      if (mounted &&
+          epoch == widget.storage.datasetEpoch &&
+          _session?.id == session.id) {
+        setState(() => _hasUnsavedReply = false);
+      }
+    } catch (error) {
+      if (mounted) context.showSnack('保存失败：$error');
+    }
+  }
 
   Completer<void> _beginGenerationOperation() {
     final completion = Completer<void>();
@@ -902,14 +1188,22 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _regenerateAssistantVariant(int messageIndex) async {
     if (!_canUseNonDestructiveControls) return;
+    final epoch = widget.storage.datasetEpoch;
+    final sessionId = _session?.id;
     await _waitForActiveGeneration();
-    if (!_canMutateConversation ||
+    if (!mounted ||
+        !_isCurrentConversation(epoch, sessionId) ||
+        !_canMutateConversation ||
         !_conversation.canRegenerateAssistantAt(messageIndex)) {
       return;
     }
     _invalidateSummaryOperations();
     final endpoint = await _reloadEndpoint();
-    if (endpoint == null || !_canMutateConversation) return;
+    if (endpoint == null ||
+        !_canMutateConversation ||
+        !_isCurrentConversation(epoch, sessionId)) {
+      return;
+    }
     final generationCompletion = _beginGenerationOperation();
     setState(() {
       _isSending = true;
@@ -924,6 +1218,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _openSessionList() async {
     if (_isLoading || _isOpeningSessionList) return;
+    final epoch = widget.storage.datasetEpoch;
     setState(() => _isOpeningSessionList = true);
     try {
       _cancelActiveSummary();
@@ -934,15 +1229,15 @@ class _ChatScreenState extends State<ChatScreen> {
             storage: widget.storage,
             character: _character,
             selectedSessionId: _session?.id,
-            deletionDisabled: _isSending,
+            deletionDisabled: _isSending || _hasUnsavedReply,
           ),
         ),
       );
-      if (!mounted) return;
+      if (!mounted || epoch != widget.storage.datasetEpoch) return;
 
       if (selected != null && selected.id != beforeId) {
         await _waitForActiveGeneration();
-        if (!mounted) return;
+        if (!mounted || epoch != widget.storage.datasetEpoch) return;
       }
 
       final sessions = await widget.storage.loadChatSessions(_character.id);
@@ -958,7 +1253,12 @@ class _ChatScreenState extends State<ChatScreen> {
       target ??= await widget.storage.getOrCreateRecentChatSession(
         _character.id,
       );
-      if (!mounted) return;
+      if (!mounted || epoch != widget.storage.datasetEpoch) return;
+
+      if (_hasUnsavedReply && target.id != beforeId) {
+        context.showSnack('当前回复未保存，请先重试保存后再切换对话');
+        return;
+      }
 
       if (target.id != beforeId) {
         _cancelAllInnerVoiceOperations();
@@ -1050,8 +1350,11 @@ class _ChatScreenState extends State<ChatScreen> {
     int variantIndex,
   ) async {
     if (!_canUseNonDestructiveControls) return;
+    final epoch = widget.storage.datasetEpoch;
+    final sessionId = _session?.id;
     await _waitForActiveGeneration();
     if (!mounted ||
+        !_isCurrentConversation(epoch, sessionId) ||
         !_canMutateConversation ||
         messageIndex < 0 ||
         messageIndex >= _messages.length) {
@@ -1068,7 +1371,7 @@ class _ChatScreenState extends State<ChatScreen> {
         content: context.t('切换此候选将删除它之后的消息，并可能清空历史总结，是否继续？'),
         confirmLabel: '继续',
       );
-      if (!confirmed) return;
+      if (!confirmed || !_isCurrentConversation(epoch, sessionId)) return;
     }
     if (!_conversation.selectAssistantVariant(messageIndex, variantIndex)) {
       return;
@@ -1086,6 +1389,7 @@ class _ChatScreenState extends State<ChatScreen> {
           : _activeSearchResult.clamp(0, _searchResults.length - 1).toInt();
     });
     await _saveCurrentChat();
+    if (!_isCurrentConversation(epoch, sessionId)) return;
     await _saveCurrentSummary();
   }
 
@@ -1110,6 +1414,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _editLastUserMessageAndResend() async {
     if (!_canMutateConversation) return;
+    final epoch = widget.storage.datasetEpoch;
+    final entrySessionId = _session?.id;
     _invalidateSummaryOperations();
     final index = _conversation.lastUserMessageIndex;
     if (index == -1) {
@@ -1126,12 +1432,16 @@ class _ChatScreenState extends State<ChatScreen> {
       minLines: 3,
       maxLines: 8,
     );
-    if (!mounted) return;
+    if (!_isCurrentConversation(epoch, entrySessionId)) return;
     if (edited == null || edited.isEmpty) return;
     if (!_canMutateConversation) return;
 
     final endpoint = await _reloadEndpoint();
-    if (endpoint == null || !_canMutateConversation) return;
+    if (endpoint == null ||
+        !_canMutateConversation ||
+        !_isCurrentConversation(epoch, entrySessionId)) {
+      return;
+    }
 
     final sessionId = _currentSession.id;
     final previousMessages = [..._messages];
@@ -1145,7 +1455,7 @@ class _ChatScreenState extends State<ChatScreen> {
       try {
         await _saveCurrentChat();
       } catch (error) {
-        if (!mounted) return;
+        if (!mounted || !_isCurrentConversation(epoch, sessionId)) return;
         setState(() {
           _conversation.replaceMessages(previousMessages);
           _isSending = false;
@@ -1153,7 +1463,7 @@ class _ChatScreenState extends State<ChatScreen> {
         context.showSnack(error.toString());
         return;
       }
-      if (!mounted || !_isSending || _session?.id != sessionId) return;
+      if (!_isCurrentConversation(epoch, sessionId) || !_isSending) return;
       _scrollToEnd();
       await _requestAssistantReply(endpoint);
     } finally {
@@ -1204,11 +1514,14 @@ class _ChatScreenState extends State<ChatScreen> {
     required bool showMessage,
     required bool persistPartialReply,
   }) async {
+    final epoch = widget.storage.datasetEpoch;
     _cancelAllInnerVoiceOperations();
     _streamBuffer?.flush();
+    _finalizeDraft?.call('interrupted');
     _cancelToken?.cancel();
     _cancelToken = null;
     _generationId++;
+    final cancellationId = _generationId;
     _invalidateSummaryOperations();
     final session = _currentSession;
     setState(() {
@@ -1222,13 +1535,27 @@ class _ChatScreenState extends State<ChatScreen> {
     var saveFailed = false;
     if (persistPartialReply) {
       try {
-        await _saveChatSnapshotIfSessionExists(session, messages);
+        final saved = await _saveChatSnapshotIfSessionExists(
+          session,
+          messages,
+          token: _generationStorageToken,
+        );
+        if (!saved) throw StateError('目标对话已更新');
       } catch (error) {
         saveFailed = true;
-        if (mounted) context.showSnack(error.toString());
+        if (mounted &&
+            _isCurrentConversation(epoch, session.id) &&
+            cancellationId == _generationId) {
+          setState(() => _hasUnsavedReply = true);
+          context.showSnack(error.toString());
+        }
       }
     }
-    if (showMessage && mounted && !saveFailed) {
+    if (showMessage &&
+        mounted &&
+        _isCurrentConversation(epoch, session.id) &&
+        cancellationId == _generationId &&
+        !saveFailed) {
       context.showSnack('已停止生成');
     }
   }
@@ -1262,6 +1589,9 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     try {
+      final storageToken = widget.storage.usesSessionStorage
+          ? await widget.storage.captureSessionToken(session)
+          : null;
       final prompt = PromptBuilder.buildSummaryPrompt(
         messages,
         useCustomItems: widget.settings.useCustomChatSummaryItems,
@@ -1278,7 +1608,7 @@ class _ChatScreenState extends State<ChatScreen> {
         temperature: 0.2,
         cancelToken: cancelToken,
         onUsage: (usage) => unawaited(
-          widget.storage.recordAiUsage(
+          _recordUsage(
             requestType: 'characterSummary',
             model: endpoint.model,
             usage: usage,
@@ -1299,7 +1629,7 @@ class _ChatScreenState extends State<ChatScreen> {
         updatedAt: DateTime.now(),
         summarizedMessageCount: messages.length,
       );
-      await _saveSummary(nextSummary);
+      await _saveSummary(nextSummary, token: storageToken);
 
       if (!_isCurrentSummaryOperation(operationId, sessionId)) return;
       setState(() => _conversation.setSummary(nextSummary));
@@ -1321,6 +1651,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _clearChat() async {
     if (!_canMutateConversation) return;
+    final epoch = widget.storage.datasetEpoch;
+    final sessionId = _session?.id;
     final shouldClear = await showConfirmDialog(
       context: context,
       title: '清空聊天',
@@ -1328,21 +1660,44 @@ class _ChatScreenState extends State<ChatScreen> {
       confirmLabel: '清空',
     );
 
-    if (!shouldClear || !_canMutateConversation) return;
+    if (!shouldClear ||
+        !_canMutateConversation ||
+        !_isCurrentConversation(epoch, sessionId)) {
+      return;
+    }
 
+    setState(() => _isClearing = true);
     _cancelAllInnerVoiceOperations();
+    _invalidateSummaryOperations();
     _clearInnerVoiceFailures();
     final session = _currentSession;
-    await _enqueueChatSave(() async {
-      if (widget.storage.usesSessionStorage) {
-        await widget.storage.saveChatBySession(session, const []);
-      } else {
+    ChatSummary next;
+    try {
+      next = await _enqueueChatSave(() async {
+        if (epoch != widget.storage.datasetEpoch) throw StateError('数据集已更新');
+        if (widget.storage.usesSessionStorage) {
+          return widget.storage.clearChatPreservingSummary(session);
+        }
+        final summary = summaryAfterChatClear(_summary, DateTime.now());
+        await widget.storage.saveSummary(summary);
         await widget.storage.clearChat(_character.id);
-      }
-    });
-    if (!mounted) return;
+        return summary;
+      });
+    } catch (error) {
+      if (mounted) context.showSnack('清空保存失败：$error');
+      return;
+    } finally {
+      if (mounted) setState(() => _isClearing = false);
+    }
+    if (!mounted ||
+        epoch != widget.storage.datasetEpoch ||
+        _session?.id != session.id) {
+      return;
+    }
     setState(() {
       _conversation.clearMessages();
+      _conversation.setSummary(next);
+      _hasUnsavedReply = false;
       _searchQuery = '';
       _searchResults = [];
       _activeSearchResult = 0;
@@ -1434,6 +1789,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
     setState(() => _isSummarizing = true);
     try {
+      final storageToken = widget.storage.usesSessionStorage
+          ? await widget.storage.captureSessionToken(_currentSession)
+          : null;
       final nextSummary = await updateChatSummary(
         widget.aiService,
         characterId: _character.id,
@@ -1444,7 +1802,7 @@ class _ChatScreenState extends State<ChatScreen> {
         endpoint: endpoint,
         cancelToken: cancelToken,
         onUsage: (usage, messages) => unawaited(
-          widget.storage.recordAiUsage(
+          _recordUsage(
             requestType: 'characterSummary',
             model: endpoint.model,
             usage: usage,
@@ -1458,7 +1816,7 @@ class _ChatScreenState extends State<ChatScreen> {
           !_isCurrentSummaryOperation(operationId, sessionId)) {
         return false;
       }
-      await _saveSummary(nextSummary);
+      await _saveSummary(nextSummary, token: storageToken);
       if (!_isCurrentGeneration(generationId, sessionId) ||
           !_isCurrentSummaryOperation(operationId, sessionId)) {
         return true;
@@ -1888,6 +2246,8 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!_canMutateConversation || index < 0 || index >= _messages.length) {
       return;
     }
+    final epoch = widget.storage.datasetEpoch;
+    final sessionId = _session?.id;
     final message = _messages[index];
     final deletingVariant = message.isAssistant && message.variantCount > 1;
     final hasFollowingMessages = _conversation.hasMessagesAfter(index);
@@ -1903,7 +2263,11 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       confirmLabel: '删除',
     );
-    if (!confirmed || !_canMutateConversation) return;
+    if (!confirmed ||
+        !_canMutateConversation ||
+        !_isCurrentConversation(epoch, sessionId)) {
+      return;
+    }
 
     _cancelAllInnerVoiceOperations();
     _clearInnerVoiceFailures();
@@ -1916,7 +2280,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (truncatedTimeline ||
         deletion == ChatMessageDeletion.summaryInvalidated) {
       await _saveCurrentSummary();
-      if (!mounted) return;
+      if (!_isCurrentConversation(epoch, sessionId)) return;
     }
     setState(() {
       _searchResults = findChatSearchResults(
@@ -1987,66 +2351,78 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        key: const ValueKey('character-chat-app-bar'),
-        backgroundColor: Theme.of(context).colorScheme.surface.withValues(
-          alpha: _character.topBarOpacity.clamp(0, 1).toDouble(),
-        ),
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        surfaceTintColor: Colors.transparent,
-        systemOverlayStyle: appSystemOverlayStyle(context),
-        title: InkWell(
-          onTap: _isLoading || _isOpeningSessionList ? null : _openSessionList,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(_character.name),
-              if (_session != null)
-                Text(
-                  _session!.title,
-                  style: Theme.of(context).textTheme.labelSmall,
-                  overflow: TextOverflow.ellipsis,
-                ),
-            ],
+    return PopScope<void>(
+      canPop: !_hasUnsavedReply,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && _hasUnsavedReply) {
+          context.showSnack('回复尚未保存，请先重试保存或复制正文');
+        }
+      },
+      child: Scaffold(
+        extendBodyBehindAppBar: true,
+        appBar: AppBar(
+          key: const ValueKey('character-chat-app-bar'),
+          backgroundColor: Theme.of(context).colorScheme.surface.withValues(
+            alpha: _character.topBarOpacity.clamp(0, 1).toDouble(),
           ),
-        ),
-        actions: [
-          IconButton(
-            tooltip: context.t('对话管理'),
-            onPressed: _isLoading || _isOpeningSessionList
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          surfaceTintColor: Colors.transparent,
+          systemOverlayStyle: appSystemOverlayStyle(context),
+          title: InkWell(
+            onTap: _isLoading || _isOpeningSessionList
                 ? null
                 : _openSessionList,
-            icon: const Icon(Icons.forum_outlined),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(_character.name),
+                if (_session != null)
+                  Text(
+                    _session!.title,
+                    style: Theme.of(context).textTheme.labelSmall,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+              ],
+            ),
           ),
-          IconButton(
-            tooltip: context.t('搜索聊天'),
-            onPressed: _showSearchDialog,
-            icon: const Icon(Icons.search),
-          ),
-          IconButton(
-            tooltip: context.t('查看历史总结'),
-            onPressed: _hasActiveChatOperation ? null : _showSummaryDialog,
-            icon: const Icon(Icons.summarize_outlined),
-          ),
-          IconButton(
-            tooltip: context.t('聊天设置'),
-            onPressed: _canUseNonDestructiveControls ? _showChatSettings : null,
-            icon: const Icon(Icons.settings_outlined),
-          ),
-          IconButton(
-            tooltip: context.t('记忆与世界书'),
-            onPressed: _canUseNonDestructiveControls
-                ? _openMemoryManager
-                : null,
-            icon: const Icon(Icons.menu_book_outlined),
-          ),
-        ],
+          actions: [
+            IconButton(
+              tooltip: context.t('对话管理'),
+              onPressed: _isLoading || _isOpeningSessionList
+                  ? null
+                  : _openSessionList,
+              icon: const Icon(Icons.forum_outlined),
+            ),
+            IconButton(
+              tooltip: context.t('搜索聊天'),
+              onPressed: _showSearchDialog,
+              icon: const Icon(Icons.search),
+            ),
+            IconButton(
+              tooltip: context.t('查看历史总结'),
+              onPressed: _hasActiveChatOperation ? null : _showSummaryDialog,
+              icon: const Icon(Icons.summarize_outlined),
+            ),
+            IconButton(
+              tooltip: context.t('聊天设置'),
+              onPressed: _canUseNonDestructiveControls
+                  ? _showChatSettings
+                  : null,
+              icon: const Icon(Icons.settings_outlined),
+            ),
+            IconButton(
+              tooltip: context.t('记忆与世界书'),
+              onPressed: _canUseNonDestructiveControls
+                  ? _openMemoryManager
+                  : null,
+              icon: const Icon(Icons.menu_book_outlined),
+            ),
+          ],
+        ),
+        body: _buildBody(),
       ),
-      body: _buildBody(),
     );
   }
 
@@ -2169,7 +2545,7 @@ class _ChatScreenState extends State<ChatScreen> {
               _messages.length - 1 - (index - (showTyping ? 1 : 0));
           final message = _messages[messageIndex];
           final innerVoiceStatus = _innerVoiceStatus(messageIndex, message);
-          return _MessageBubble(
+          Widget bubble(ChatMessage message) => _MessageBubble(
             message: message,
             appearance: message.isUser
                 ? _userBubbleAppearance
@@ -2180,6 +2556,9 @@ class _ChatScreenState extends State<ChatScreen> {
             splitRoleMessages:
                 widget.settings.splitRoleMessages && message.isAssistant,
             showCharacterInnerVoice: widget.settings.showCharacterInnerVoice,
+            showReasoningContent: widget.settings.showReasoningContent,
+            isUnsaved: _hasUnsavedReply && messageIndex == _messages.length - 1,
+            onRetrySave: _retryReplySave,
             isInnerVoiceGenerating:
                 innerVoiceStatus == _InnerVoiceDisplayStatus.generating,
             isInnerVoiceFailed:
@@ -2201,7 +2580,9 @@ class _ChatScreenState extends State<ChatScreen> {
                 : null,
             onRegenerate:
                 _canUseNonDestructiveControls &&
-                    _conversation.canRegenerateAssistantAt(messageIndex)
+                    messageIndex == _messages.length - 1 &&
+                    message.isAssistant &&
+                    message.effectiveContent.trim().isNotEmpty
                 ? () => _regenerateAssistantVariant(messageIndex)
                 : null,
             onAddMemory: _canUseNonDestructiveControls
@@ -2212,6 +2593,16 @@ class _ChatScreenState extends State<ChatScreen> {
                 ? () => _deleteMessage(messageIndex)
                 : null,
           );
+          if (_isSending &&
+              _variantGenerationIndex == null &&
+              messageIndex == _messages.length - 1 &&
+              message.isAssistant) {
+            return ValueListenableBuilder<ChatMessage?>(
+              valueListenable: _draft,
+              builder: (context, draft, _) => bubble(draft ?? message),
+            );
+          }
+          return bubble(message);
         },
       ),
     );
@@ -2314,6 +2705,9 @@ class _MessageBubble extends StatelessWidget {
     required this.searchQuery,
     required this.splitRoleMessages,
     required this.showCharacterInnerVoice,
+    this.showReasoningContent = false,
+    this.isUnsaved = false,
+    this.onRetrySave,
     required this.isInnerVoiceGenerating,
     required this.isInnerVoiceFailed,
     this.onOpenInnerVoice,
@@ -2334,6 +2728,9 @@ class _MessageBubble extends StatelessWidget {
   final String searchQuery;
   final bool splitRoleMessages;
   final bool showCharacterInnerVoice;
+  final bool showReasoningContent;
+  final bool isUnsaved;
+  final VoidCallback? onRetrySave;
   final bool isInnerVoiceGenerating;
   final bool isInnerVoiceFailed;
   final VoidCallback? onOpenInnerVoice;
@@ -2367,6 +2764,9 @@ class _MessageBubble extends StatelessWidget {
               searchQuery: searchQuery,
               splitRoleMessages: false,
               showCharacterInnerVoice: showCharacterInnerVoice,
+              showReasoningContent: showReasoningContent,
+              isUnsaved: isUnsaved,
+              onRetrySave: onRetrySave,
               isInnerVoiceGenerating: isInnerVoiceGenerating,
               isInnerVoiceFailed: isInnerVoiceFailed,
               onOpenInnerVoice: onOpenInnerVoice,
@@ -2416,6 +2816,32 @@ class _MessageBubble extends StatelessWidget {
                 textColor: appearance.textColor ?? chatTextColor,
                 highlightQuery: searchQuery,
               ),
+              if (showFooter &&
+                  showReasoningContent &&
+                  controls.effectiveReasoningContent.isNotEmpty)
+                Material(
+                  color: Colors.transparent,
+                  child: ExpansionTile(
+                    title: const Text('接口思考'),
+                    tilePadding: EdgeInsets.zero,
+                    children: [
+                      SelectableText(controls.effectiveReasoningContent),
+                    ],
+                  ),
+                ),
+              if (showFooter && controls.effectiveReplyState == 'interrupted')
+                const Text('回复中断'),
+              if (showFooter && isUnsaved)
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    const Text('未保存'),
+                    TextButton(
+                      onPressed: onRetrySave,
+                      child: const Text('重试保存'),
+                    ),
+                  ],
+                ),
               if (showFooter) const SizedBox(height: 4),
               if (showFooter)
                 Row(
@@ -2540,12 +2966,17 @@ final class _InnerVoiceOperation {
     required this.target,
     required this.cancelToken,
     required this.previousInnerVoice,
+    required this.revision,
+    required this.epoch,
   });
 
   final int id;
   final _InnerVoiceTarget target;
   final AiCancelToken cancelToken;
   final String previousInnerVoice;
+  final int revision;
+  final int epoch;
+  SessionOperationToken? storageToken;
   String? generatedInnerVoice;
   var cancelled = false;
   var applied = false;

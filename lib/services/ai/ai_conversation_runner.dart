@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../models/ai_usage.dart';
+import '../../models/ai_response.dart';
 
 class AiException implements Exception {
   AiException(this.message);
@@ -114,16 +115,28 @@ class OpenAiCompatibleAdapter {
     String line, {
     required bool includeReasoning,
   }) {
+    final event = parseResponseDelta(line);
+    if (event == null || (event.contentDelta.isEmpty && event.usage == null)) {
+      return null;
+    }
+    return (
+      text: event.contentDelta.isEmpty ? null : event.contentDelta,
+      usage: event.usage,
+    );
+  }
+
+  AiResponseDelta? parseResponseDelta(String line) {
     if (line.isEmpty) return null;
     final payload = line.startsWith('data:') ? line.substring(5).trim() : line;
     if (payload.isEmpty || payload == '[DONE]') return null;
     try {
       final decoded = jsonDecode(payload);
       if (decoded is! Map<String, dynamic>) return null;
-      final usage = decoded.containsKey('usage')
+      final usage = decoded['usage'] is Map<String, dynamic>
           ? AiUsage.fromJson(decoded['usage'])
           : null;
       String? text;
+      var reasoning = '';
       final choices = decoded['choices'];
       if (choices is List && choices.isNotEmpty) {
         final first = choices.first;
@@ -133,15 +146,19 @@ class OpenAiCompatibleAdapter {
             final content = delta['content'];
             if (content is String && content.isNotEmpty) {
               text = content;
-            } else if (includeReasoning) {
-              final reasoning = delta['reasoning_content'];
-              if (reasoning is String && reasoning.isNotEmpty) text = reasoning;
             }
+            final rawReasoning = delta['reasoning_content'];
+            if (rawReasoning is String) reasoning = rawReasoning;
           }
           final message = first['message'];
           if (text == null && message is Map<String, dynamic>) {
             final content = message['content'];
             if (content is String && content.isNotEmpty) text = content;
+          }
+          if (reasoning.isEmpty &&
+              message is Map<String, dynamic> &&
+              message['reasoning_content'] is String) {
+            reasoning = message['reasoning_content'] as String;
           }
           final plainText = first['text'];
           if (text == null && plainText is String && plainText.isNotEmpty) {
@@ -149,13 +166,24 @@ class OpenAiCompatibleAdapter {
           }
         }
       }
-      return text == null && usage == null ? null : (text: text, usage: usage);
+      return text == null && reasoning.isEmpty && usage == null
+          ? null
+          : AiResponseDelta(
+              contentDelta: text ?? '',
+              reasoningDelta: reasoning,
+              usage: usage,
+            );
     } on FormatException {
       return null;
     }
   }
 
   ({String text, AiUsage usage}) parseResponse(dynamic json) {
+    final response = parseStructuredResponse(json);
+    return (text: response.content, usage: response.usage);
+  }
+
+  AiResponse parseStructuredResponse(dynamic json) {
     if (json is! Map<String, dynamic>) {
       throw AiException('API 返回格式异常。');
     }
@@ -171,7 +199,15 @@ class OpenAiCompatibleAdapter {
           content = first['text'];
         }
         if (content is String && content.trim().isNotEmpty) {
-          return (text: content.trim(), usage: AiUsage.fromJson(json['usage']));
+          return AiResponse(
+            content: content.trim(),
+            reasoningContent:
+                message is Map<String, dynamic> &&
+                    message['reasoning_content'] is String
+                ? message['reasoning_content'] as String
+                : '',
+            usage: AiUsage.fromJson(json['usage']),
+          );
         }
       }
     }
@@ -245,6 +281,14 @@ class AiConversationRunner {
     AiRequest request, {
     AiCancelToken? cancelToken,
   }) async {
+    final response = await sendResponse(request, cancelToken: cancelToken);
+    return (text: response.content, usage: response.usage);
+  }
+
+  Future<AiResponse> sendResponse(
+    AiRequest request, {
+    AiCancelToken? cancelToken,
+  }) async {
     _validate(request);
     final client = cancelToken == null ? _client : http.Client();
     cancelToken?._attach(client);
@@ -262,7 +306,7 @@ class AiConversationRunner {
         );
       }
       try {
-        return _adapter.parseResponse(
+        return _adapter.parseStructuredResponse(
           jsonDecode(utf8.decode(response.bodyBytes)),
         );
       } on FormatException {
@@ -275,6 +319,23 @@ class AiConversationRunner {
   }
 
   Stream<({String? text, AiUsage? usage})> run(
+    AiRequest request, {
+    AiCancelToken? cancelToken,
+  }) async* {
+    await for (final event in streamResponse(
+      request,
+      cancelToken: cancelToken,
+    )) {
+      if (event.contentDelta.isNotEmpty || event.usage != null) {
+        yield (
+          text: event.contentDelta.isEmpty ? null : event.contentDelta,
+          usage: event.usage,
+        );
+      }
+    }
+  }
+
+  Stream<AiResponseDelta> streamResponse(
     AiRequest request, {
     AiCancelToken? cancelToken,
   }) async* {
@@ -299,10 +360,8 @@ class AiConversationRunner {
               .timeout(timeout)
               .transform(utf8.decoder)
               .transform(const LineSplitter())) {
-        final event = _adapter.parseStream(
-          line.trim(),
-          includeReasoning: request.includeReasoning,
-        );
+        if (line.trim() == 'data: [DONE]') break;
+        final event = _adapter.parseResponseDelta(line.trim());
         if (event != null) yield event;
       }
     } finally {

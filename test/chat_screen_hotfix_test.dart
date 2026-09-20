@@ -18,10 +18,62 @@ import 'package:whisnya/screens/chat/memory_manager_screen.dart';
 import 'package:whisnya/services/ai/ai_gateway.dart';
 import 'package:whisnya/services/ai_service.dart';
 import 'package:whisnya/services/local_storage_service.dart';
+import 'package:whisnya/services/storage/session_operation_coordinator.dart';
 import 'package:whisnya/utils/app_i18n.dart';
 import 'package:whisnya/widgets/message_bubble_parts.dart';
+import 'package:whisnya/widgets/chat_bubble.dart';
 
 void main() {
+  testWidgets('network failure flushes and persists the interrupted reply', (
+    tester,
+  ) async {
+    final character = _character();
+    final storage = _SessionStorage(
+      character: character,
+      sessions: [_session(openingMessageInitialized: true)],
+    );
+    final gateway = _ControlledGateway();
+    addTearDown(gateway.close);
+    await _pumpChat(tester, storage, character, gateway: gateway);
+    await _send(tester, 'question');
+    await _pumpUntil(tester, () => gateway.callCount == 1);
+    gateway.controllers.single.add('first');
+    gateway.controllers.single.add(' second');
+    gateway.controllers.single.addError(StateError('network disconnected'));
+    await gateway.controllers.single.close();
+    await tester.pumpAndSettle();
+    expect(storage.chats['session']!.last.content, 'first second');
+    expect(storage.chats['session']!.last.replyState, 'interrupted');
+    expect(find.text('回复中断'), findsOneWidget);
+  });
+
+  testWidgets(
+    'completed reply with storage error has retry without duplication',
+    (tester) async {
+      final character = _character();
+      final storage = _SessionStorage(
+        character: character,
+        sessions: [_session(openingMessageInitialized: true)],
+      );
+      final gateway = _ControlledGateway();
+      addTearDown(gateway.close);
+      await _pumpChat(tester, storage, character, gateway: gateway);
+      await _send(tester, 'question');
+      await _pumpUntil(tester, () => gateway.callCount == 1);
+      storage.safeSaveError = StateError('disk full');
+      gateway.controllers.single.add('completed reply');
+      await gateway.controllers.single.close();
+      await tester.pumpAndSettle();
+      expect(find.textContaining('未保存'), findsWidgets);
+      expect(find.text('completed reply'), findsOneWidget);
+      storage.safeSaveError = null;
+      await tester.tap(find.text('重试保存'));
+      await tester.pumpAndSettle();
+      expect(storage.chats['session'], hasLength(2));
+      expect(storage.chats['session']!.last.replyState, 'completed');
+    },
+  );
+
   testWidgets('inner voice off makes no extra AI request', (tester) async {
     final character = _character();
     final storage = _SessionStorage(
@@ -206,7 +258,7 @@ void main() {
 
     final replyBubble = find.ancestor(
       of: find.text('主回复'),
-      matching: find.byType(Card),
+      matching: find.byType(ChatBubble),
     );
     await tester.tap(
       find.descendant(of: replyBubble, matching: find.byTooltip('删除消息')),
@@ -1767,6 +1819,33 @@ final class _SessionStorage extends LocalStorageService {
   bool get usesSessionStorage => true;
 
   @override
+  Future<SessionOperationToken> captureSessionToken(
+    ChatSession session,
+  ) async => SessionOperationToken(session.id, datasetEpoch, 0);
+
+  @override
+  Future<ChatSummary> clearChatPreservingSummary(ChatSession session) async {
+    final previous = await loadSummaryBySession(session);
+    final summary = ChatSummary(
+      characterId: session.characterId,
+      sessionId: session.id,
+      summary: previous.summary,
+      updatedAt: DateTime.now(),
+      summarizedMessageCount: 0,
+    );
+    await saveSummaryBySession(summary);
+    await saveChatBySession(session, []);
+    return summary;
+  }
+
+  @override
+  Future<void> backfillMessageCounts(
+    List<ChatSession> sessions, {
+    void Function(ChatSession session)? onUpdated,
+    void Function(String session, Object error)? onError,
+  }) async {}
+
+  @override
   Future<ApiConfig> loadApiConfig() async {
     if (apiLoadGate != null) await apiLoadGate!.future;
     return _apiConfig();
@@ -1836,8 +1915,9 @@ final class _SessionStorage extends LocalStorageService {
   @override
   Future<bool> saveChatBySessionIfExists(
     ChatSession session,
-    List<ChatMessage> messages,
-  ) async {
+    List<ChatMessage> messages, {
+    SessionOperationToken? token,
+  }) async {
     safeSaveCallCount++;
     if (safeSaveGate != null) await safeSaveGate!.future;
     if (safeSaveError != null) throw safeSaveError!;
@@ -1852,7 +1932,10 @@ final class _SessionStorage extends LocalStorageService {
       ChatSummary.empty(session.characterId, session.id);
 
   @override
-  Future<void> saveSummaryBySession(ChatSummary summary) async {
+  Future<void> saveSummaryBySession(
+    ChatSummary summary, {
+    SessionOperationToken? token,
+  }) async {
     summaries[summary.sessionId] = summary;
     savedSummaries.add(summary);
     saveOrder.add('summary');

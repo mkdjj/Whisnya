@@ -1,18 +1,61 @@
 import 'package:http/http.dart' as http;
 
 import '../models/ai_usage.dart';
+import '../models/ai_response.dart';
 import 'ai/ai_gateway.dart';
 import 'ai/ai_conversation_runner.dart';
 
 export '../models/ai_usage.dart' show AiUsage;
+export '../models/ai_response.dart' show AiResponse, AiResponseDelta;
 export 'ai/ai_conversation_runner.dart'
-    show AiCancelToken, AiException, selectAutomaticModel;
+    show AiCancelToken, AiException, AiRequest, selectAutomaticModel;
 
-class AiService implements AiGateway {
+class AiService implements AiGateway, StructuredAiGateway {
   AiService({http.Client? client})
     : _runner = AiConversationRunner(client: client);
 
   final AiConversationRunner _runner;
+
+  AiRequest _withStream(AiRequest request, bool stream) => AiRequest(
+    apiKey: request.apiKey,
+    baseUrl: request.baseUrl,
+    model: request.model,
+    messages: request.messages,
+    temperature: request.temperature,
+    stream: stream,
+    includeReasoning: request.includeReasoning,
+  );
+
+  @override
+  Future<AiResponse> sendResponse(
+    AiRequest request, {
+    AiCancelToken? cancelToken,
+  }) => _runner.sendResponse(
+    _withStream(request, false),
+    cancelToken: cancelToken,
+  );
+
+  @override
+  Stream<AiResponseDelta> streamResponse(
+    AiRequest request, {
+    AiCancelToken? cancelToken,
+  }) async* {
+    AiUsage? usage;
+    await for (final event in _runner.streamResponse(
+      _withStream(request, true),
+      cancelToken: cancelToken,
+    )) {
+      usage = event.usage ?? usage;
+      if (event.contentDelta.isNotEmpty || event.reasoningDelta.isNotEmpty) {
+        yield AiResponseDelta(
+          contentDelta: event.contentDelta,
+          reasoningDelta: event.reasoningDelta,
+        );
+      }
+    }
+    // Providers can send cumulative usage more than once; expose the final total once.
+    yield AiResponseDelta(usage: usage ?? const AiUsage());
+  }
 
   Future<List<String>> listModels({
     required String apiKey,
@@ -31,7 +74,7 @@ class AiService implements AiGateway {
     AiCancelToken? cancelToken,
     void Function(AiUsage usage)? onUsage,
   }) async {
-    final result = await _runner.send(
+    final result = await sendResponse(
       AiRequest(
         apiKey: apiKey,
         baseUrl: baseUrl,
@@ -42,7 +85,7 @@ class AiService implements AiGateway {
       cancelToken: cancelToken,
     );
     onUsage?.call(result.usage);
-    return result.text;
+    return result.content;
   }
 
   @override
@@ -56,8 +99,7 @@ class AiService implements AiGateway {
     bool includeReasoning = false,
     void Function(AiUsage usage)? onUsage,
   }) async* {
-    var usageReported = false;
-    await for (final event in _runner.run(
+    await for (final event in streamResponse(
       AiRequest(
         apiKey: apiKey,
         baseUrl: baseUrl,
@@ -71,12 +113,9 @@ class AiService implements AiGateway {
     )) {
       final usage = event.usage;
       if (usage != null) {
-        usageReported = true;
         onUsage?.call(usage);
       }
-      final text = event.text;
-      if (text != null) yield text;
+      if (event.contentDelta.isNotEmpty) yield event.contentDelta;
     }
-    if (!usageReported) onUsage?.call(const AiUsage());
   }
 }

@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import '../models/chat_message.dart';
 import '../models/chat_reply_variant.dart';
 import '../models/chat_summary.dart';
@@ -12,7 +14,7 @@ final class ChatConversationController {
   var _messages = <ChatMessage>[];
   ChatSummary _summary;
 
-  List<ChatMessage> get messages => _messages;
+  List<ChatMessage> get messages => UnmodifiableListView(_messages);
   ChatSummary get summary => _summary;
   List<ChatMessage> get chatMessagesOnly => _messages
       .where((message) => message.isUser || message.isAssistant)
@@ -60,6 +62,8 @@ final class ChatConversationController {
           content: message.content,
           time: message.time,
           innerVoice: message.innerVoice,
+          reasoningContent: message.reasoningContent,
+          replyState: message.replyState,
           endpointId: message.endpointId,
           endpointName: message.endpointName,
           model: message.model,

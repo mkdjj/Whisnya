@@ -527,6 +527,7 @@ class TheaterMessage {
     this.model = '',
     this.isError = false,
     this.errorMessage = '',
+    this.reasoningContent = '',
   });
 
   final String id;
@@ -541,6 +542,7 @@ class TheaterMessage {
   final String model;
   final bool isError;
   final String errorMessage;
+  final String reasoningContent;
   final DateTime time;
 
   bool get isUser => speakerType == TheaterSpeakerType.user;
@@ -549,6 +551,7 @@ class TheaterMessage {
     String? content,
     bool? isError,
     String? errorMessage,
+    String? reasoningContent,
   }) {
     return TheaterMessage(
       id: id,
@@ -563,6 +566,7 @@ class TheaterMessage {
       model: model,
       isError: isError ?? this.isError,
       errorMessage: errorMessage ?? this.errorMessage,
+      reasoningContent: reasoningContent ?? this.reasoningContent,
       time: time,
     );
   }
@@ -581,6 +585,7 @@ class TheaterMessage {
       model: json['model'] as String? ?? '',
       isError: json['isError'] as bool? ?? false,
       errorMessage: json['errorMessage'] as String? ?? '',
+      reasoningContent: json['reasoningContent'] as String? ?? '',
       time: DateTime.tryParse(json['time'] as String? ?? '') ?? DateTime.now(),
     );
   }
@@ -599,6 +604,7 @@ class TheaterMessage {
       'model': model,
       'isError': isError,
       'errorMessage': errorMessage,
+      'reasoningContent': reasoningContent,
       'time': time.toIso8601String(),
     };
   }

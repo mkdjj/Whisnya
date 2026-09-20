@@ -36,6 +36,7 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+/dist/
 *.apk
 *.zip
 app_data/

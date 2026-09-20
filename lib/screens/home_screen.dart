@@ -80,11 +80,24 @@ class _HomeScreenState extends State<HomeScreen> {
   var _novelGridView = false;
   String? _error;
   List<AppCharacter> _characters = const [];
+  late int _loadedDatasetEpoch;
 
   @override
   void initState() {
     super.initState();
+    _loadedDatasetEpoch = widget.storage.datasetEpoch;
     unawaited(_load());
+  }
+
+  Future<void> _settingsChanged() async {
+    await widget.onSettingsChanged();
+    if (!mounted || _loadedDatasetEpoch == widget.storage.datasetEpoch) return;
+    _loadedDatasetEpoch = widget.storage.datasetEpoch;
+    // Keep the import/settings page mounted, discard old library caches.
+    setState(
+      () => _visitedTabs.removeWhere((index) => index == 1 || index == 2),
+    );
+    await _load();
   }
 
   Future<void> _load() async {
@@ -472,7 +485,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 aiService: widget.aiService,
                 qqRuntime: widget.qqRuntime,
                 settings: widget.settings,
-                onSettingsChanged: widget.onSettingsChanged,
+                onSettingsChanged: _settingsChanged,
               )
             : const SizedBox.shrink(),
       ],

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../../models/ai_usage.dart';
+import '../../models/ai_response.dart';
 import '../../models/api_config.dart';
 import '../../models/theater.dart';
 import '../../prompts/prompt_builder.dart';
@@ -15,6 +16,41 @@ class TheaterGenerationService {
   const TheaterGenerationService(this._gateway);
 
   final AiGateway _gateway;
+
+  Stream<AiResponseDelta> _stream({
+    required AiEndpointConfig endpoint,
+    required List<Map<String, String>> messages,
+    AiCancelToken? cancelToken,
+    void Function(AiUsage)? onUsage,
+  }) async* {
+    final gateway = _gateway;
+    if (gateway is StructuredAiGateway) {
+      await for (final event in (gateway as StructuredAiGateway).streamResponse(
+        AiRequest(
+          apiKey: endpoint.apiKey,
+          baseUrl: endpoint.baseUrl,
+          model: endpoint.model,
+          messages: messages,
+          stream: true,
+        ),
+        cancelToken: cancelToken,
+      )) {
+        if (event.usage != null) onUsage?.call(event.usage!);
+        yield event;
+      }
+    } else {
+      await for (final text in gateway.streamMessage(
+        apiKey: endpoint.apiKey,
+        baseUrl: endpoint.baseUrl,
+        model: endpoint.model,
+        messages: messages,
+        cancelToken: cancelToken,
+        onUsage: onUsage,
+      )) {
+        yield AiResponseDelta(contentDelta: text);
+      }
+    }
+  }
 
   Stream<TheaterGenerationEvent> generate({
     required TheaterSession session,
@@ -166,17 +202,18 @@ class TheaterGenerationService {
           previousOutputInvalid: attempt == 1,
         );
         final raw = StringBuffer();
-        await for (final chunk in _gateway.streamMessage(
-          apiKey: endpoint.apiKey,
-          baseUrl: endpoint.baseUrl,
-          model: endpoint.model,
+        final reasoning = StringBuffer();
+        await for (final event in _stream(
+          endpoint: endpoint,
           messages: request,
           cancelToken: cancelToken,
-          includeReasoning: includeReasoning,
           onUsage: (usage) => onUsage?.call(usage, endpoint, request),
         )) {
-          raw.write(chunk);
-          yield TheaterMessageDelta(placeholder.id, chunk);
+          raw.write(event.contentDelta);
+          reasoning.write(event.reasoningDelta);
+          if (event.contentDelta.isNotEmpty) {
+            yield TheaterMessageDelta(placeholder.id, event.contentDelta);
+          }
         }
         final reply = sanitizeParticipantReply(
           rawReply: raw.toString(),
@@ -186,7 +223,12 @@ class TheaterGenerationService {
               .toList(),
         );
         if (reply != null) {
-          yield TheaterMessageFinished(placeholder.copyWith(content: reply));
+          yield TheaterMessageFinished(
+            placeholder.copyWith(
+              content: reply,
+              reasoningContent: reasoning.toString(),
+            ),
+          );
           return;
         }
       }
@@ -240,49 +282,58 @@ class TheaterGenerationService {
     );
     final parser = TheaterStreamingParser();
     final raw = StringBuffer();
+    final reasoning = StringBuffer();
+    final completed = <TheaterMessage>[];
     TheaterMessage? current;
     var finished = 0;
     void usageCallback(AiUsage usage) =>
         onUsage?.call(usage, endpoint, request);
-    await for (final chunk in _gateway.streamMessage(
-      apiKey: endpoint.apiKey,
-      baseUrl: endpoint.baseUrl,
-      model: endpoint.model,
-      messages: request,
-      cancelToken: cancelToken,
-      includeReasoning: includeReasoning,
-      onUsage: usageCallback,
-    )) {
-      raw.write(chunk);
-      for (final event in parser.addChunk(chunk)) {
-        switch (event) {
-          case TheaterSpeakerStarted(:final speaker):
-            final participant = _participantByName(participants, speaker);
-            current = participant == null
-                ? null
-                : _roleMessage(session, participant, endpoint, round, '');
-            if (current != null) yield TheaterMessageStarted(current);
-          case TheaterContentDelta(:final delta):
-            if (current != null) yield TheaterMessageDelta(current.id, delta);
-          case TheaterMessageCompleted(:final content):
-            if (current != null && content.trim().isNotEmpty) {
-              finished++;
-              yield TheaterMessageFinished(
-                current.copyWith(content: content.trim()),
-              );
-            }
-            current = null;
+    try {
+      await for (final response in _stream(
+        endpoint: endpoint,
+        messages: request,
+        cancelToken: cancelToken,
+        onUsage: usageCallback,
+      )) {
+        final chunk = response.contentDelta;
+        reasoning.write(response.reasoningDelta);
+        raw.write(chunk);
+        for (final event in parser.addChunk(chunk)) {
+          switch (event) {
+            case TheaterSpeakerStarted(:final speaker):
+              final participant = _participantByName(participants, speaker);
+              current = participant == null
+                  ? null
+                  : _roleMessage(session, participant, endpoint, round, '');
+              if (current != null) yield TheaterMessageStarted(current);
+            case TheaterContentDelta(:final delta):
+              if (current != null) yield TheaterMessageDelta(current.id, delta);
+            case TheaterMessageCompleted(:final content):
+              if (current != null && content.trim().isNotEmpty) {
+                finished++;
+                completed.add(current.copyWith(content: content.trim()));
+              }
+              current = null;
+          }
         }
       }
-    }
-    for (final event in parser.finish()) {
-      if (event case TheaterMessageCompleted(:final content)) {
-        if (current != null && content.trim().isNotEmpty) {
-          finished++;
-          yield TheaterMessageFinished(
-            current.copyWith(content: content.trim()),
-          );
+      for (final event in parser.finish()) {
+        if (event case TheaterMessageCompleted(:final content)) {
+          if (current != null && content.trim().isNotEmpty) {
+            finished++;
+            completed.add(current.copyWith(content: content.trim()));
+          }
         }
+      }
+    } finally {
+      // Single-API reasoning belongs to the whole response, not each actor.
+      // Retain it exactly once on the first finished reply.
+      for (var i = 0; i < completed.length; i++) {
+        yield TheaterMessageFinished(
+          completed[i].copyWith(
+            reasoningContent: i == 0 ? reasoning.toString() : '',
+          ),
+        );
       }
     }
     if (finished > 0) return;
@@ -297,8 +348,15 @@ class TheaterGenerationService {
       final participant = _participantByName(participants, draft.speaker);
       if (participant != null) {
         yield TheaterMessageFinished(
-          _roleMessage(session, participant, endpoint, round, draft.content),
+          _roleMessage(
+            session,
+            participant,
+            endpoint,
+            round,
+            draft.content,
+          ).copyWith(reasoningContent: reasoning.toString()),
         );
+        reasoning.clear();
       }
     }
   }

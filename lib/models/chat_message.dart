@@ -9,6 +9,8 @@ class ChatMessage {
     required this.content,
     required this.time,
     this.innerVoice = '',
+    this.reasoningContent = '',
+    this.replyState = 'completed',
     this.endpointId,
     this.endpointName,
     this.model,
@@ -20,6 +22,8 @@ class ChatMessage {
   final String content;
   final DateTime time;
   final String innerVoice;
+  final String reasoningContent;
+  final String replyState;
   final String? endpointId;
   final String? endpointName;
   final String? model;
@@ -33,16 +37,26 @@ class ChatMessage {
       variants.where((variant) => variant.content.trim().isNotEmpty).toList();
 
   int get selectedVariantIndex {
-    final count = _validVariants.length;
+    final count = variantCount;
     return count == 0 ? 0 : _selectedVariantIndex.clamp(0, count - 1).toInt();
   }
 
   ChatReplyVariant? get selectedVariant {
-    final validVariants = _validVariants;
-    return validVariants.isEmpty ? null : validVariants[selectedVariantIndex];
+    final target = _selectedVariantIndex < 0 ? 0 : _selectedVariantIndex;
+    var index = 0;
+    ChatReplyVariant? last;
+    for (final variant in variants) {
+      if (variant.content.trim().isEmpty) continue;
+      last = variant;
+      if (index++ == target) return variant;
+    }
+    return last;
   }
 
   String get effectiveContent => selectedVariant?.content ?? content;
+  String get effectiveReasoningContent =>
+      selectedVariant?.reasoningContent ?? reasoningContent;
+  String get effectiveReplyState => selectedVariant?.replyState ?? replyState;
   String get effectiveInnerVoice {
     final selected = selectedVariant;
     return selected == null ? innerVoice : selected.innerVoice;
@@ -53,13 +67,21 @@ class ChatMessage {
   String? get effectiveEndpointName =>
       selectedVariant?.endpointName ?? endpointName;
   String? get effectiveModel => selectedVariant?.model ?? model;
-  int get variantCount => _validVariants.length;
+  int get variantCount {
+    var count = 0;
+    for (final variant in variants) {
+      if (variant.content.trim().isNotEmpty) count++;
+    }
+    return count;
+  }
 
   ChatMessage copyWith({
     String? role,
     String? content,
     DateTime? time,
     String? innerVoice,
+    String? reasoningContent,
+    String? replyState,
     bool clearInnerVoice = false,
     String? endpointId,
     String? endpointName,
@@ -71,6 +93,8 @@ class ChatMessage {
     content: content ?? this.content,
     time: time ?? this.time,
     innerVoice: clearInnerVoice ? '' : innerVoice ?? this.innerVoice,
+    reasoningContent: reasoningContent ?? this.reasoningContent,
+    replyState: replyState ?? this.replyState,
     endpointId: endpointId ?? this.endpointId,
     endpointName: endpointName ?? this.endpointName,
     model: model ?? this.model,
@@ -98,6 +122,12 @@ class ChatMessage {
       content: json['content'] as String? ?? '',
       time: DateTime.tryParse(json['time'] as String? ?? '') ?? DateTime.now(),
       innerVoice: json['innerVoice'] as String? ?? '',
+      reasoningContent: json['reasoningContent'] is String
+          ? json['reasoningContent'] as String
+          : '',
+      replyState: json['replyState'] == 'interrupted'
+          ? 'interrupted'
+          : 'completed',
       endpointId: json['endpointId'] as String? ?? json['provider'] as String?,
       endpointName: json['endpointName'] as String?,
       model: json['model'] as String?,
@@ -111,6 +141,10 @@ class ChatMessage {
     return {
       'role': role,
       'content': effectiveContent,
+      'reasoningContent': effectiveReasoningContent,
+      'replyState': effectiveReplyState == 'interrupted'
+          ? 'interrupted'
+          : 'completed',
       'time': effectiveTime.toIso8601String(),
       if (effectiveInnerVoice.trim().isNotEmpty)
         'innerVoice': effectiveInnerVoice,

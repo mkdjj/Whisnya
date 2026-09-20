@@ -8,18 +8,23 @@ import '../../models/character_memory_entry.dart';
 import '../../models/world_book.dart';
 import '../storage/json_file_store.dart';
 import '../storage/storage_paths.dart';
+import '../storage/session_operation_coordinator.dart';
+import 'chat_summary_service.dart';
 
 class ChatSessionService {
   ChatSessionService({required Directory root, JsonFileStore? jsonStore})
     : _paths = StoragePaths(root),
+      _operations = SessionOperationCoordinator.forRoot(root),
       _store = jsonStore ?? JsonFileStore();
 
   final StoragePaths _paths;
   final JsonFileStore _store;
+  final SessionOperationCoordinator _operations;
   int _lastIdMicros = 0;
 
   Future<List<ChatSession>> loadChatSessions(String characterId) async {
     _requireSafeId(characterId, 'characterId');
+    await recoverPendingClears();
     var sessions = await _readSessions();
     if (!sessions.any((session) => session.characterId == characterId)) {
       await _migrateOrCreateDefault(characterId);
@@ -43,7 +48,57 @@ class ChatSessionService {
     return used;
   }
 
-  Future<ChatSession> createChatSession(
+  /// Index-only recovery: callers supply mappings verified against file metadata.
+  Future<void> restoreRecoveredChatSessions(List<ChatSession> recovered) {
+    if (recovered.isEmpty) return Future<void>.value();
+    for (final session in recovered) {
+      _validateSession(session);
+    }
+    return _store.maintain(
+      () => _store.synchronized(_paths.chatSessions, () async {
+        final file = _paths.chatSessions;
+        if (await _store.recoveryNeeded(file)) await _store.recover(file);
+        dynamic decoded = <dynamic>[];
+        if (await file.exists()) {
+          try {
+            decoded = jsonDecode(await file.readAsString());
+            if (decoded is! List) {
+              throw const FormatException('Invalid session index');
+            }
+          } on FormatException {
+            // Preserve exact corrupt evidence before replacing with verified rows.
+            final stamp = DateTime.now().microsecondsSinceEpoch;
+            var suffix = 0;
+            var evidence = File('${file.path}.corrupt.$stamp');
+            while (await evidence.exists()) {
+              evidence = File('${file.path}.corrupt.$stamp.${++suffix}');
+            }
+            await file.copy(evidence.path);
+            decoded = <dynamic>[];
+          }
+        }
+        // Recovery must not normalize unrelated rows or discard unknown fields.
+        final rows = List<dynamic>.of(decoded as List<dynamic>);
+        final ids = rows
+            .whereType<Map<String, dynamic>>()
+            .map((row) => row['id'])
+            .toSet();
+        var changed = false;
+        for (final session in recovered) {
+          if (ids.add(session.id)) {
+            rows.add(session.toJson());
+            changed = true;
+          }
+        }
+        if (changed) await _store.writeNow(file, rows);
+      }),
+    );
+  }
+
+  Future<ChatSession> createChatSession(String characterId, {String? title}) =>
+      _store.runOperation(() => _createChatSession(characterId, title: title));
+
+  Future<ChatSession> _createChatSession(
     String characterId, {
     String? title,
   }) async {
@@ -56,25 +111,54 @@ class ChatSessionService {
       createdAt: now,
       updatedAt: now,
       lastUsedAt: now,
+      messageCount: 0,
     );
     await _writeEmptySessionData(session);
-    await saveChatSession(session);
+    await _updateSessions((sessions) => sessions..add(session));
     return session;
   }
 
   Future<void> saveChatSession(ChatSession session) async {
     _validateSession(session);
+    return _run(session.id, () => _saveChatSession(session));
+  }
+
+  Future<void> _saveChatSession(ChatSession session) async {
     final normalized = session.copyWith(
       title: ChatSession.normalizedTitle(session.title),
     );
     await _updateSessions((sessions) {
       final index = sessions.indexWhere((item) => item.id == normalized.id);
-      index < 0 ? sessions.add(normalized) : sessions[index] = normalized;
+      if (index < 0) throw StateError('对话不存在');
+      final current = sessions[index];
+      sessions[index] = current.copyWith(
+        title: normalized.title,
+        updatedAt: normalized.updatedAt.isAfter(current.updatedAt)
+            ? normalized.updatedAt
+            : current.updatedAt,
+        lastUsedAt: normalized.lastUsedAt.isAfter(current.lastUsedAt)
+            ? normalized.lastUsedAt
+            : current.lastUsedAt,
+        openingMessageInitialized:
+            normalized.openingMessageInitialized ||
+            sessions[index].openingMessageInitialized,
+      );
       return sessions;
     });
   }
 
   Future<ChatSession> markOpeningMessageInitialized({
+    required String sessionId,
+    required String characterId,
+  }) => _run(
+    sessionId,
+    () => _markOpeningMessageInitialized(
+      sessionId: sessionId,
+      characterId: characterId,
+    ),
+  );
+
+  Future<ChatSession> _markOpeningMessageInitialized({
     required String sessionId,
     required String characterId,
   }) async {
@@ -99,6 +183,10 @@ class ChatSessionService {
 
   Future<ChatSession> duplicateChatSession(ChatSession source) async {
     _validateSession(source);
+    return _run(source.id, () => _duplicateChatSession(source));
+  }
+
+  Future<ChatSession> _duplicateChatSession(ChatSession source) async {
     final sessions = await _readSessions();
     final sourceIndex = sessions.indexWhere(
       (session) =>
@@ -117,10 +205,11 @@ class ChatSessionService {
       lastUsedAt: now,
       openingMessageInitialized:
           latestSource.openingMessageInitialized || messages.isNotEmpty,
+      messageCount: messages.length,
     );
     final summary = await loadSummaryBySession(latestSource);
-    await saveChatBySession(copy, messages, touchSession: false);
-    await saveSummaryBySession(
+    await _writeChat(copy, messages);
+    await _writeSummary(
       ChatSummary(
         characterId: copy.characterId,
         sessionId: copy.id,
@@ -134,12 +223,17 @@ class ChatSessionService {
       latestSource.id,
       copy.id,
     );
-    await saveChatSession(copy);
+    await _updateSessions((sessions) => sessions..add(copy));
     return copy;
   }
 
   Future<void> deleteChatSession(ChatSession session) async {
     _validateSession(session);
+    _operations.invalidate(session.id);
+    return _run(session.id, () => _deleteChatSession(session));
+  }
+
+  Future<void> _deleteChatSession(ChatSession session) async {
     await _store.synchronized(_paths.chatSessions, () async {
       final sessions = await _readSessionsNow();
       final currentIndex = sessions.indexWhere((item) => item.id == session.id);
@@ -162,6 +256,7 @@ class ChatSessionService {
           createdAt: now,
           updatedAt: now,
           lastUsedAt: now,
+          messageCount: 0,
         );
         await _writeEmptySessionData(replacement);
         sessions.add(replacement);
@@ -179,6 +274,10 @@ class ChatSessionService {
 
   Future<void> archiveChatSession(ChatSession session) async {
     _validateSession(session);
+    return _run(session.id, () => _archiveChatSession(session));
+  }
+
+  Future<void> _archiveChatSession(ChatSession session) async {
     await _updateSessions((sessions) {
       final index = sessions.indexWhere((item) => item.id == session.id);
       if (index < 0) throw StateError('对话不存在');
@@ -204,8 +303,17 @@ class ChatSessionService {
 
   Future<void> unarchiveChatSession(ChatSession session) async {
     _validateSession(session);
-    await saveChatSession(
-      session.copyWith(isArchived: false, updatedAt: DateTime.now()),
+    await _run(
+      session.id,
+      () => _updateSessions((sessions) {
+        final index = sessions.indexWhere((s) => s.id == session.id);
+        if (index < 0) throw StateError('对话不存在');
+        sessions[index] = sessions[index].copyWith(
+          isArchived: false,
+          updatedAt: DateTime.now(),
+        );
+        return sessions;
+      }),
     );
   }
 
@@ -220,12 +328,13 @@ class ChatSessionService {
       throw const FormatException('Invalid session chat file');
     }
     final messages = decoded['messages'];
-    return messages is List
-        ? messages
-              .whereType<Map<String, dynamic>>()
-              .map(ChatMessage.fromJson)
-              .toList()
-        : const [];
+    if (messages is! List) {
+      throw const FormatException('Invalid session messages');
+    }
+    return messages
+        .whereType<Map<String, dynamic>>()
+        .map(ChatMessage.fromJson)
+        .toList();
   }
 
   Future<void> saveChatBySession(
@@ -234,66 +343,55 @@ class ChatSessionService {
     bool touchSession = true,
   }) async {
     _validateSession(session);
-    await _store.write(_paths.chatBySession(session.id), {
-      'sessionId': session.id,
-      'characterId': session.characterId,
-      'messages': messages.map((message) => message.toJson()).toList(),
-    }, compact: true);
-    if (touchSession) {
-      await _touchChatSession(
-        sessionId: session.id,
-        characterId: session.characterId,
-      );
+    if (!await saveChatBySessionIfExists(
+      session,
+      messages,
+      touchSession: touchSession,
+    )) {
+      throw StateError('对话不存在或操作已失效');
     }
   }
 
   Future<bool> saveChatBySessionIfExists(
     ChatSession session,
-    List<ChatMessage> messages,
-  ) async {
-    _validateSession(session);
-    return _store.synchronized(_paths.chatSessions, () async {
-      final sessions = await _readSessionsNow();
-      final index = sessions.indexWhere(
-        (item) =>
-            item.id == session.id && item.characterId == session.characterId,
-      );
-      if (index < 0) return false;
-
-      await _store.write(_paths.chatBySession(session.id), {
-        'sessionId': session.id,
-        'characterId': session.characterId,
-        'messages': messages.map((message) => message.toJson()).toList(),
-      }, compact: true);
-      final now = DateTime.now();
-      sessions[index] = sessions[index].copyWith(
-        updatedAt: now,
-        lastUsedAt: now,
-      );
-      await _store.writeNow(
-        _paths.chatSessions,
-        sessions.map((item) => item.toJson()).toList(),
-      );
-      return true;
-    });
-  }
-
-  Future<void> _touchChatSession({
-    required String sessionId,
-    required String characterId,
+    List<ChatMessage> messages, {
+    SessionOperationToken? token,
+    bool touchSession = true,
   }) async {
-    await _updateSessions((sessions) {
-      final index = sessions.indexWhere(
-        (session) =>
-            session.id == sessionId && session.characterId == characterId,
-      );
-      if (index < 0) throw StateError('对话不存在');
-      final now = DateTime.now();
-      sessions[index] = sessions[index].copyWith(
-        updatedAt: now,
-        lastUsedAt: now,
-      );
-      return sessions;
+    _validateSession(session);
+    messages = messages
+        .where((m) => !m.isAssistant || m.effectiveContent.trim().isNotEmpty)
+        .toList();
+    final captured = token ?? captureToken(session);
+    return _run(session.id, () async {
+      if (captured.sessionId != session.id || !isTokenCurrent(captured)) {
+        return false;
+      }
+      return _store.synchronized(_paths.chatSessions, () async {
+        final sessions = await _readSessionsNow();
+        final index = sessions.indexWhere(
+          (item) =>
+              item.id == session.id && item.characterId == session.characterId,
+        );
+        if (index < 0) return false;
+
+        await _store.write(_paths.chatBySession(session.id), {
+          'sessionId': session.id,
+          'characterId': session.characterId,
+          'messages': messages.map((message) => message.toJson()).toList(),
+        }, compact: true);
+        final now = DateTime.now();
+        sessions[index] = sessions[index].copyWith(
+          updatedAt: now,
+          lastUsedAt: touchSession ? now : sessions[index].lastUsedAt,
+          messageCount: messages.length,
+        );
+        await _store.writeNow(
+          _paths.chatSessions,
+          sessions.map((item) => item.toJson()).toList(),
+        );
+        return true;
+      });
     });
   }
 
@@ -316,9 +414,36 @@ class ChatSessionService {
     );
   }
 
-  Future<void> saveSummaryBySession(ChatSummary summary) async {
+  Future<void> saveSummaryBySession(
+    ChatSummary summary, {
+    SessionOperationToken? token,
+  }) async {
     _requireSafeId(summary.characterId, 'characterId');
     _requireSafeId(summary.sessionId, 'sessionId');
+    final captured =
+        token ??
+        SessionOperationToken(
+          summary.sessionId,
+          _store.datasetEpoch,
+          _operations.revision(summary.sessionId),
+        );
+    await _run(summary.sessionId, () async {
+      if (captured.sessionId != summary.sessionId ||
+          !isTokenCurrent(captured)) {
+        throw StateError('操作已失效');
+      }
+      final sessions = await _readSessions();
+      if (!sessions.any(
+        (s) =>
+            s.id == summary.sessionId && s.characterId == summary.characterId,
+      )) {
+        throw StateError('对话不存在');
+      }
+      await _writeSummary(summary);
+    });
+  }
+
+  Future<void> _writeSummary(ChatSummary summary) async {
     await _store.write(
       _paths.summaryBySession(summary.sessionId),
       summary.toJson(),
@@ -572,6 +697,10 @@ class ChatSessionService {
 
   Future<void> deleteCharacterSessions(String characterId) async {
     _requireSafeId(characterId, 'characterId');
+    return _store.maintain(() => _deleteCharacterSessions(characterId));
+  }
+
+  Future<void> _deleteCharacterSessions(String characterId) async {
     late List<ChatSession> removed;
     await _updateSessions((sessions) {
       removed = sessions
@@ -581,6 +710,7 @@ class ChatSessionService {
       return sessions;
     });
     for (final session in removed) {
+      _operations.invalidate(session.id);
       await _deleteIfExists(_paths.chatBySession(session.id));
       await _deleteIfExists(_paths.summaryBySession(session.id));
     }
@@ -599,12 +729,17 @@ class ChatSessionService {
       final hasLegacyChat = await legacyChat.exists();
       final hasLegacySummary = await legacySummary.exists();
       final now = DateTime.now();
-      final chatJson = hasLegacyChat
-          ? await _readObject(legacyChat)
+      final decodedChat = hasLegacyChat
+          ? await _store.read(legacyChat, <String, dynamic>{})
           : <String, dynamic>{'messages': <dynamic>[]};
-      final legacyMessages = chatJson['messages'] is List
-          ? chatJson['messages'] as List
-          : <dynamic>[];
+      final isBareLegacyList = decodedChat is List;
+      final chatJson = isBareLegacyList
+          ? <String, dynamic>{'messages': decodedChat}
+          : decodedChat;
+      if (chatJson is! Map<String, dynamic> || chatJson['messages'] is! List) {
+        throw const FormatException('Invalid legacy chat file');
+      }
+      final legacyMessages = chatJson['messages'] as List<dynamic>;
       final session = ChatSession(
         id: hasLegacyChat || hasLegacySummary
             ? 'legacy_session_${_safeLegacyId(characterId)}'
@@ -615,12 +750,14 @@ class ChatSessionService {
         updatedAt: now,
         lastUsedAt: now,
         openingMessageInitialized: legacyMessages.isNotEmpty,
+        messageCount: legacyMessages.length,
       );
 
       final summaryJson = hasLegacySummary
           ? await _readObject(legacySummary)
           : ChatSummary.empty(characterId, session.id).toJson();
       await _store.write(_paths.chatBySession(session.id), {
+        ...chatJson,
         'sessionId': session.id,
         'characterId': characterId,
         'messages': legacyMessages,
@@ -637,7 +774,20 @@ class ChatSessionService {
         sessions.map((item) => item.toJson()).toList(),
       );
 
-      if (hasLegacyChat) await legacyChat.delete();
+      if (hasLegacyChat) {
+        if (isBareLegacyList) {
+          // Retain original evidence for this recovered legacy representation.
+          final stamp = DateTime.now().microsecondsSinceEpoch;
+          var suffix = 0;
+          var evidence = File('${legacyChat.path}.migrated.$stamp');
+          while (await evidence.exists()) {
+            evidence = File('${legacyChat.path}.migrated.$stamp.${++suffix}');
+          }
+          await legacyChat.rename(evidence.path);
+        } else {
+          await legacyChat.delete();
+        }
+      }
       if (hasLegacySummary) await legacySummary.delete();
     });
   }
@@ -648,6 +798,9 @@ class ChatSessionService {
   }
 
   Future<List<ChatSession>> _readSessionsNow() async {
+    if (await _store.recoveryNeeded(_paths.chatSessions)) {
+      await _store.recover(_paths.chatSessions);
+    }
     if (!await _paths.chatSessions.exists()) return [];
     return _parseSessions(jsonDecode(await _paths.chatSessions.readAsString()));
   }
@@ -676,10 +829,217 @@ class ChatSessionService {
   }
 
   Future<void> _writeEmptySessionData(ChatSession session) async {
-    await saveChatBySession(session, const [], touchSession: false);
-    await saveSummaryBySession(
-      ChatSummary.empty(session.characterId, session.id),
+    await _writeChat(session, const []);
+    await _writeSummary(ChatSummary.empty(session.characterId, session.id));
+  }
+
+  Future<void> _writeChat(ChatSession session, List<ChatMessage> messages) =>
+      _store.write(_paths.chatBySession(session.id), {
+        'sessionId': session.id,
+        'characterId': session.characterId,
+        'messages': messages.map((message) => message.toJson()).toList(),
+      }, compact: true);
+
+  SessionOperationToken captureToken(ChatSession session) =>
+      SessionOperationToken(
+        session.id,
+        _store.datasetEpoch,
+        _operations.revision(session.id),
+      );
+  bool isTokenCurrent(SessionOperationToken token) =>
+      token.epoch == _store.datasetEpoch &&
+      token.revision == _operations.revision(token.sessionId);
+  Future<T> _run<T>(String id, Future<T> Function() action) =>
+      _store.runOperation(
+        () => _operations.run(id, () async {
+          await _recoverClear(id);
+          return action();
+        }),
+        expectedEpoch: _store.datasetEpoch,
+      );
+
+  File _clearJournal(String id) =>
+      File('${_paths.root.path}/transactions/clear_$id.json');
+
+  Future<ChatSummary> clearChatPreservingSummary(ChatSession session) async {
+    _validateSession(session);
+    _operations.invalidate(session.id);
+    return _run(session.id, () async {
+      final sessions = await _readSessions();
+      final current = sessions
+          .where(
+            (s) => s.id == session.id && s.characterId == session.characterId,
+          )
+          .firstOrNull;
+      if (current == null) throw StateError('对话不存在');
+      final summary = await loadSummaryBySession(current);
+      final rawChat = await _store.read(_paths.chatBySession(current.id), {
+        'sessionId': current.id,
+        'characterId': current.characterId,
+        'messages': <dynamic>[],
+      });
+      final rawSummary = await _store.read(
+        _paths.summaryBySession(current.id),
+        summary.toJson(),
+      );
+      if (rawChat is! Map<String, dynamic> ||
+          rawChat['messages'] is! List ||
+          rawSummary is! Map<String, dynamic>) {
+        throw const FormatException('Invalid clear source');
+      }
+      _validateClearSnapshot(current, rawChat, rawSummary);
+      final journal = _clearJournal(current.id);
+      await _store.write(journal, {
+        'session': current.toJson(),
+        'chat': rawChat,
+        'summary': rawSummary,
+      });
+      final next = summaryAfterChatClear(summary, DateTime.now());
+      try {
+        await _writeSummary(next);
+        await _writeChat(current, const []);
+        await _updateSessions((latest) {
+          final index = latest.indexWhere((s) => s.id == current.id);
+          if (index < 0) throw StateError('对话不存在');
+          latest[index] = latest[index].copyWith(messageCount: 0);
+          return latest;
+        });
+        await journal.delete();
+        return next;
+      } catch (_) {
+        // A failed rollback deliberately leaves the journal for startup recovery.
+        await _recoverClear(current.id);
+        rethrow;
+      }
+    });
+  }
+
+  Future<void> recoverPendingClears() async {
+    final directory = _clearJournal('placeholder').parent;
+    if (!await directory.exists()) return;
+    final ids = <String>{};
+    await for (final entry in directory.list()) {
+      final name = entry.uri.pathSegments.last;
+      final match = RegExp(
+        r'^clear_([A-Za-z0-9_-]+)\.json(?:\.(?:bak|tmp))?$',
+      ).firstMatch(name);
+      if (match != null) ids.add(match[1]!);
+    }
+    for (final id in ids) {
+      await _run(id, () async {});
+    }
+  }
+
+  Future<void> _recoverClear(String id) async {
+    final journal = _clearJournal(id);
+    if (!await journal.exists() &&
+        !await File('${journal.path}.bak').exists() &&
+        !await File('${journal.path}.tmp').exists()) {
+      return;
+    }
+    final value = await _store.read(journal, null);
+    if (value == null) return;
+    if (value is! Map<String, dynamic>) {
+      throw const FormatException('Invalid clear transaction');
+    }
+    final session = ChatSession.fromJson(
+      value['session'] as Map<String, dynamic>,
     );
+    _validateSession(session);
+    if (session.id != id) {
+      throw const FormatException('Clear transaction target mismatch');
+    }
+    final chat = value['chat'];
+    final summary = value['summary'];
+    if (chat is! Map<String, dynamic> || summary is! Map<String, dynamic>) {
+      throw const FormatException('Invalid clear transaction snapshot');
+    }
+    _validateClearSnapshot(session, chat, summary);
+    // Validate every target before any rollback writes, preserving raw JSON rows.
+    final indexed = (await _readSessions())
+        .where((s) => s.id == id && s.characterId == session.characterId)
+        .firstOrNull;
+    if (indexed == null) throw StateError('Clear transaction target missing');
+    await _store.write(_paths.summaryBySession(id), summary);
+    await _store.write(_paths.chatBySession(id), chat, compact: true);
+    await _updateSessions((sessions) {
+      final index = sessions.indexWhere((s) => s.id == id);
+      if (index < 0) throw StateError('Clear transaction target missing');
+      sessions[index] = ChatSession.fromJson({
+        ...sessions[index].toJson(),
+        'messageCount': session.messageCount,
+      });
+      return sessions;
+    });
+    await journal.delete();
+  }
+
+  void _validateClearSnapshot(
+    ChatSession session,
+    Map<String, dynamic> chat,
+    Map<String, dynamic> summary,
+  ) {
+    bool mismatch(Map<String, dynamic> value, String key, String expected) =>
+        value[key] != null && value[key] != '' && value[key] != expected;
+    if (chat['messages'] is! List ||
+        summary['summary'] is! String ||
+        mismatch(chat, 'sessionId', session.id) ||
+        mismatch(summary, 'sessionId', session.id) ||
+        mismatch(chat, 'characterId', session.characterId) ||
+        mismatch(summary, 'characterId', session.characterId)) {
+      throw const FormatException('Invalid clear transaction snapshot');
+    }
+  }
+
+  Future<void> backfillMessageCounts(
+    List<ChatSession> sessions, {
+    void Function(ChatSession)? onUpdated,
+    void Function(String, Object)? onError,
+  }) async {
+    final pending = sessions.where((s) => s.messageCount == null).toList();
+    final epoch = _store.datasetEpoch;
+    var cursor = 0;
+    Future<void> worker() async {
+      while (cursor < pending.length) {
+        final session = pending[cursor++];
+        try {
+          await _run(session.id, () async {
+            if (epoch != _store.datasetEpoch) return;
+            final latest = (await _readSessions())
+                .where(
+                  (s) =>
+                      s.id == session.id &&
+                      s.characterId == session.characterId,
+                )
+                .firstOrNull;
+            if (latest == null) return;
+            if (latest.messageCount != null) {
+              onUpdated?.call(latest);
+              return;
+            }
+            final file = _paths.chatBySession(latest.id);
+            if (await _store.recoveryNeeded(file)) await _store.recover(file);
+            if (!await file.exists()) {
+              throw FileSystemException('会话聊天文件缺失', file.path);
+            }
+            final messages = await loadChatBySession(latest);
+            late ChatSession updated;
+            await _updateSessions((index) {
+              final position = index.indexWhere((s) => s.id == latest.id);
+              if (position < 0) throw StateError('对话不存在');
+              updated = index[position].copyWith(messageCount: messages.length);
+              index[position] = updated;
+              return index;
+            });
+            onUpdated?.call(updated);
+          });
+        } catch (error) {
+          onError?.call(session.id, error);
+        }
+      }
+    }
+
+    await Future.wait([worker(), worker()]);
   }
 
   Future<Map<String, dynamic>> _readObject(File file) async {

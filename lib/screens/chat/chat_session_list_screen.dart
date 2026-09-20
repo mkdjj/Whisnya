@@ -30,6 +30,8 @@ class ChatSessionListScreen extends StatefulWidget {
 class _ChatSessionListScreenState extends State<ChatSessionListScreen> {
   var _sessions = <ChatSession>[];
   var _counts = <String, int>{};
+  final _countErrors = <String>{};
+  var _loadGeneration = 0;
   var _loading = true;
   var _busy = false;
   String? _error;
@@ -41,6 +43,7 @@ class _ChatSessionListScreenState extends State<ChatSessionListScreen> {
   }
 
   Future<void> _load() async {
+    final generation = ++_loadGeneration;
     setState(() {
       _loading = true;
       _error = null;
@@ -49,18 +52,28 @@ class _ChatSessionListScreenState extends State<ChatSessionListScreen> {
       final sessions = await widget.storage.loadChatSessions(
         widget.character.id,
       );
-      final counts = <String, int>{};
-      for (final session in sessions) {
-        counts[session.id] = (await widget.storage.loadChatBySession(
-          session,
-        )).length;
-      }
-      if (!mounted) return;
+      final counts = <String, int>{
+        for (final s in sessions)
+          if (s.messageCount != null) s.id: s.messageCount!,
+      };
+      if (!mounted || generation != _loadGeneration) return;
       setState(() {
         _sessions = sessions;
         _counts = counts;
+        _countErrors.clear();
         _loading = false;
       });
+      await widget.storage.backfillMessageCounts(
+        sessions,
+        onUpdated: (session) {
+          if (!mounted || generation != _loadGeneration) return;
+          setState(() => _counts[session.id] = session.messageCount!);
+        },
+        onError: (id, error) {
+          if (!mounted || generation != _loadGeneration) return;
+          setState(() => _countErrors.add(id));
+        },
+      );
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -267,7 +280,7 @@ class _ChatSessionListScreenState extends State<ChatSessionListScreen> {
             ),
             title: Text(session.title),
             subtitle: Text(
-              '${context.t('消息数')}：${_counts[session.id] ?? 0}  ·  '
+              '${context.t('消息数')}：${_counts[session.id] ?? (_countErrors.contains(session.id) ? '数量暂不可用' : '统计中…')}  ·  '
               '${_formatDate(session.lastUsedAt)}',
             ),
             onTap: _busy ? null : () => _open(session),

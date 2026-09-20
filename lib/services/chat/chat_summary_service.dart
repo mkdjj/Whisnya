@@ -10,6 +10,15 @@ import '../ai/ai_gateway.dart';
 typedef ChatSummaryUsageCallback =
     void Function(AiUsage usage, List<Map<String, String>> messages);
 
+ChatSummary summaryAfterChatClear(ChatSummary previous, DateTime now) =>
+    ChatSummary(
+      characterId: previous.characterId,
+      sessionId: previous.sessionId,
+      summary: previous.summary,
+      updatedAt: now,
+      summarizedMessageCount: 0,
+    );
+
 ChatSummary chatSummaryAfterMessageDeletion({
   required ChatSummary summary,
   required List<ChatMessage> messages,

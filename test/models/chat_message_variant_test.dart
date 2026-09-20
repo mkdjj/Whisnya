@@ -1,8 +1,34 @@
+import 'dart:collection';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whisnya/models/chat_message.dart';
 import 'package:whisnya/models/chat_reply_variant.dart';
 
 void main() {
+  test(
+    'selection scans invalid candidates and clamps without materializing lists',
+    () {
+      final variants = _NoMaterializeVariants([
+        ChatReplyVariant(content: ' ', time: DateTime(2026)),
+        ChatReplyVariant(content: 'A', time: DateTime(2026)),
+        ChatReplyVariant(content: '', time: DateTime(2026)),
+        ChatReplyVariant(content: 'B', time: DateTime(2026)),
+      ]);
+      final message = ChatMessage(
+        role: 'assistant',
+        content: 'old',
+        time: DateTime(2026),
+        variants: variants,
+        selectedVariantIndex: 8,
+      );
+      expect(message.selectedVariant?.content, 'B');
+      expect(message.selectedVariantIndex, 1);
+      expect(message.variantCount, 2);
+      expect(
+        message.copyWith(selectedVariantIndex: -1).selectedVariant?.content,
+        'A',
+      );
+    },
+  );
   final originalTime = DateTime.utc(2026, 7, 31, 10);
   final newerTime = DateTime.utc(2026, 7, 31, 11);
 
@@ -167,4 +193,20 @@ void main() {
       isFalse,
     );
   });
+}
+
+class _NoMaterializeVariants extends ListBase<ChatReplyVariant> {
+  _NoMaterializeVariants(this.items);
+  final List<ChatReplyVariant> items;
+  @override
+  int get length => items.length;
+  @override
+  set length(int value) => items.length = value;
+  @override
+  ChatReplyVariant operator [](int index) => items[index];
+  @override
+  void operator []=(int index, ChatReplyVariant value) => items[index] = value;
+  @override
+  Iterable<ChatReplyVariant> where(bool Function(ChatReplyVariant) test) =>
+      throw StateError('selection should not allocate filtered iterables');
 }

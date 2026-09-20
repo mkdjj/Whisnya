@@ -11,6 +11,7 @@ class _TheaterMessageBubble extends StatelessWidget {
     required this.splitRoleMessages,
     this.showHeader = true,
     this.showFooter = true,
+    this.showReasoningContent = false,
     required this.onCopy,
     this.onDelete,
     this.onMute,
@@ -27,6 +28,7 @@ class _TheaterMessageBubble extends StatelessWidget {
   final bool splitRoleMessages;
   final bool showHeader;
   final bool showFooter;
+  final bool showReasoningContent;
   final VoidCallback onCopy;
   final VoidCallback? onDelete;
   final VoidCallback? onMute;
@@ -53,6 +55,7 @@ class _TheaterMessageBubble extends StatelessWidget {
               splitRoleMessages: false,
               showHeader: index == 0,
               showFooter: index == segments.length - 1,
+              showReasoningContent: showReasoningContent && index == 0,
               onCopy: onCopy,
               onDelete: onDelete,
               onMute: onMute,
@@ -154,6 +157,22 @@ class _TheaterMessageBubble extends StatelessWidget {
                     ? null
                     : appearance.textColor ?? chatTextColor,
               ),
+              if (showReasoningContent &&
+                  message.reasoningContent.trim().isNotEmpty)
+                Material(
+                  color: Colors.transparent,
+                  child: ExpansionTile(
+                    key: ValueKey('theater-reasoning-${message.id}'),
+                    tilePadding: EdgeInsets.zero,
+                    title: const Text('接口思考'),
+                    children: [
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: SelectableText(message.reasoningContent),
+                      ),
+                    ],
+                  ),
+                ),
               if (showFooter) ...[
                 const SizedBox(height: 4),
                 Row(

@@ -18,6 +18,49 @@ import 'package:whisnya/services/ai_service.dart';
 import 'package:whisnya/services/local_storage_service.dart';
 
 void main() {
+  testWidgets('dataset import refreshes characters and cached tabs', (
+    tester,
+  ) async {
+    final characters = [
+      AppCharacter.fromJson({'id': 'old', 'name': 'Old'}),
+    ];
+    final storage = _TrackingStorage(characters: characters);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: HomeScreen(
+          storage: storage,
+          aiService: AiService(
+            client: MockClient((_) async => throw UnimplementedError()),
+          ),
+          settings: const AppSettings(),
+          onSettingsChanged: () async {},
+        ),
+      ),
+    );
+    await _pumpFrames(tester);
+    await tester.tap(find.byIcon(Icons.menu_book_outlined));
+    await _pumpFrames(tester);
+    await tester.tap(find.byIcon(Icons.settings_outlined));
+    await _pumpFrames(tester);
+    characters
+      ..clear()
+      ..add(AppCharacter.fromJson({'id': 'new', 'name': 'New'}));
+    storage.jsonStore.datasetEpochNotifier.value++;
+    await tester
+        .widget<SettingsScreen>(find.byType(SettingsScreen))
+        .onSettingsChanged();
+    await _pumpFrames(tester);
+    expect(find.byType(NovelScreen, skipOffstage: false), findsNothing);
+    expect(
+      find.byKey(const ValueKey('character-card-old'), skipOffstage: false),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('character-card-new'), skipOffstage: false),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('app keeps default settings when startup settings fail', (
     tester,
   ) async {

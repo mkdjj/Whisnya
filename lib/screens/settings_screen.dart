@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../services/storage/backup_files.dart';
 
 import '../models/app_settings.dart';
 import '../models/image_crop_region.dart';
@@ -206,10 +208,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (ok != true) return;
 
     await _runBusy(() async {
-      final bytes = await widget.storage.exportAllData(
+      final file = await widget.storage.exportAllDataToFile(
         includeApiKeys: includeApiKeys,
       );
-      await _saveBytes('Whisnya_backup_${_dateStamp()}.zip', bytes);
+      try {
+        await _saveBackupFile('Whisnya_backup_${_dateStamp()}.zip', file);
+      } finally {
+        await file.parent.delete(recursive: true);
+      }
     });
   }
 
@@ -222,13 +228,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
     if (!ok) return;
 
-    final bytes = await _pickZipBytes();
-    if (bytes == null) return;
+    final file = await _pickBackupFile();
+    if (file == null || !mounted) return;
+    final allowKeys = await showConfirmDialog(
+      context: context,
+      title: '恢复密钥',
+      content: context.t('如果备份包含 API Key，是否允许恢复？选择取消仍可恢复不含密钥的备份。'),
+      confirmLabel: '允许',
+    );
 
     await _runBusy(() async {
-      await widget.storage.importAllData(bytes);
-      _settings = await widget.storage.loadSettings();
-      await widget.onSettingsChanged();
+      try {
+        await widget.storage.importAllDataFromFile(
+          file,
+          allowApiKeys: allowKeys,
+        );
+        _settings = await widget.storage.loadSettings();
+        await widget.onSettingsChanged();
+      } finally {
+        if (Platform.isAndroid && await file.exists()) await file.delete();
+      }
     });
   }
 
@@ -237,32 +256,73 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await showCharacterImportFlow(context: context, storage: widget.storage);
   }
 
-  Future<Uint8List?> _pickZipBytes() async {
+  static const _backupChannel = MethodChannel('whisnya/backup_files');
+
+  Future<File?> _pickBackupFile() async {
+    if (Platform.isAndroid) {
+      final path = await _backupChannel.invokeMethod<String>('pickBackup');
+      return path == null ? null : File(path);
+    }
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: const ['zip'],
       allowMultiple: false,
-      withData: true,
+      withData: false,
     );
     if (result == null || result.files.isEmpty) {
       return null;
     }
     final picked = result.files.single;
-    if (picked.bytes != null) {
-      return picked.bytes;
-    }
     if (picked.path != null) {
-      return File(picked.path!).readAsBytes();
+      return File(picked.path!);
     }
     return null;
   }
 
-  Future<void> _saveBytes(String fileName, Uint8List bytes) async {
-    await FilePicker.platform.saveFile(
+  Future<void> _saveBackupFile(String fileName, File file) async {
+    if (Platform.isAndroid) {
+      final token = await _backupChannel.invokeMethod<String>(
+        'registerExport',
+        {'path': file.path},
+      );
+      final saved = await _backupChannel.invokeMethod<bool>('saveBackup', {
+        'token': token,
+        'name': fileName,
+      });
+      if (saved != true) throw StorageException('已取消保存');
+      return;
+    }
+    final destination = await FilePicker.platform.saveFile(
       dialogTitle: context.t('保存文件'),
       fileName: fileName,
-      bytes: bytes,
     );
+    if (destination == null) throw StorageException('已取消保存');
+    final target = File(destination);
+    await file.openRead().pipe(target.openWrite());
+    if (await file.length() != await target.length() ||
+        await backupHash(file) != await backupHash(target)) {
+      throw StorageException('保存文件校验失败');
+    }
+  }
+
+  Future<void> _restorePreviousBackup() async {
+    if (!await widget.storage.hasBackupRollback()) {
+      if (mounted) context.showSnack('没有可恢复的回滚点');
+      return;
+    }
+    if (!mounted) return;
+    final ok = await showConfirmDialog(
+      context: context,
+      title: '恢复上次导入前数据',
+      content: context.t('回滚点包含私密聊天，仅保存在本机。当前数据也会保留为新的回滚点。'),
+      confirmLabel: '恢复',
+    );
+    if (!ok) return;
+    await _runBusy(() async {
+      await widget.storage.restorePreviousBackup();
+      _settings = await widget.storage.loadSettings();
+      await widget.onSettingsChanged();
+    });
   }
 
   Future<void> _runBusy(Future<void> Function() action) async {
@@ -270,7 +330,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _isBusy = true);
     try {
       await action();
-      if (mounted) context.showSnack('完成');
+      if (mounted) {
+        context.showSnack(
+          widget.storage.backupWarnings.isEmpty
+              ? '完成'
+              : '完成；${widget.storage.backupWarnings.join('；')}',
+        );
+      }
     } catch (error) {
       if (mounted) context.showSnack(error.toString());
     } finally {
@@ -996,6 +1062,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
               subtitle: context.t('会覆盖当前本地数据'),
               onTap: _isBusy ? null : _importAllData,
             ),
+            _tile(
+              icon: Icons.history,
+              title: context.t('恢复上次导入前数据'),
+              subtitle: context.t('回滚点包含私密聊天，仅保存在本机'),
+              onTap: _isBusy ? null : _restorePreviousBackup,
+            ),
+            if (_isBusy)
+              ValueListenableBuilder<String>(
+                valueListenable: widget.storage.backupStage,
+                builder: (context, stage, _) => Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(stage.isEmpty ? '处理中…' : stage),
+                ),
+              ),
           ],
         ),
       ),

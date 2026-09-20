@@ -17,6 +17,37 @@ import 'package:whisnya/widgets/chat_bubble.dart';
 import 'package:whisnya/widgets/message_content.dart';
 
 void main() {
+  testWidgets(
+    'theater reasoning expands independently and hides when toggle changes',
+    (tester) async {
+      final storage = _MemoryStorage(
+        session: _session,
+        messages: [
+          _messages.first.copyWith(content: '正式正文', reasoningContent: '独立接口思考'),
+        ],
+      );
+      Widget app(bool visible) => MaterialApp(
+        home: TheaterChatScreen(
+          storage: storage,
+          aiService: _FakeGateway(''),
+          session: _session,
+          settings: AppSettings(showReasoningContent: visible),
+        ),
+      );
+      await tester.pumpWidget(app(true));
+      await tester.pumpAndSettle();
+      expect(find.text('接口思考'), findsOneWidget);
+      await tester.tap(find.text('接口思考'));
+      await tester.pumpAndSettle();
+      expect(find.text('独立接口思考'), findsOneWidget);
+      expect(find.text('正式正文'), findsOneWidget);
+      await tester.pumpWidget(app(false));
+      await tester.pumpAndSettle();
+      expect(find.text('接口思考'), findsNothing);
+      expect(find.text('独立接口思考'), findsNothing);
+      expect(find.text('正式正文'), findsOneWidget);
+    },
+  );
   testWidgets('theater chat shows retry instead of spinning after load fails', (
     tester,
   ) async {

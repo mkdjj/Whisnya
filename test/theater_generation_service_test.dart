@@ -2,14 +2,81 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whisnya/models/ai_usage.dart';
+import 'package:whisnya/models/ai_response.dart';
 import 'package:whisnya/models/api_config.dart';
 import 'package:whisnya/models/theater.dart';
+import 'package:whisnya/prompts/prompt_builder.dart';
 import 'package:whisnya/services/ai/ai_conversation_runner.dart';
 import 'package:whisnya/services/ai/ai_gateway.dart';
 import 'package:whisnya/services/theater/theater_generation_event.dart';
 import 'package:whisnya/services/theater/theater_generation_service.dart';
 
 void main() {
+  test(
+    'single API retains already completed role when later stream fails',
+    () async {
+      final events = <TheaterGenerationEvent>[];
+      await expectLater(
+        TheaterGenerationService(_FailingStructuredGateway())
+            .generate(
+              session: _session(apiMode: TheaterApiMode.singleApi),
+              apiConfig: _config,
+              participants: const [_first, _second],
+              messages: const [],
+              novelSummary: '',
+              round: 1,
+            )
+            .forEach(events.add),
+        throwsA(isA<AiException>()),
+      );
+      expect(
+        events.whereType<TheaterMessageFinished>().single.message.content,
+        '完整',
+      );
+    },
+  );
+  for (final mode in TheaterApiMode.values) {
+    test('$mode keeps structured reasoning out of theater dialogue', () async {
+      final gateway = _StructuredGateway(['正式回复']);
+      final events = await TheaterGenerationService(gateway)
+          .generate(
+            session: _session(apiMode: mode),
+            apiConfig: _config,
+            participants: const [_first],
+            messages: const [],
+            novelSummary: '',
+            round: 1,
+          )
+          .toList();
+      final message = events.whereType<TheaterMessageFinished>().single.message;
+      expect(message.content, '正式回复');
+      expect(message.toJson()['reasoningContent'], '接口思考');
+      expect(
+        PromptBuilder.buildTheaterSummaryPrompt(
+          previousSummary: '',
+          messages: [message],
+        ),
+        isNot(contains('接口思考')),
+      );
+      expect(
+        PromptBuilder.buildTheaterParticipantRequest(
+          session: _session(apiMode: mode),
+          participant: _first,
+          novelSummary: '',
+          messages: [message],
+        ).toString(),
+        isNot(contains('接口思考')),
+      );
+      expect(
+        TheaterMessage.fromJson(message.toJson()).toJson()['reasoningContent'],
+        '接口思考',
+      );
+      expect(
+        events.whereType<TheaterMessageDelta>().map((e) => e.delta).join(),
+        isNot(contains('接口思考')),
+      );
+    });
+  }
   test('single API assigns plain text when one role is allowed', () async {
     final service = TheaterGenerationService(_FakeGateway(['普通回复']));
 
@@ -272,4 +339,41 @@ class _FakeGateway implements AiGateway {
     AiCancelToken? cancelToken,
     void Function(AiUsage usage)? onUsage,
   }) => throw UnimplementedError();
+}
+
+class _StructuredGateway extends _FakeGateway implements StructuredAiGateway {
+  _StructuredGateway(super.responses);
+
+  @override
+  Stream<AiResponseDelta> streamResponse(
+    AiRequest request, {
+    AiCancelToken? cancelToken,
+  }) async* {
+    requests.add(request.messages);
+    yield AiResponseDelta(
+      contentDelta: responses.removeAt(0) as String,
+      reasoningDelta: '接口思考',
+    );
+  }
+
+  @override
+  Future<AiResponse> sendResponse(
+    AiRequest request, {
+    AiCancelToken? cancelToken,
+  }) => throw UnimplementedError();
+}
+
+class _FailingStructuredGateway extends _StructuredGateway {
+  _FailingStructuredGateway() : super([]);
+  @override
+  Stream<AiResponseDelta> streamResponse(
+    AiRequest request, {
+    AiCancelToken? cancelToken,
+  }) async* {
+    yield const AiResponseDelta(
+      contentDelta: '<<<WhisnyaSpeaker:甲>>>完整<<<WhisnyaSpeaker:乙>>>部分',
+      reasoningDelta: '说明',
+    );
+    throw AiException('network');
+  }
 }

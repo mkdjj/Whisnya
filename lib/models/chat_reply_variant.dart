@@ -3,6 +3,8 @@ class ChatReplyVariant {
     required this.content,
     required this.time,
     this.innerVoice = '',
+    this.reasoningContent = '',
+    this.replyState = 'completed',
     this.endpointId,
     this.endpointName,
     this.model,
@@ -11,6 +13,8 @@ class ChatReplyVariant {
   final String content;
   final DateTime time;
   final String innerVoice;
+  final String reasoningContent;
+  final String replyState;
   final String? endpointId;
   final String? endpointName;
   final String? model;
@@ -19,6 +23,8 @@ class ChatReplyVariant {
     String? content,
     DateTime? time,
     String? innerVoice,
+    String? reasoningContent,
+    String? replyState,
     bool clearInnerVoice = false,
     String? endpointId,
     String? endpointName,
@@ -27,6 +33,8 @@ class ChatReplyVariant {
     content: content ?? this.content,
     time: time ?? this.time,
     innerVoice: clearInnerVoice ? '' : innerVoice ?? this.innerVoice,
+    reasoningContent: reasoningContent ?? this.reasoningContent,
+    replyState: replyState ?? this.replyState,
     endpointId: endpointId ?? this.endpointId,
     endpointName: endpointName ?? this.endpointName,
     model: model ?? this.model,
@@ -35,6 +43,12 @@ class ChatReplyVariant {
   factory ChatReplyVariant.fromJson(Map<String, dynamic> json) =>
       ChatReplyVariant(
         content: json['content'] is String ? json['content'] as String : '',
+        reasoningContent: json['reasoningContent'] is String
+            ? json['reasoningContent'] as String
+            : '',
+        replyState: json['replyState'] == 'interrupted'
+            ? 'interrupted'
+            : 'completed',
         time:
             DateTime.tryParse(
               json['time'] is String ? json['time'] as String : '',
@@ -56,6 +70,8 @@ class ChatReplyVariant {
 
   Map<String, dynamic> toJson() => {
     'content': content,
+    'reasoningContent': reasoningContent,
+    'replyState': replyState == 'interrupted' ? 'interrupted' : 'completed',
     'time': time.toIso8601String(),
     if (innerVoice.trim().isNotEmpty) 'innerVoice': innerVoice,
     if (endpointId != null) 'endpointId': endpointId,

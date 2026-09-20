@@ -42,17 +42,35 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        if (providers.gradleProperty("whisnyaArm64Only").orNull == "true") {
+            ndk {
+                abiFilters.clear()
+                abiFilters.add("arm64-v8a")
+            }
+        }
     }
 
     buildTypes {
         release {
-            signingConfig = if (keystorePropertiesFile.isFile) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
-            }
+            signingConfig = signingConfigs.getByName("release")
         }
     }
+}
+
+val verifyReleaseSigning by tasks.registering {
+    doLast {
+        val required = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+        check(keystorePropertiesFile.isFile && required.all {
+            !keystoreProperties.getProperty(it).isNullOrBlank()
+        }) { "Release signing requires android/key.properties with the existing signing credentials. Debug signing fallback is disabled." }
+        check(rootProject.file(keystoreProperties.getProperty("storeFile")).isFile) {
+            "The configured release keystore is missing or unreadable."
+        }
+    }
+}
+
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    dependsOn(verifyReleaseSigning)
 }
 
 kotlin {

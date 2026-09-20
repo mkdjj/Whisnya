@@ -22,6 +22,47 @@ void main() {
   );
 
   test(
+    'rolling summary after clear combines preserved relationship with new messages',
+    () async {
+      final gateway = _FakeGateway(reply: 'new combined summary');
+      final current = summaryAfterChatClear(
+        ChatSummary(
+          characterId: 'c',
+          sessionId: 's',
+          summary: 'old relationship',
+          updatedAt: now,
+          summarizedMessageCount: 100,
+        ),
+        now,
+      );
+      final result = await updateChatSummary(
+        gateway,
+        characterId: 'c',
+        current: current,
+        messages: List.generate(
+          32,
+          (i) => ChatMessage(
+            role: i.isEven ? 'user' : 'assistant',
+            content: 'new message $i',
+            time: now,
+          ),
+        ),
+        summaryLimit: 30,
+        settings: const AppSettings(),
+        endpoint: endpoint,
+        cancelToken: AiCancelToken(),
+      );
+      expect(result?.summary, 'new combined summary');
+      expect(result?.summarizedMessageCount, greaterThan(0));
+      expect(
+        gateway.lastMessages!.last['content'],
+        contains('old relationship'),
+      );
+      expect(gateway.lastMessages!.last['content'], contains('new message 0'));
+    },
+  );
+
+  test(
     'summary service skips below the limit and summarizes old messages',
     () async {
       final gateway = _FakeGateway(reply: '摘要');

@@ -1342,6 +1342,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
               searchQuery: _searchQuery,
               splitRoleMessages:
                   widget.settings.splitRoleMessages && canControlRole,
+              showReasoningContent: widget.settings.showReasoningContent,
               onCopy: () => _copy(message),
               onDelete: _isGenerating
                   ? null
