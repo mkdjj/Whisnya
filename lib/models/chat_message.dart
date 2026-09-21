@@ -5,6 +5,7 @@ import 'chat_reply_variant.dart';
 
 class ChatMessage {
   const ChatMessage({
+    this.id = '',
     required this.role,
     required this.content,
     required this.time,
@@ -18,6 +19,7 @@ class ChatMessage {
     int selectedVariantIndex = 0,
   }) : _selectedVariantIndex = selectedVariantIndex;
 
+  final String id;
   final String role;
   final String content;
   final DateTime time;
@@ -76,6 +78,7 @@ class ChatMessage {
   }
 
   ChatMessage copyWith({
+    String? id,
     String? role,
     String? content,
     DateTime? time,
@@ -89,6 +92,7 @@ class ChatMessage {
     List<ChatReplyVariant>? variants,
     int? selectedVariantIndex,
   }) => ChatMessage(
+    id: id ?? this.id,
     role: role ?? this.role,
     content: content ?? this.content,
     time: time ?? this.time,
@@ -118,6 +122,7 @@ class ChatMessage {
       }
     }
     return ChatMessage(
+      id: json['id'] is String ? json['id'] as String : '',
       role: json['role'] as String? ?? 'user',
       content: json['content'] as String? ?? '',
       time: DateTime.tryParse(json['time'] as String? ?? '') ?? DateTime.now(),
@@ -139,6 +144,7 @@ class ChatMessage {
   Map<String, dynamic> toJson() {
     final selected = selectedVariant;
     return {
+      'id': id,
       'role': role,
       'content': effectiveContent,
       'reasoningContent': effectiveReasoningContent,

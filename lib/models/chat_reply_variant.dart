@@ -1,5 +1,6 @@
 class ChatReplyVariant {
   const ChatReplyVariant({
+    this.id = '',
     required this.content,
     required this.time,
     this.innerVoice = '',
@@ -10,6 +11,7 @@ class ChatReplyVariant {
     this.model,
   });
 
+  final String id;
   final String content;
   final DateTime time;
   final String innerVoice;
@@ -20,6 +22,7 @@ class ChatReplyVariant {
   final String? model;
 
   ChatReplyVariant copyWith({
+    String? id,
     String? content,
     DateTime? time,
     String? innerVoice,
@@ -30,6 +33,7 @@ class ChatReplyVariant {
     String? endpointName,
     String? model,
   }) => ChatReplyVariant(
+    id: id ?? this.id,
     content: content ?? this.content,
     time: time ?? this.time,
     innerVoice: clearInnerVoice ? '' : innerVoice ?? this.innerVoice,
@@ -42,6 +46,7 @@ class ChatReplyVariant {
 
   factory ChatReplyVariant.fromJson(Map<String, dynamic> json) =>
       ChatReplyVariant(
+        id: json['id'] is String ? json['id'] as String : '',
         content: json['content'] is String ? json['content'] as String : '',
         reasoningContent: json['reasoningContent'] is String
             ? json['reasoningContent'] as String
@@ -69,6 +74,7 @@ class ChatReplyVariant {
       );
 
   Map<String, dynamic> toJson() => {
+    'id': id,
     'content': content,
     'reasoningContent': reasoningContent,
     'replyState': replyState == 'interrupted' ? 'interrupted' : 'completed',

@@ -2,6 +2,34 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:whisnya/models/ai_usage.dart';
 
 void main() {
+  test('story calls are separate from character and theater usage', () {
+    AiUsageRecord record(String type) => AiUsageRecord.fromRequest(
+      requestType: type,
+      model: 'model',
+      usage: const AiUsage(
+        promptTokens: 2,
+        completionTokens: 3,
+        totalTokens: 5,
+      ),
+      messages: const [],
+      summaryUpdated: false,
+    );
+    final records = [
+      'autoStoryPlan',
+      'autoStoryActorA',
+      'autoStoryActorB',
+      'autoStoryReview',
+      'autoStoryRepair',
+      'characterChat',
+      'theaterChat',
+    ].map(record).toList();
+    expect(filterAiUsage(records, AiUsageCategory.autoStory).length, 5);
+    expect(
+      summarizeAiUsage(records, AiUsageCategory.autoStory).totalTokens,
+      25,
+    );
+    expect(filterAiUsage(records, AiUsageCategory.character).length, 1);
+  });
   test('parses OpenAI and Anthropic cache usage fields', () {
     final openAi = AiUsage.fromJson({
       'prompt_tokens': 100,

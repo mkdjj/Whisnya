@@ -1,5 +1,6 @@
 import 'chat_bubble_theme.dart';
 import 'image_crop_region.dart';
+import 'character_voice_profile.dart';
 
 class AppCharacter {
   const AppCharacter({
@@ -34,6 +35,7 @@ class AppCharacter {
     this.isPinned = false,
     this.isHidden = false,
     this.isLocked = false,
+    this.voiceProfiles = const {},
     required this.createdAt,
     required this.updatedAt,
     required this.lastUsedAt,
@@ -74,6 +76,7 @@ class AppCharacter {
   final bool isPinned;
   final bool isHidden;
   final bool isLocked;
+  final Map<String, CharacterVoiceProfile> voiceProfiles;
   final DateTime createdAt;
   final DateTime updatedAt;
   final DateTime lastUsedAt;
@@ -112,6 +115,7 @@ class AppCharacter {
     bool? isPinned,
     bool? isHidden,
     bool? isLocked,
+    Map<String, CharacterVoiceProfile>? voiceProfiles,
     DateTime? createdAt,
     DateTime? updatedAt,
     DateTime? lastUsedAt,
@@ -156,6 +160,7 @@ class AppCharacter {
       isPinned: isPinned ?? this.isPinned,
       isHidden: isHidden ?? this.isHidden,
       isLocked: isLocked ?? this.isLocked,
+      voiceProfiles: voiceProfiles ?? this.voiceProfiles,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       lastUsedAt: lastUsedAt ?? this.lastUsedAt,
@@ -203,6 +208,14 @@ class AppCharacter {
       isPinned: json['isPinned'] as bool? ?? false,
       isHidden: json['isHidden'] as bool? ?? false,
       isLocked: json['isLocked'] as bool? ?? false,
+      voiceProfiles: {
+        if (json['voiceProfiles'] is Map)
+          for (final entry in (json['voiceProfiles'] as Map).entries)
+            if (entry.key is String && entry.value is Map)
+              entry.key as String: CharacterVoiceProfile.fromJson(
+                Map<String, dynamic>.from(entry.value as Map),
+              ),
+      },
       createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? now,
       updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? '') ?? now,
       lastUsedAt:
@@ -245,6 +258,9 @@ class AppCharacter {
       'isPinned': isPinned,
       'isHidden': isHidden,
       'isLocked': isLocked,
+      'voiceProfiles': voiceProfiles.map(
+        (key, value) => MapEntry(key, value.toJson()),
+      ),
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
       'lastUsedAt': lastUsedAt.toIso8601String(),

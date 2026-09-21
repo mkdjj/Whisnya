@@ -26,10 +26,17 @@ class MemoryContextService {
     required String sessionId,
     required List<ChatMessage> messages,
     required int maxCharacters,
+    bool allowSharedCharacterMemories = true,
     Iterable<WorldBook>? worldBooks,
     Iterable<WorldBookEntry>? worldBookEntries,
     Iterable<String>? worldBookIds,
   }) {
+    if (!allowSharedCharacterMemories) {
+      entries = entries.where(
+        (entry) =>
+            entry.scope == MemoryScope.session && entry.sessionId == sessionId,
+      );
+    }
     final recentText = messages
         .where((message) => message.isUser || message.isAssistant)
         .toList()

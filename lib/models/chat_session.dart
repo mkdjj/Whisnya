@@ -9,6 +9,14 @@ class ChatSession {
     this.isArchived = false,
     this.openingMessageInitialized = false,
     this.messageCount,
+    this.parentSessionId,
+    this.sourceCheckpointId,
+    this.branchRootSessionId,
+    this.branchFromMessageId,
+    this.branchFromVariantId,
+    this.sourceSessionTitle,
+    this.isStoryBranch = false,
+    this.allowSharedCharacterMemories = false,
   });
 
   final String id;
@@ -20,6 +28,14 @@ class ChatSession {
   final bool isArchived;
   final bool openingMessageInitialized;
   final int? messageCount;
+  final String? parentSessionId,
+      sourceCheckpointId,
+      branchRootSessionId,
+      branchFromMessageId,
+      branchFromVariantId,
+      sourceSessionTitle;
+  final bool isStoryBranch;
+  final bool allowSharedCharacterMemories;
 
   ChatSession copyWith({
     String? id,
@@ -31,6 +47,7 @@ class ChatSession {
     bool? isArchived,
     bool? openingMessageInitialized,
     int? messageCount,
+    bool? allowSharedCharacterMemories,
   }) {
     return ChatSession(
       id: id ?? this.id,
@@ -43,6 +60,15 @@ class ChatSession {
       openingMessageInitialized:
           openingMessageInitialized ?? this.openingMessageInitialized,
       messageCount: messageCount ?? this.messageCount,
+      parentSessionId: parentSessionId,
+      sourceCheckpointId: sourceCheckpointId,
+      branchRootSessionId: branchRootSessionId,
+      branchFromMessageId: branchFromMessageId,
+      branchFromVariantId: branchFromVariantId,
+      sourceSessionTitle: sourceSessionTitle,
+      isStoryBranch: isStoryBranch,
+      allowSharedCharacterMemories:
+          allowSharedCharacterMemories ?? this.allowSharedCharacterMemories,
     );
   }
 
@@ -66,6 +92,15 @@ class ChatSession {
           ? json['openingMessageInitialized'] as bool
           : false,
       messageCount: readMessageCount(json['messageCount']),
+      parentSessionId: json['parentSessionId'] as String?,
+      sourceCheckpointId: json['sourceCheckpointId'] as String?,
+      branchRootSessionId: json['branchRootSessionId'] as String?,
+      branchFromMessageId: json['branchFromMessageId'] as String?,
+      branchFromVariantId: json['branchFromVariantId'] as String?,
+      sourceSessionTitle: json['sourceSessionTitle'] as String?,
+      isStoryBranch: json['isStoryBranch'] == true,
+      allowSharedCharacterMemories:
+          json['allowSharedCharacterMemories'] == true,
     );
   }
 
@@ -79,6 +114,14 @@ class ChatSession {
     'isArchived': isArchived,
     'openingMessageInitialized': openingMessageInitialized,
     'messageCount': messageCount,
+    if (parentSessionId != null) 'parentSessionId': parentSessionId,
+    if (sourceCheckpointId != null) 'sourceCheckpointId': sourceCheckpointId,
+    if (branchRootSessionId != null) 'branchRootSessionId': branchRootSessionId,
+    if (branchFromMessageId != null) 'branchFromMessageId': branchFromMessageId,
+    if (branchFromVariantId != null) 'branchFromVariantId': branchFromVariantId,
+    if (sourceSessionTitle != null) 'sourceSessionTitle': sourceSessionTitle,
+    'isStoryBranch': isStoryBranch,
+    'allowSharedCharacterMemories': allowSharedCharacterMemories,
   };
 
   static String normalizedTitle(String? title) {

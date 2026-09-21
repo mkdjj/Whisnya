@@ -11,7 +11,18 @@ class StoragePaths {
   File get characters => _file('characters.json');
   File get novels => _file('novels.json');
   File get theaterSessions => _file('theater_sessions.json');
+  File get autoStoryIndex => _file('auto_story_index.json');
+  File autoStory(String id) => _file('auto_stories', '$id.json');
   File get chatSessions => _file('chat_sessions.json');
+  File get checkpointsIndex => _file('story/checkpoints/index.json');
+  File checkpoint(String id) => _file('story/checkpoints/$id.json');
+  File characterState(String sessionId) =>
+      _file('story/states/$sessionId.json');
+  File get collectionIndex => _file('collection/index.json');
+  File memento(String id) => _file('collection/items/$id.json');
+  File get storyTransactions => _file('story/transactions.json');
+  File get checkpointTransactions =>
+      _file('story/checkpoint_transactions.json');
   File get qqIntegration => _file('config', 'qq_integration.json');
   File get qqContactBindings => _file('config', 'qq_contact_bindings.json');
   File get qqDiagnostics => _file('logs', 'qq_diagnostics.json');

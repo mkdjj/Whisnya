@@ -18,6 +18,7 @@ class AiException implements Exception {
 class AiCancelToken {
   final _clients = <http.Client>{};
   var _cancelled = false;
+  bool get isCancelled => _cancelled;
 
   void cancel() {
     _cancelled = true;

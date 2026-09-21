@@ -1,6 +1,7 @@
 import 'dart:collection';
 
 import '../models/chat_message.dart';
+import '../models/message_anchor.dart';
 import '../models/chat_reply_variant.dart';
 import '../models/chat_summary.dart';
 import '../services/chat/chat_summary_service.dart';
@@ -36,16 +37,20 @@ final class ChatConversationController {
   }
 
   void replaceMessages(List<ChatMessage> messages) {
-    _messages = [...messages];
+    _messages = assignMessageIds(messages);
   }
 
   void setSummary(ChatSummary summary) => _summary = summary;
 
-  void append(ChatMessage message) => _messages = [..._messages, message];
+  void append(ChatMessage message) =>
+      _messages = assignMessageIds([..._messages, message]);
 
   void replaceLast(ChatMessage message) {
     if (_messages.isEmpty) return;
-    _messages = [..._messages.take(_messages.length - 1), message];
+    _messages = [
+      ..._messages.take(_messages.length - 1),
+      message.copyWith(id: _messages.last.id),
+    ];
   }
 
   bool addAssistantVariant(int messageIndex, ChatReplyVariant variant) {
@@ -59,6 +64,7 @@ final class ChatConversationController {
     if (variants.isEmpty && message.content.trim().isNotEmpty) {
       variants.add(
         ChatReplyVariant(
+          id: 'original_${message.id}',
           content: message.content,
           time: message.time,
           innerVoice: message.innerVoice,
@@ -70,7 +76,7 @@ final class ChatConversationController {
         ),
       );
     }
-    variants.add(variant);
+    variants.add(variant.copyWith(id: newStoryId()));
     _replaceAt(
       messageIndex,
       message.copyWith(

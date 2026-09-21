@@ -1,5 +1,12 @@
 # Whisnya
 
+## 1.5.3+25
+
+- Added story checkpoints and branches, character state cards, memories, and character speech.
+- Added on-demand reply inspiration and dual-AI story performance with pause, manual takeover, and verified story facts.
+- Organized settings into subpages and improved chat actions and story layouts.
+- Fixed scrolling over story bubbles and gray error blocks caused by shared foldout and scroll state.
+
 ## 1.5.1+23
 
 - Removed the QQ notification-listener, RemoteInput, and accessibility reply paths.
@@ -90,7 +97,7 @@ The APK will be generated at:
 build/app/outputs/flutter-apk/app-release.apk
 ```
 
-Current release version is `1.5.1+23`. Keep both `versionName` and `versionCode` increasing for every public release. The Android package name is
+Current source version is `1.5.3+25`. Keep both `versionName` and `versionCode` increasing for every public release. The Android package name is
 `com.mkdjj.whisnya`.
 
 For public distribution, configure your own Android signing key first:
@@ -106,7 +113,7 @@ Then edit `android/key.properties` with your real passwords. Both
 Recommended release asset name:
 
 ```text
-Whisnya-android-v1.5.1-release.apk
+Whisnya-android-v1.5.3-release.apk
 ```
 
 ## Other Platforms
@@ -128,7 +135,7 @@ Ship the whole `Release` folder, not only the `.exe`.
 Recommended Windows release asset name:
 
 ```text
-Whisnya-windows-x64-v1.5.1.zip
+Whisnya-windows-x64-v1.5.3.zip
 ```
 
 Generate iOS or macOS platform files, then build on macOS with Xcode installed:

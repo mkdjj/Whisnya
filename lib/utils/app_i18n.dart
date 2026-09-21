@@ -28,6 +28,8 @@ final _apiErrorPattern = RegExp(r'^API 返回错误 (\d+)：(.+)$');
 final _novelRoleCountPattern = RegExp(r'^共 (\d+) 个角色$');
 final _memoryContextLimitPattern = RegExp(r'^每次最多注入 (\d+) 个字符$');
 final _savedMemoriesPattern = RegExp(r'^已保存 (\d+) 条记忆$');
+final _selectedMementosPattern = RegExp(r'^已选 (\d+) 条$');
+final _savedSharePagesPattern = RegExp(r'^已保存 (\d+)/(\d+) 页(.*)$');
 
 const _dynamicPrefixes = {
   '设置文件异常': 'Settings file is invalid',
@@ -40,6 +42,7 @@ const _dynamicPrefixes = {
   '总结文件异常': 'Summary file is invalid',
   '数据文件异常，无法解析 JSON': 'Data file is invalid JSON',
   '读取本地文件失败': 'Failed to read local file',
+  '保存失败': 'Save failed',
 };
 
 extension AppI18n on BuildContext {
@@ -52,6 +55,12 @@ extension AppI18n on BuildContext {
 }
 
 String? _dynamicEn(String text) {
+  for (final prefix in ['Bad state: ', 'FormatException: ']) {
+    if (text.startsWith(prefix)) {
+      final detail = text.substring(prefix.length);
+      return '$prefix${_dynamicEn(detail) ?? _en[detail] ?? detail}';
+    }
+  }
   Match? match;
 
   match = _parsedFieldsPattern.firstMatch(text);
@@ -121,6 +130,12 @@ String? _dynamicEn(String text) {
   match = _savedMemoriesPattern.firstMatch(text);
   if (match != null) return 'Saved ${match[1]} memories';
 
+  match = _selectedMementosPattern.firstMatch(text);
+  if (match != null) return '${match[1]} messages selected';
+
+  match = _savedSharePagesPattern.firstMatch(text);
+  if (match != null) return 'Saved ${match[1]}/${match[2]} pages${match[3]}';
+
   for (final entry in _dynamicPrefixes.entries) {
     final prefix = '${entry.key}：';
     if (text.startsWith(prefix)) {
@@ -149,6 +164,215 @@ Locale? appLocaleFromCode(String code) {
 }
 
 const _en = {
+  '演绎': 'Story',
+  '故事演绎': 'Story enactment',
+  '新建故事': 'New story',
+  '故事设置': 'Story settings',
+  '修改目标结局': 'Change target ending',
+  '请确认公开介绍与资料范围': 'Confirm the public profiles and data scope',
+  '请为两名演员选择可用 API': 'Select available APIs for both actors',
+  '故事尚未解锁。': 'The story has not been unlocked.',
+  '另一个故事正在生成，请先暂停。': 'Another story is running. Pause it first.',
+  '请先暂停。': 'Pause first.',
+  '请先暂停演绎': 'Pause the story first',
+  '故事已上锁或不再可见。': 'The story is locked or no longer available.',
+  '演员 A 的 API 或模型不可用，请重新配置。':
+      'Actor A’s API or model is unavailable. Reconfigure it.',
+  '演员 B 的 API 或模型不可用，请重新配置。':
+      'Actor B’s API or model is unavailable. Reconfigure it.',
+  '剩余完整轮数不足以满足新大纲的最少轮数，请增加篇幅或修订大纲。':
+      'Not enough full rounds remain for this outline. Increase the length or revise the outline.',
+  '保存对象已更改，请重新读取故事。': 'The saved story has changed. Reload it.',
+  '只能重新生成暂停故事最后一条AI正文。':
+      'Only the last AI turn of a paused story can be regenerated.',
+  '导演指令须在暂停时填写，最多2000字符。':
+      'Pause before adding a director instruction (maximum 2000 characters).',
+  '数据集已更换，请重新读取故事。': 'The dataset has changed. Reload the story.',
+  '数据集已更新，请重新打开': 'The dataset has changed. Reopen this page',
+  '来源角色已删除，请重新选择': 'The source character was deleted. Choose again',
+  '来源隐私已变更，请重新选择角色': 'Source privacy changed. Select the character again',
+  '新长度不能小于已完成正文': 'The new length cannot be shorter than the saved story',
+  '演员回复不能是JSON。': 'Actor replies cannot be JSON.',
+  '已达成结局的证据不完整或已失效，请检查大纲与正文后再继续。':
+      'Evidence for the achieved ending is incomplete or outdated. Check the outline and story before continuing.',
+  '演员回复必须是非空的单人故事正文。':
+      'An actor reply must contain nonempty story text for one actor.',
+  '演员不能输出另一方的台词。': 'An actor cannot write the other actor’s dialogue.',
+  '演员正文长度须为 1～4000 Unicode 字符。':
+      'Actor text must contain 1–4000 Unicode characters.',
+  '编辑故事': 'Edit story',
+  '演员 A': 'Actor A',
+  '演员 A 模型': 'Actor A model',
+  '演员 B 模型': 'Actor B model',
+  '请选择演员 A': 'Select actor A',
+  '角色人设快照': 'Frozen character profile',
+  'A 的公开介绍': 'Public profile of A',
+  'B 的公开介绍': 'Public profile of B',
+  '演员 B · 由 AI 代演，不代表本人真实表达':
+      'Actor B · AI portrayal, not your real statements',
+  '分身名称': 'Portrayal name',
+  '分身人设（仅本故事）': 'Portrayal persona (this story only)',
+  '分身说话风格': 'Portrayal speaking style',
+  '选择分身头像': 'Choose portrayal avatar',
+  '起始场景': 'Opening scene',
+  '目标结局': 'Target ending',
+  '故事标题': 'Story title',
+  '剧情风格': 'Story style',
+  '日常': 'Everyday life',
+  '甜': 'Sweet',
+  '慢热': 'Slow burn',
+  '轻喜剧': 'Light comedy',
+  '悬疑': 'Mystery',
+  '阶段': 'Stage',
+  '保存草稿': 'Save draft',
+  '计划轮数（10–300）': 'Planned rounds (10–300)',
+  '单条目标长度': 'Target reply length',
+  '简短 40–120 字': 'Short: 40–120 characters',
+  '标准 80–220 字': 'Standard: 80–220 characters',
+  '细腻 150–400 字': 'Detailed: 150–400 characters',
+  '发言间隔（毫秒）': 'Reply interval (milliseconds)',
+  '请求预算与用量保护': 'Request budget and usage safeguards',
+  '最大请求数': 'Maximum requests',
+  'Token 停止阈值（可留空）': 'Token stop threshold (optional)',
+  '增加轮数不会自动提高已有故事的请求配额；用量缺失时 Token 阈值可能不可靠。':
+      'More rounds do not automatically raise an existing story’s request limit. Token limits may be unreliable when usage is unavailable.',
+  '仅导入勾选的已引用世界书；未命中关键词不注入。':
+      'Only selected linked world books are copied. Entries are injected only on keyword matches.',
+  '导入 A 的长期记忆私有快照': 'Copy A’s long-term memories privately',
+  '不读取普通聊天历史，不写回普通记忆。':
+      'Does not read normal chat history or write back memories.',
+  '已确认双方公开介绍与资料范围': 'I have checked both public profiles and the data scope',
+  '生成剧情大纲': 'Generate outline',
+  '本模式会连续调用你配置的 AI 接口，演员和剧情检查均可能计费。':
+      'This mode makes repeated AI requests. Actor turns and story reviews may incur charges.',
+  '两方人设与剧情将发送到所选模型服务商；不操作 QQ 或现实工具。':
+      'Personas and story context are sent to selected model providers. No QQ or real-world tools are operated.',
+  '只重规划未来，已发生的正文保持不变。':
+      'Only future events are replanned. Existing story text is preserved.',
+  '此项不能为空': 'This field is required',
+  '请输入正整数': 'Enter a positive integer',
+  '重命名故事': 'Rename story',
+  '删除故事': 'Delete story',
+  '删除后无法恢复，确定删除这个故事？': 'This cannot be undone. Delete this story?',
+  '导出演绎': 'Export story',
+  '仅正式正文（默认）': 'Saved story text only (default)',
+  '包含目标与大纲': 'Include target and outline',
+  '选好角色，写下结局，让故事自己展开。':
+      'Choose actors and an ending, then let the story unfold.',
+  '受保护的故事': 'Protected story',
+  '解锁后查看': 'Unlock to view',
+  '部分故事文件无法读取，原文件已保留。':
+      'Some story files cannot be read. Their originals have been preserved.',
+  '世界书快照预览': 'World book snapshot preview',
+  '草稿': 'Draft',
+  '准备就绪': 'Ready',
+  '演绎中': 'Running',
+  '已暂停': 'Paused',
+  '已完成': 'Completed',
+  '回复灵感': 'Reply inspiration',
+  '回复建议': 'Reply suggestions',
+  '只给行动提示': 'Action hints only',
+  '选择后填入输入框，可编辑，不会自动发送。':
+      'Select to insert into your draft. Edit freely; nothing is sent automatically.',
+  '生成三条建议': 'Generate three suggestions',
+  '建议生成失败，请重试。': 'Could not generate suggestions. Please retry.',
+  '每次生成会使用当前 API；切换模式后请点击生成。':
+      'Each generation uses the current API. Click Generate after changing modes.',
+  'API 与连接': 'API & connections',
+  '聊天与回复': 'Chat & replies',
+  '角色状态与语音': 'Character state & speech',
+  '记忆与收藏': 'Memory & collections',
+  '外观与语言': 'Appearance & language',
+  '隐私与安全': 'Privacy & security',
+  '数据与备份': 'Data & backups',
+  '剧情存档': 'Story checkpoints',
+  '保存剧情存档': 'Save story checkpoint',
+  '从这里创建分支': 'Start a branch here',
+  '新分支名称': 'New branch name',
+  '从存档继续': 'Continue from checkpoint',
+  '暂无剧情存档': 'No story checkpoints yet',
+  '剧情分支已创建': 'Story branch created',
+  '剧情存档已保存': 'Story checkpoint saved',
+  '删除剧情存档？已有分支不受影响。':
+      'Delete this checkpoint? Existing branches will not be affected.',
+  '分支只继承存档中的正文和状态，不继承来源总结或记忆。当前角色设定与世界书仍会生效。':
+      'Branches inherit checkpoint dialogue and state, not source summaries or memories. Current character settings and world books still apply.',
+  '回忆册': 'Mementos',
+  '加入回忆册': 'Add to mementos',
+  '收藏到回忆册': 'Save to mementos',
+  '多选加入回忆册': 'Select messages for mementos',
+  '选择 1–50 条消息': 'Select 1–50 messages',
+  '已加入回忆册': 'Added to mementos',
+  '剧情与回忆': 'Story and mementos',
+  '解锁私密内容': 'Unlock private content',
+  '对话已变化，请重新选择': 'The conversation changed. Please select again.',
+  '状态更新失败，原状态已保留': 'State update failed; the previous state was preserved.',
+  '显示角色状态卡': 'Show character state card',
+  '每个对话独立记录；默认不调用 AI': 'Recorded per conversation; no AI calls by default.',
+  '自动更新角色状态': 'Automatically update character state',
+  '正式回复保存后额外调用一次 API，可能产生费用':
+      'Makes an additional API call after saving a reply; charges may apply.',
+  '将角色状态加入上下文': 'Include character state in context',
+  '仅状态卡开启时生效': 'Only applies while the state card is enabled.',
+  '角色语音': 'Character speech',
+  '系统音色与试听': 'System voices and preview',
+  '音色仅适用于当前设备平台，保存角色后生效':
+      'Voices apply to this device platform and take effect after saving the character.',
+  '启用角色语音': 'Enable character speech',
+  '使用 Android / Windows 系统语音引擎':
+      'Uses the Android / Windows system speech engine.',
+  '自动朗读新回复': 'Automatically read new replies',
+  '只朗读当前聊天新保存的正式正文': 'Reads only newly saved dialogue in the current chat.',
+  '允许需要网络或网络需求未知的音色':
+      'Allow voices requiring network access or with unknown network use',
+  '系统引擎可能向其服务商发送正文':
+      'The system engine may send dialogue to its service provider.',
+  '朗读中断的回复': 'Read interrupted reply',
+  '这条回复未完成，仍然朗读已保存的正文？':
+      'This reply is incomplete. Read the saved text anyway?',
+  '停止朗读': 'Stop reading',
+  '朗读正文': 'Read dialogue',
+  '搜索标题、备注和正文': 'Search titles, notes and dialogue',
+  '按标签筛选': 'Filter by tag',
+  '暂无收藏': 'No mementos yet',
+  '受保护的收藏': 'Protected memento',
+  '删除收藏？': 'Delete memento?',
+  '原对话和角色不会删除。': 'The original conversation and character will not be deleted.',
+  '来源对话已删除；收藏保留当时内容':
+      'The source conversation was deleted; this memento retains its original contents.',
+  '原消息已删除；收藏保留当时内容':
+      'The original message was deleted; this memento retains its original contents.',
+  '原对话当前显示的是另一候选，不会切换候选':
+      'The conversation currently shows another variant. It will not be switched.',
+  '原消息已改变；收藏保留当时内容':
+      'The original message changed; this memento retains its original contents.',
+  '重新验证并查看': 'Verify again to view',
+  '回到当时对话': 'Go to original conversation',
+  '编辑收藏': 'Edit memento',
+  '标签（逗号分隔，最多 8 个）': 'Tags (comma-separated, up to 8)',
+  '备注': 'Note',
+  '请检查标题、标签和备注长度': 'Check the title, tag and note lengths.',
+  '背景图片不能超过 10 MiB': 'Background images must not exceed 10 MiB.',
+  '预览已失效': 'Preview expired',
+  '预览已失效，请返回重新打开': 'Preview expired. Go back and reopen it.',
+  '保存 PNG': 'Save PNG',
+  '已取消': 'Cancelled',
+  '分享卡预览': 'Share card preview',
+  '保存中…': 'Saving…',
+  '隐藏姓名、头像和时间不会清除正文或标题中的个人信息，请自行确认。':
+      'Hiding names, avatars and timestamps does not remove personal information from dialogue or titles. Please check before sharing.',
+  '分享标题': 'Share title',
+  '简洁对白': 'Simple dialogue',
+  '便签': 'Note card',
+  '深色卡片': 'Dark card',
+  '角色显示名（可改为角色 A）': 'Character display name (for example, Character A)',
+  '用户显示名（默认“我”）': 'User display name (defaults to “Me”)',
+  '选择背景图': 'Choose background image',
+  '移除背景图': 'Remove background image',
+  '显示头像': 'Show avatars',
+  '显示时间': 'Show timestamps',
+  '显示心声': 'Show inner voice',
+  '选择分享的消息': 'Choose messages to share',
   'Whisnya': 'Whisnya',
   '小说': 'Novels',
   '设置': 'Settings',

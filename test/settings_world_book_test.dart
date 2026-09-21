@@ -11,7 +11,7 @@ import 'package:whisnya/utils/app_i18n.dart';
 
 void main() {
   testWidgets(
-    'world book settings follows continuous output and opens the global list',
+    'world book settings lives in memory category and opens the global list',
     (tester) async {
       tester.view.physicalSize = const Size(800, 1600);
       tester.view.devicePixelRatio = 1;
@@ -20,17 +20,16 @@ void main() {
       final storage = _WorldBookStorage()..books.add(_book('book_1', '测试世界书'));
 
       await tester.pumpWidget(_app(storage));
+      expect(find.byType(SwitchListTile), findsNothing);
+      await tester.tap(find.text('记忆与收藏'));
+      await tester.pumpAndSettle();
 
       final continuous = find.byKey(
         const ValueKey('split-role-messages-setting'),
       );
       final worldBooks = find.byKey(const ValueKey('world-book-settings-tile'));
-      expect(continuous, findsOneWidget);
+      expect(continuous, findsNothing);
       expect(worldBooks, findsOneWidget);
-      expect(
-        tester.getTopLeft(worldBooks).dy,
-        tester.getBottomLeft(continuous).dy,
-      );
 
       await tester.tap(worldBooks);
       await tester.pumpAndSettle();
@@ -51,6 +50,8 @@ void main() {
       ..characters.add(_character(worldBookIds: const ['existing_book']));
 
     await tester.pumpWidget(_app(storage));
+    await tester.tap(find.text('记忆与收藏'));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('world-book-settings-tile')));
     await tester.pumpAndSettle();
 
@@ -86,6 +87,8 @@ void main() {
     final storage = _WorldBookStorage()..books.add(_book('book_1', '测试世界书'));
 
     await tester.pumpWidget(_app(storage));
+    await tester.tap(find.text('记忆与收藏'));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('world-book-settings-tile')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('测试世界书'));

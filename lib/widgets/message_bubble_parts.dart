@@ -9,26 +9,37 @@ List<Widget> messageBubbleActions(
   required VoidCallback onCopy,
   VoidCallback? onDelete,
   VoidCallback? onAddMemory,
-}) => [
-  IconButton(
-    tooltip: context.t('复制消息'),
-    visualDensity: VisualDensity.compact,
-    onPressed: onCopy,
-    icon: const Icon(Icons.copy, size: 16),
-  ),
-  IconButton(
-    tooltip: context.t('删除消息'),
-    visualDensity: VisualDensity.compact,
-    onPressed: onDelete,
-    icon: const Icon(Icons.delete_outline, size: 16),
-  ),
-  IconButton(
-    tooltip: context.t('加入记忆'),
-    visualDensity: VisualDensity.compact,
-    onPressed: onAddMemory,
-    icon: const Icon(Icons.bookmark_add_outlined, size: 16),
-  ),
-];
+  VoidCallback? onStoryActions,
+  VoidCallback? onSpeak,
+  bool isSpeaking = false,
+  double scale = 1,
+}) {
+  Widget action(String label, IconData icon, VoidCallback? callback) =>
+      IconButton(
+        tooltip: context.t(label),
+        visualDensity: VisualDensity.standard,
+        constraints: BoxConstraints.tightFor(
+          width: 40 * scale,
+          height: 40 * scale,
+        ),
+        padding: EdgeInsets.all(8 * scale),
+        onPressed: callback,
+        icon: Icon(icon, size: 16 * scale),
+      );
+  return [
+    action('复制消息', Icons.copy, onCopy),
+    action('删除消息', Icons.delete_outline, onDelete),
+    action('加入记忆', Icons.bookmark_add_outlined, onAddMemory),
+    if (onStoryActions != null)
+      action('剧情与回忆', Icons.bookmarks_outlined, onStoryActions),
+    if (onSpeak != null)
+      action(
+        isSpeaking ? '停止朗读' : '朗读正文',
+        isSpeaking ? Icons.stop_circle_outlined : Icons.volume_up_outlined,
+        onSpeak,
+      ),
+  ];
+}
 
 class TypingBubble extends StatelessWidget {
   const TypingBubble({

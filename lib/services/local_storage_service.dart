@@ -13,6 +13,7 @@ import '../models/ai_usage.dart';
 import '../models/app_character.dart';
 import '../models/app_settings.dart';
 import '../models/chat_message.dart';
+import '../models/message_anchor.dart';
 import '../models/chat_session.dart';
 import '../models/chat_summary.dart';
 import '../models/character_memory_entry.dart';
@@ -33,6 +34,12 @@ import 'chat/chat_session_service.dart';
 import 'qq/qq_exceptions.dart';
 import 'storage/media_store.dart' as media_store;
 import 'storage/storage_paths.dart';
+import 'story/story_checkpoint_service.dart';
+import 'story/character_state_service.dart';
+import 'memento_service.dart';
+import 'story/story_backup_validation.dart';
+import 'auto_story/auto_story_backup.dart';
+import 'auto_story/auto_story_store.dart';
 
 List<T> _upsert<T>(List<T> items, T value, String Function(T) id) {
   final index = items.indexWhere((item) => id(item) == id(value));
@@ -94,6 +101,8 @@ bool isBackupExportPath(String path) {
   final normalized = path.replaceAll('\\', '/');
   final name = normalized.split('/').last;
   return !normalized.startsWith('media/temp/') &&
+      normalized != 'story/transactions.json' &&
+      normalized != 'story/checkpoint_transactions.json' &&
       !normalized.startsWith('transactions/') &&
       !name.endsWith('.tmp') &&
       !name.endsWith('.bak') &&
@@ -113,6 +122,9 @@ class StorageException implements Exception {
 Future<void> validateBackupDirectory(Directory directory) async {
   try {
     await validateBackupFiles(directory);
+    await validateMementoBackup(directory);
+    await validateStoryBackup(directory);
+    await validateAutoStoryBackup(directory);
   } on FormatException catch (error) {
     throw StorageException('备份校验失败：${error.message}');
   }
@@ -180,6 +192,7 @@ class LocalStorageService {
 
   final FlutterSecureStorage _secureStorage;
   final JsonFileStore jsonStore;
+  late final AutoStoryStore autoStories = AutoStoryStore(this);
   int get datasetEpoch => jsonStore.datasetEpoch;
   ValueListenable<int> get datasetEpochListenable =>
       jsonStore.datasetEpochNotifier;
@@ -229,7 +242,9 @@ class LocalStorageService {
 
   Future<void> ensureReady() async {
     final directory = await appDataDirectory;
-    await (await _chatSessions).recoverPendingClears();
+    await (await _chatSessions).recoverPendingClears(pruneOrphanState: true);
+    await StoryCheckpointService.recover(this);
+    await autoStories.recoverInterruptedStories();
     await media_store.cleanupTemporaryMedia(directory);
   }
 
@@ -604,21 +619,121 @@ class LocalStorageService {
   );
 
   Future<void> saveCharacter(AppCharacter character) async {
+    if (character.isLocked) {
+      await jsonStore.maintain(() async {
+        await _protectStorySnapshots(character.id);
+        await _updateCharacters(
+          (characters) => _upsert(characters, character, (item) => item.id),
+        );
+      });
+      return;
+    }
     await _updateCharacters(
       (characters) => _upsert(characters, character, (item) => item.id),
     );
   }
 
-  Future<void> deleteCharacter(String characterId) =>
-      _withCharacterLifecycle(() async {
-        _characterRecoveryAttempted = true;
-        await _updateCharacters((characters) {
-          characters.removeWhere((character) => character.id == characterId);
-          return characters;
-        });
-        await (await _chatSessions).deleteCharacterSessions(characterId);
-        await cleanupUnusedMedia();
+  Future<void> _protectStorySnapshots(String characterId) async {
+    final root = await appDataDirectory;
+    await jsonStore.maintain(() async {
+      await protectAutoStorySource(root, jsonStore, characterId);
+      await autoStories.repairIndex();
+      for (final folder in ['story/checkpoints', 'collection/items']) {
+        final directory = Directory('${root.path}/$folder');
+        if (!await directory.exists()) continue;
+        await for (final file in directory.list(followLinks: false)) {
+          if (file is! File ||
+              !file.path.endsWith('.json') ||
+              file.path.endsWith('index.json')) {
+            continue;
+          }
+          final raw = await jsonStore.read(file, null);
+          if (raw is Map<String, dynamic> &&
+              raw['characterId'] == characterId &&
+              raw['requiresUnlock'] != true) {
+            await jsonStore.write(file, {...raw, 'requiresUnlock': true});
+          }
+        }
+      }
+      for (final name in [
+        'story/checkpoints/index.json',
+        'collection/index.json',
+      ]) {
+        final file = File('${root.path}/$name');
+        final rows = await jsonStore.read(file, null);
+        if (rows is List) {
+          await jsonStore.write(
+            file,
+            rows
+                .map(
+                  (r) =>
+                      r is Map<String, dynamic> &&
+                          r['characterId'] == characterId
+                      ? {...r, 'requiresUnlock': true}
+                      : r,
+                )
+                .toList(),
+          );
+        }
+      }
+    });
+  }
+
+  Future<void> deleteCharacter(String characterId) => _withCharacterLifecycle(
+    () async {
+      _characterRecoveryAttempted = true;
+      final paths = await _paths;
+      final rawCharacters = await jsonStore.read(paths.characters, <dynamic>[]);
+      if ((rawCharacters as List).whereType<Map<String, dynamic>>().any(
+        (c) => c['id'] == characterId && c['isLocked'] == true,
+      )) {
+        await _protectStorySnapshots(characterId);
+      }
+      final rows = await jsonStore.read(paths.chatSessions, <dynamic>[]);
+      for (final row in (rows as List).whereType<Map<String, dynamic>>().where(
+        (s) => s['characterId'] == characterId,
+      )) {
+        await CharacterStateService(this).clearState(row['id'] as String);
+      }
+      await _updateCharacters((characters) {
+        characters.removeWhere((character) => character.id == characterId);
+        return characters;
       });
+      await (await _chatSessions).deleteCharacterSessions(characterId);
+      await cleanupUnusedMedia();
+    },
+  );
+
+  Future<void> deleteCharacterStorySnapshots(String characterId) async {
+    final root = await appDataDirectory;
+    await jsonStore.maintain(() async {
+      for (final kind in [
+        ('story/checkpoints/index.json', 'story/checkpoints'),
+        ('collection/index.json', 'collection/items'),
+      ]) {
+        final index = File('${root.path}/${kind.$1}');
+        final rows = await jsonStore.read(index, <dynamic>[]);
+        final removed = (rows as List)
+            .whereType<Map<String, dynamic>>()
+            .where((r) => r['characterId'] == characterId)
+            .toList();
+        await jsonStore.write(
+          index,
+          rows
+              .where((r) => r is! Map || r['characterId'] != characterId)
+              .toList(),
+        );
+        for (final row in removed) {
+          final id = row['id'];
+          if (id is! String || !RegExp(r'^[a-zA-Z0-9_-]+$').hasMatch(id)) {
+            continue;
+          }
+          final file = File('${root.path}/${kind.$2}/$id.json');
+          if (await file.exists()) await file.delete();
+        }
+      }
+    });
+  }
 
   Future<List<ChatSession>> loadChatSessions(String characterId) async =>
       (await _chatSessions).loadChatSessions(characterId);
@@ -650,8 +765,9 @@ class LocalStorageService {
   Future<ChatSession> duplicateChatSession(ChatSession source) async =>
       (await _chatSessions).duplicateChatSession(source);
 
-  Future<void> deleteChatSession(ChatSession session) async =>
-      (await _chatSessions).deleteChatSession(session);
+  Future<void> deleteChatSession(ChatSession session) async {
+    await (await _chatSessions).deleteChatSession(session);
+  }
 
   Future<void> archiveChatSession(ChatSession session) async =>
       (await _chatSessions).archiveChatSession(session);
@@ -681,8 +797,12 @@ class LocalStorageService {
     ChatSession session,
   ) async => (await _chatSessions).captureToken(session);
 
-  Future<ChatSummary> clearChatPreservingSummary(ChatSession session) async =>
-      (await _chatSessions).clearChatPreservingSummary(session);
+  Future<ChatSummary> clearChatPreservingSummary(ChatSession session) async {
+    final summary = await (await _chatSessions).clearChatPreservingSummary(
+      session,
+    );
+    return summary;
+  }
 
   Future<void> backfillMessageCounts(
     List<ChatSession> sessions, {
@@ -859,6 +979,7 @@ class LocalStorageService {
   }
 
   Future<void> saveChat(String characterId, List<ChatMessage> messages) async {
+    messages = assignMessageIds(messages);
     await _writeJson((await _paths).chat(characterId), {
       'characterId': characterId,
       'messages': messages.map((message) => message.toJson()).toList(),
@@ -996,6 +1117,7 @@ class LocalStorageService {
         add(participant.avatar);
       }
     }
+    referenced.addAll(await autoStoryReferencedMedia(await appDataDirectory));
     return media_store.cleanupUnusedMedia(await appDataDirectory, referenced);
   });
 
@@ -1198,6 +1320,13 @@ class LocalStorageService {
           jsonEncode({
             'format': 1,
             'schemaVersion': 3,
+            'features': {
+              'storyCheckpoints': 1,
+              'characterState': 1,
+              'mementoCollection': 1,
+              'characterSpeech': 1,
+              'autoStories': 1,
+            },
             'includesApiKeys': includeApiKeys,
             'snapshotAt': DateTime.now().toUtc().toIso8601String(),
             'files': files,
@@ -1244,6 +1373,8 @@ class LocalStorageService {
       await validateBackupDirectory(staging);
       backupWarnings.clear();
       backupWarnings.addAll(await backupAssetWarnings(staging));
+      backupWarnings.addAll(await validateStoryBackup(staging));
+      backupWarnings.addAll(await validateAutoStoryBackup(staging));
       final manifest =
           await readBackupJson(File('${staging.path}/backup_manifest.json'))
               as Map<String, dynamic>;
@@ -1360,6 +1491,7 @@ class LocalStorageService {
     await _characterLifecycleTail;
     await jsonStore.maintain(() async {
       backupStage.value = '恢复数据（保留回滚点）';
+      await pauseRestoredAutoStories(staging, jsonStore);
       final name = 'backup_rollback_${DateTime.now().microsecondsSinceEpoch}';
       final rollback = Directory('${root.parent.path}/$name');
       final journal = _backupJournal(root);
@@ -1401,6 +1533,7 @@ class LocalStorageService {
         await backupFailureHook?.call('newActive');
         await _ensureAppDataDirectories(root);
         await _repairRestoredAppDataPaths(root);
+        await autoStories.recoverInterruptedStories();
         final configFile = File('${root.path}/api_config.json');
         await backupFailureHook?.call('credentials');
         if (restoreCredentialsFrom != null) {
@@ -1454,6 +1587,8 @@ class LocalStorageService {
         await journal.delete();
       } catch (_) {
         await _recoverBackupTransaction(root);
+        await pauseRestoredAutoStories(root, jsonStore);
+        await autoStories.repairIndex();
         _chatSessionServiceFuture = null;
         _characterRecoveryAttempted = false;
         rethrow;

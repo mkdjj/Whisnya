@@ -12,7 +12,6 @@ import '../services/local_storage_service.dart';
 import '../services/qq/qq_integration_runtime.dart';
 import '../utils/app_i18n.dart';
 import '../utils/character_import_flow.dart';
-import '../utils/confirm_dialog.dart';
 import '../utils/page_layout.dart';
 import '../utils/privacy_password_prompt.dart';
 import '../utils/snack.dart';
@@ -22,7 +21,10 @@ import 'chat/chat_screen.dart';
 import 'chat/chat_session_list_screen.dart';
 import 'novel/novel_screens.dart';
 import 'settings_screen.dart';
+import 'auto_story/auto_story_list_screen.dart';
 import 'theater/theater_screens.dart';
+
+enum HomeDestination { characters, novels, theater, autoStory, settings }
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -65,12 +67,19 @@ class _HomeScreenState extends State<HomeScreen> {
       selectedIcon: Icons.forum,
     ),
     (
+      label: '演绎',
+      title: '故事演绎',
+      icon: Icons.movie_creation_outlined,
+      selectedIcon: Icons.movie_creation,
+    ),
+    (
       label: '设置',
       title: '设置',
       icon: Icons.settings_outlined,
       selectedIcon: Icons.settings,
     ),
   ];
+  final _autoStoryKey = GlobalKey<AutoStoryListScreenState>();
   final _novelKey = GlobalKey<NovelScreenState>();
   final _theaterKey = GlobalKey<TheaterListScreenState>();
 
@@ -95,7 +104,11 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadedDatasetEpoch = widget.storage.datasetEpoch;
     // Keep the import/settings page mounted, discard old library caches.
     setState(
-      () => _visitedTabs.removeWhere((index) => index == 1 || index == 2),
+      () => _visitedTabs.removeWhere(
+        (index) =>
+            index != HomeDestination.characters.index &&
+            index != HomeDestination.settings.index,
+      ),
     );
     await _load();
   }
@@ -310,21 +323,53 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     if (!mounted) return;
 
-    final shouldDelete = await showConfirmDialog(
-      context: context,
-      title: '删除角色',
-      content: context.isEnglish
-          ? 'Delete "${character.name}"? Chat history and summaries will also be deleted.'
-          : '确定删除“${character.name}”吗？聊天记录和总结也会一起删除。',
-      confirmLabel: '删除',
-    );
+    var deleteSnapshots = false;
+    final shouldDelete =
+        await showDialog<bool>(
+          context: context,
+          builder: (c) => StatefulBuilder(
+            builder: (c, setDialog) => AlertDialog(
+              title: Text(c.t('删除角色')),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    c.isEnglish
+                        ? 'Delete "${character.name}" and its chats?'
+                        : '确定删除“${character.name}”及其聊天记录吗？',
+                  ),
+                  CheckboxListTile(
+                    value: deleteSnapshots,
+                    title: Text(c.t('同时删除该角色的剧情存档和回忆册')),
+                    onChanged: (v) =>
+                        setDialog(() => deleteSnapshots = v ?? false),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(c, false),
+                  child: Text(c.t('取消')),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(c, true),
+                  child: Text(c.t('删除')),
+                ),
+              ],
+            ),
+          ),
+        ) ??
+        false;
 
     if (!shouldDelete) return;
     if (!mounted) return;
 
-    if (!await context.tryAction(
-      () => widget.storage.deleteCharacter(character.id),
-    )) {
+    if (!await context.tryAction(() async {
+      if (deleteSnapshots) {
+        await widget.storage.deleteCharacterStorySnapshots(character.id);
+      }
+      await widget.storage.deleteCharacter(character.id);
+    })) {
       return;
     }
     if (!mounted) return;
@@ -333,11 +378,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _selectTab(int index) {
+    if (index == HomeDestination.autoStory.index) {
+      unawaited(_autoStoryKey.currentState?.refresh() ?? Future<void>.value());
+    }
     setState(() {
       _tabIndex = index;
       _visitedTabs.add(index);
     });
-    if (index == 0) {
+    if (index == HomeDestination.characters.index) {
       unawaited(_load());
     }
   }
@@ -362,7 +410,14 @@ class _HomeScreenState extends State<HomeScreen> {
             systemOverlayStyle: appSystemOverlayStyle(context),
             title: Text(context.t(_tabs[_tabIndex].title)),
             actions: [
-              if (_tabIndex == 0)
+              if (_tabIndex == HomeDestination.autoStory.index)
+                IconButton(
+                  key: const ValueKey('auto-story-create'),
+                  tooltip: context.t('新建故事'),
+                  onPressed: () => _autoStoryKey.currentState?.createStory(),
+                  icon: const Icon(Icons.add),
+                ),
+              if (_tabIndex == HomeDestination.characters.index)
                 Padding(
                   padding: const EdgeInsets.only(right: 12),
                   child: Center(
@@ -384,7 +439,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                 ),
-              if (_tabIndex == 1)
+              if (_tabIndex == HomeDestination.novels.index)
                 Padding(
                   padding: const EdgeInsets.only(right: 12),
                   child: Center(
@@ -413,7 +468,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                 ),
-              if (_tabIndex == 2)
+              if (_tabIndex == HomeDestination.theater.index)
                 Padding(
                   padding: const EdgeInsets.only(right: 12),
                   child: Center(
@@ -456,7 +511,7 @@ class _HomeScreenState extends State<HomeScreen> {
       index: _tabIndex,
       children: [
         AppBackground(settings: widget.settings, child: _buildBody()),
-        _visitedTabs.contains(1)
+        _visitedTabs.contains(HomeDestination.novels.index)
             ? AppBackground(
                 settings: widget.settings,
                 child: NovelScreen(
@@ -468,7 +523,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               )
             : const SizedBox.shrink(),
-        _visitedTabs.contains(2)
+        _visitedTabs.contains(HomeDestination.theater.index)
             ? AppBackground(
                 settings: widget.settings,
                 child: TheaterListScreen(
@@ -479,7 +534,18 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               )
             : const SizedBox.shrink(),
-        _visitedTabs.contains(3)
+        _visitedTabs.contains(HomeDestination.autoStory.index)
+            ? AppBackground(
+                settings: widget.settings,
+                child: AutoStoryListScreen(
+                  key: _autoStoryKey,
+                  storage: widget.storage,
+                  aiService: widget.aiService,
+                  settings: widget.settings,
+                ),
+              )
+            : const SizedBox.shrink(),
+        _visitedTabs.contains(HomeDestination.settings.index)
             ? SettingsScreen(
                 storage: widget.storage,
                 aiService: widget.aiService,
@@ -504,7 +570,10 @@ class _HomeScreenState extends State<HomeScreen> {
       destinations: [
         for (final tab in _tabs)
           NavigationDestination(
-            icon: Icon(tab.icon),
+            icon: Icon(
+              tab.icon,
+              key: tab.label == '演绎' ? const ValueKey('auto-story-tab') : null,
+            ),
             selectedIcon: Icon(tab.selectedIcon),
             label: context.t(tab.label),
           ),
@@ -523,7 +592,10 @@ class _HomeScreenState extends State<HomeScreen> {
       destinations: [
         for (final tab in _tabs)
           NavigationRailDestination(
-            icon: Icon(tab.icon),
+            icon: Icon(
+              tab.icon,
+              key: tab.label == '演绎' ? const ValueKey('auto-story-tab') : null,
+            ),
             selectedIcon: Icon(tab.selectedIcon),
             label: Text(context.t(tab.label)),
           ),

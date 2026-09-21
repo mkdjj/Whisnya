@@ -173,7 +173,7 @@ List<AiUsageRecord> appendAiUsageRecord(
   AiUsageRecord record,
 ) => [record, ...records].take(100).toList();
 
-enum AiUsageCategory { character, novel, theater }
+enum AiUsageCategory { character, novel, theater, autoStory }
 
 class AiUsageTotals {
   const AiUsageTotals({

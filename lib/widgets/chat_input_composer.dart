@@ -16,6 +16,7 @@ class ChatInputComposer extends StatelessWidget {
     this.onContinue,
     this.onRetry,
     this.onEditResend,
+    this.onInspiration,
     this.requireText = false,
     super.key,
   });
@@ -31,6 +32,7 @@ class ChatInputComposer extends StatelessWidget {
   final VoidCallback? onContinue;
   final VoidCallback? onRetry;
   final VoidCallback? onEditResend;
+  final VoidCallback? onInspiration;
   final bool requireText;
 
   @override
@@ -61,6 +63,13 @@ class ChatInputComposer extends StatelessWidget {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
+                  if (onInspiration != null)
+                    IconButton(
+                      tooltip: context.t('回复灵感'),
+                      onPressed: enabled ? onInspiration : null,
+                      icon: const Icon(Icons.lightbulb_outline, size: 20),
+                      visualDensity: VisualDensity.compact,
+                    ),
                   if (onContinue != null)
                     IconButton(
                       tooltip: context.t('继续一轮'),

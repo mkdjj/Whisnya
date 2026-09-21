@@ -19,6 +19,12 @@ class AppSettings {
     this.streamResponses = true,
     this.showReasoningContent = false,
     this.showCharacterInnerVoice = false,
+    this.showCharacterStateCard = false,
+    this.autoUpdateCharacterState = false,
+    this.useCharacterStateInPrompt = false,
+    this.enableCharacterSpeech = false,
+    this.autoReadAssistantReplies = false,
+    this.allowNetworkSpeechVoices = false,
     this.splitRoleMessages = false,
     this.memoryContextMaxCharacters = 4000,
     this.useCustomChatSummaryItems = false,
@@ -47,6 +53,12 @@ class AppSettings {
   final bool streamResponses;
   final bool showReasoningContent;
   final bool showCharacterInnerVoice;
+  final bool showCharacterStateCard;
+  final bool autoUpdateCharacterState;
+  final bool useCharacterStateInPrompt;
+  final bool enableCharacterSpeech;
+  final bool autoReadAssistantReplies;
+  final bool allowNetworkSpeechVoices;
   final bool splitRoleMessages;
   final int memoryContextMaxCharacters;
   final bool useCustomChatSummaryItems;
@@ -85,6 +97,12 @@ class AppSettings {
     bool? streamResponses,
     bool? showReasoningContent,
     bool? showCharacterInnerVoice,
+    bool? showCharacterStateCard,
+    bool? autoUpdateCharacterState,
+    bool? useCharacterStateInPrompt,
+    bool? enableCharacterSpeech,
+    bool? autoReadAssistantReplies,
+    bool? allowNetworkSpeechVoices,
     bool? splitRoleMessages,
     int? memoryContextMaxCharacters,
     bool? useCustomChatSummaryItems,
@@ -125,6 +143,18 @@ class AppSettings {
       showCharacterInnerVoice:
           showCharacterInnerVoice ?? this.showCharacterInnerVoice,
       splitRoleMessages: splitRoleMessages ?? this.splitRoleMessages,
+      showCharacterStateCard:
+          showCharacterStateCard ?? this.showCharacterStateCard,
+      autoUpdateCharacterState:
+          autoUpdateCharacterState ?? this.autoUpdateCharacterState,
+      useCharacterStateInPrompt:
+          useCharacterStateInPrompt ?? this.useCharacterStateInPrompt,
+      enableCharacterSpeech:
+          enableCharacterSpeech ?? this.enableCharacterSpeech,
+      autoReadAssistantReplies:
+          autoReadAssistantReplies ?? this.autoReadAssistantReplies,
+      allowNetworkSpeechVoices:
+          allowNetworkSpeechVoices ?? this.allowNetworkSpeechVoices,
       memoryContextMaxCharacters:
           (memoryContextMaxCharacters ?? this.memoryContextMaxCharacters).clamp(
             500,
@@ -181,6 +211,12 @@ class AppSettings {
       showCharacterInnerVoice:
           json?['showCharacterInnerVoice'] as bool? ?? false,
       splitRoleMessages: json?['splitRoleMessages'] as bool? ?? false,
+      showCharacterStateCard: json?['showCharacterStateCard'] == true,
+      autoUpdateCharacterState: json?['autoUpdateCharacterState'] == true,
+      useCharacterStateInPrompt: json?['useCharacterStateInPrompt'] == true,
+      enableCharacterSpeech: json?['enableCharacterSpeech'] == true,
+      autoReadAssistantReplies: json?['autoReadAssistantReplies'] == true,
+      allowNetworkSpeechVoices: json?['allowNetworkSpeechVoices'] == true,
       memoryContextMaxCharacters:
           ((json?['memoryContextMaxCharacters'] as num?)?.toInt() ?? 4000)
               .clamp(500, 12000),
@@ -221,6 +257,12 @@ class AppSettings {
       'streamResponses': streamResponses,
       'showReasoningContent': showReasoningContent,
       'showCharacterInnerVoice': showCharacterInnerVoice,
+      'showCharacterStateCard': showCharacterStateCard,
+      'autoUpdateCharacterState': autoUpdateCharacterState,
+      'useCharacterStateInPrompt': useCharacterStateInPrompt,
+      'enableCharacterSpeech': enableCharacterSpeech,
+      'autoReadAssistantReplies': autoReadAssistantReplies,
+      'allowNetworkSpeechVoices': allowNetworkSpeechVoices,
       'splitRoleMessages': splitRoleMessages,
       'memoryContextMaxCharacters': memoryContextMaxCharacters,
       'useCustomChatSummaryItems': useCustomChatSummaryItems,

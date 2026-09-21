@@ -278,10 +278,15 @@ class _ChatSessionListScreenState extends State<ChatSessionListScreen> {
                   ? Icons.inventory_2_outlined
                   : Icons.chat_bubble_outline,
             ),
-            title: Text(session.title),
+            title: Text(
+              session.isStoryBranch
+                  ? '${context.t('剧情分支')} · ${session.title}'
+                  : session.title,
+            ),
             subtitle: Text(
               '${context.t('消息数')}：${_counts[session.id] ?? (_countErrors.contains(session.id) ? '数量暂不可用' : '统计中…')}  ·  '
-              '${_formatDate(session.lastUsedAt)}',
+              '${_formatDate(session.lastUsedAt)}${session.isStoryBranch ? '\n${context.isEnglish ? 'From' : '来源'}: ${session.sourceSessionTitle ?? ''}' : ''}',
+              // Branch provenance stays visible even after the source is gone.
             ),
             onTap: _busy ? null : () => _open(session),
             trailing: PopupMenuButton<_SessionAction>(

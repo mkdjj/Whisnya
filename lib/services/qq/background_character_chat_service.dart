@@ -122,6 +122,8 @@ class BackgroundCharacterChatService implements QqCharacterReplyService {
     }
     final memoryContext = const MemoryContextService().build(
       entries: memories,
+      allowSharedCharacterMemories:
+          !session.isStoryBranch || session.allowSharedCharacterMemories,
       characterId: character.id,
       sessionId: session.id,
       messages: messages,

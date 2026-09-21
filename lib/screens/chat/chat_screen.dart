@@ -11,6 +11,20 @@ import '../../models/app_settings.dart';
 import '../../models/chat_bubble_preset.dart';
 import '../../models/chat_bubble_theme.dart';
 import '../../models/chat_message.dart';
+import '../../models/message_anchor.dart';
+import '../../models/formal_reply_receipt.dart';
+import '../../models/character_state.dart';
+import '../../models/memento.dart';
+import '../../services/memento_service.dart';
+import '../memento_screen.dart';
+import '../../services/story/character_state_service.dart';
+import '../../services/story/character_state_prompt.dart';
+import '../../services/story/story_checkpoint_service.dart';
+import '../../services/speech/role_speech_controller.dart';
+import '../character_voice_settings_screen.dart';
+import '../../widgets/character_state_card.dart';
+import '../../utils/privacy_password_prompt.dart';
+import 'story_checkpoints_screen.dart';
 import '../../models/chat_reply_variant.dart';
 import '../../models/chat_session.dart';
 import '../../models/chat_summary.dart';
@@ -21,6 +35,8 @@ import '../../prompts/prompt_builder.dart';
 import '../../services/ai/ai_gateway.dart';
 import '../../services/ai_service.dart';
 import '../../services/chat/character_inner_voice_service.dart';
+import '../../services/chat/reply_inspiration_service.dart';
+import '../../widgets/chat/reply_inspiration_sheet.dart';
 import '../../services/chat/chat_summary_service.dart';
 import '../../services/chat/memory_context_service.dart';
 import '../../services/local_storage_service.dart';
@@ -69,8 +85,616 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
+  late final CharacterStateService _stateService;
+  CharacterStateView? _characterState;
+  bool _stateBusy = false;
+  bool _storyScreenOpen = false;
+  bool _foreground = true;
+  void _stopStoryEffects() {
+    unawaited(_speech.stop());
+    if (_session != null) _stateService.cancelStateRefresh(_session!.id);
+  }
+
+  MementoService get _mementos =>
+      MementoService(storage: widget.storage, authorize: _authorizeStory);
+  Future<void> _openCollection() async {
+    unawaited(_speech.stop());
+    _storyScreenOpen = true;
+    if (_session != null) _stateService.cancelStateRefresh(_session!.id);
+    final chatRoute = ModalRoute.of(context);
+    MementoSnapshot? located;
+    int? locatedIndex;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => MementoScreen(
+          service: _mementos,
+          innerVoiceEnabled: widget.settings.showCharacterInnerVoice,
+          characterId: _character.id,
+          onLocate: (snapshot, index, result) async {
+            if (result != SourceNavigationResult.found) {
+              context.showSnack(context.t('来源消息已删除或改变，不会自动切换候选'));
+              return;
+            }
+            located = snapshot;
+            locatedIndex = index;
+            Navigator.of(context).popUntil((route) => route == chatRoute);
+          },
+        ),
+      ),
+    );
+    _storyScreenOpen = false;
+    if (located != null && mounted) {
+      await _waitForActiveGeneration();
+      if (!mounted || _hasUnsavedReply) return;
+      final sessions = await widget.storage.loadChatSessions(_character.id);
+      final session = sessions
+          .where((s) => s.id == located!.sourceSessionId)
+          .firstOrNull;
+      if (session == null) return;
+      _session = session;
+      await _load();
+      final target = located!.entries[locatedIndex!];
+      final index = _messages.indexWhere((m) => m.id == target.sourceMessageId);
+      if (index >= 0 && mounted) {
+        setState(() {
+          _searchResults = [index];
+          _activeSearchResult = 0;
+        });
+        _scrollToSearchResult(index);
+      }
+    }
+  }
+
+  Future<void> _messageStoryActions(int index) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (c) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final choice in [
+              ('checkpoint', '保存剧情存档'),
+              ('fork', '从这里创建分支'),
+              ('collect', '加入回忆册'),
+              ('multi', '多选加入回忆册'),
+            ])
+              ListTile(
+                title: Text(c.t(choice.$2)),
+                onTap: () => Navigator.pop(c, choice.$1),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (action == 'checkpoint' || action == 'fork') {
+      await _saveCheckpoint(index, fork: action == 'fork');
+      return;
+    }
+    if (action == 'collect' || action == 'multi') {
+      await _collectMessages(index, multiple: action == 'multi');
+    }
+  }
+
+  Future<void> _collectMessages(int index, {bool multiple = false}) async {
+    if (!_canMutateConversation || _hasUnsavedReply) return;
+    final session = _currentSession;
+    final captured = List<ChatMessage>.of(_messages);
+    final epoch = widget.storage.datasetEpoch;
+    final selected = <int>{index};
+    if (multiple) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (c) => StatefulBuilder(
+          builder: (c, setDialog) => AlertDialog(
+            title: Text(c.t('选择 1–50 条消息')),
+            content: SizedBox(
+              width: 500,
+              height: 400,
+              child: ListView(
+                children: [
+                  for (var i = 0; i < captured.length; i++)
+                    if (captured[i].effectiveContent.trim().isNotEmpty)
+                      CheckboxListTile(
+                        value: selected.contains(i),
+                        title: Text(
+                          captured[i].effectiveContent,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        onChanged: (v) => setDialog(() {
+                          if (v == true && selected.length < 50) {
+                            selected.add(i);
+                          } else {
+                            selected.remove(i);
+                          }
+                        }),
+                      ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(c, false),
+                child: Text(c.t('取消')),
+              ),
+              FilledButton(
+                onPressed: selected.isEmpty
+                    ? null
+                    : () => Navigator.pop(c, true),
+                child: Text(c.t('继续')),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (confirmed != true) return;
+    }
+    if (!mounted) return;
+    final indices = selected.toList()..sort();
+    final metadata = await editMementoMetadata(
+      context,
+      title: captured[indices.first].effectiveContent.characters
+          .take(20)
+          .toString(),
+    );
+    if (metadata == null) return;
+    try {
+      if (!_canMutateConversation ||
+          _hasUnsavedReply ||
+          epoch != widget.storage.datasetEpoch ||
+          _session?.id != session.id ||
+          indices.any(
+            (i) => !MessageAnchor.capture(
+              session.id,
+              captured,
+              i,
+            ).matches(_messages),
+          )) {
+        throw StateError('对话已变化，请重新选择');
+      }
+      final service = _mementos;
+      final profile = widget.settings.userProfile;
+      final roleAvatar = await service.copyRecognizedAvatar(
+        _character.avatar,
+        recognizedPaths: {_character.avatar},
+      );
+      final userAvatar = await service.copyRecognizedAvatar(
+        profile.avatar,
+        recognizedPaths: {profile.avatar},
+      );
+      final draft = MementoDraft(
+        idempotencyKey: newStoryId(),
+        title: metadata.title,
+        tags: metadata.tags,
+        note: metadata.note,
+        characterId: _character.id,
+        characterNameSnapshot: _character.name,
+        sessionTitleSnapshot: session.title,
+        sourceSessionId: session.id,
+        requiresUnlock: _character.isLocked,
+        entries: [
+          for (final i in indices)
+            MementoEntry.capture(
+              sessionId: session.id,
+              messages: captured,
+              index: i,
+              speakerName: captured[i].isUser ? profile.name : _character.name,
+              avatarAssetId: captured[i].isUser ? userAvatar : roleAvatar,
+            ),
+        ],
+      );
+      if (await service.hasEquivalentCapture(draft)) {
+        if (!mounted ||
+            !await showConfirmDialog(
+              context: context,
+              title: context.isEnglish ? 'Save another copy?' : '再次收藏？',
+              content: context.isEnglish
+                  ? 'These same messages are already in your collection. Save another snapshot?'
+                  : '这些消息已经收藏过，仍要保存一份新的回忆吗？',
+            )) {
+          return;
+        }
+      }
+      if (epoch != widget.storage.datasetEpoch) throw StateError('数据已更新');
+      await service.createMemento(draft);
+      if (mounted) context.showSnack(context.t('已加入回忆册'));
+    } catch (e) {
+      if (mounted) context.showSnack('$e');
+    }
+  }
+
+  RoleSpeechController get _speech => RoleSpeechController.instance;
+  void _speechChanged() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  void _configureSpeech() => _speech.configure(
+    enabled: widget.settings.enableCharacterSpeech,
+    allowNetworkVoices: widget.settings.allowNetworkSpeechVoices,
+  );
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground = state == AppLifecycleState.resumed;
+    if (state != AppLifecycleState.resumed) {
+      unawaited(_speech.stop());
+      if (_session != null) _stateService.cancelStateRefresh(_session!.id);
+    }
+  }
+
+  Future<void> _reloadState() async {
+    final session = _session;
+    if (session == null ||
+        !widget.settings.showCharacterStateCard ||
+        !widget.storage.usesSessionStorage) {
+      return;
+    }
+    final epoch = widget.storage.datasetEpoch;
+    try {
+      final state = await _stateService.loadCurrentState(
+        session.id,
+        _character.id,
+        _messages.where((m) => m.effectiveContent.trim().isNotEmpty).toList(),
+      );
+      if (mounted &&
+          _session?.id == session.id &&
+          epoch == widget.storage.datasetEpoch) {
+        setState(() => _characterState = state);
+      }
+    } catch (e) {
+      if (mounted) context.showSnack('$e');
+    }
+  }
+
+  Future<void> _refreshState({
+    AiEndpointConfig? endpoint,
+    List<ChatMessage>? messages,
+  }) async {
+    final session = _session;
+    if (session == null || !widget.settings.showCharacterStateCard) return;
+    endpoint ??= _apiConfig.endpointById(_selectedEndpointId);
+    if (endpoint == null) throw StateError('未配置 API');
+    final selectedEndpoint = endpoint;
+    final snapshot = List<ChatMessage>.of(messages ?? _messages);
+    final digest = MessageAnchor.digest(snapshot);
+    final epoch = widget.storage.datasetEpoch;
+    setState(() => _stateBusy = true);
+    try {
+      await _stateService.requestStateRefresh(
+        StateRefreshContext(
+          sessionId: session.id,
+          characterId: _character.id,
+          messages: snapshot,
+          characterContext: PromptBuilder.buildSystemPrompt(_character),
+          loadMessages: () => widget.storage.loadChatBySession(session),
+          isCurrent: () =>
+              mounted &&
+              !_storyScreenOpen &&
+              widget.settings.showCharacterStateCard &&
+              _session?.id == session.id &&
+              epoch == widget.storage.datasetEpoch &&
+              digest == MessageAnchor.digest(_messages),
+          generate: (system, user, token) async {
+            final request = [
+              {'role': 'system', 'content': system},
+              {'role': 'user', 'content': user},
+            ];
+            return widget.aiService.sendMessage(
+              apiKey: selectedEndpoint.apiKey,
+              baseUrl: selectedEndpoint.baseUrl,
+              model: selectedEndpoint.model,
+              messages: request,
+              cancelToken: token,
+              onUsage: (usage) {
+                unawaited(
+                  widget.storage
+                      .recordAiUsage(
+                        requestType: 'characterState',
+                        summaryUpdated: false,
+                        model: selectedEndpoint.model,
+                        usage: usage,
+                        messages: request,
+                      )
+                      .catchError((Object _) {}),
+                );
+              },
+            );
+          },
+        ),
+      );
+      await _reloadState();
+    } finally {
+      if (mounted) setState(() => _stateBusy = false);
+    }
+  }
+
+  void _dispatchFormalReceipt(FormalReplyReceipt receipt) {
+    if (!receipt.persisted ||
+        receipt.replyState != 'completed' ||
+        receipt.epoch != widget.storage.datasetEpoch ||
+        _session?.id != receipt.anchor.sessionId ||
+        !receipt.anchor.matches(_messages)) {
+      return;
+    }
+    if (widget.settings.showCharacterStateCard &&
+        widget.settings.autoUpdateCharacterState) {
+      unawaited(
+        _refreshState(
+          endpoint: receipt.endpointSnapshot,
+          messages: receipt.messages,
+        ).catchError((Object e) {
+          if (mounted) context.showSnack(context.t('状态更新失败，原状态已保留'));
+        }),
+      );
+    }
+    unawaited(
+      _speech.autoReadSavedReply(
+        message: receipt.messages.last,
+        sessionId: receipt.anchor.sessionId,
+        messageId: receipt.anchor.messageId,
+        variantId: receipt.anchor.variantId ?? '',
+        datasetEpoch: receipt.epoch,
+        profile: receipt.characterSnapshot.voiceProfiles[_speech.platformKey],
+        persisted: true,
+        selected: true,
+        enabled:
+            widget.settings.enableCharacterSpeech &&
+            widget.settings.autoReadAssistantReplies &&
+            !_storyScreenOpen &&
+            _foreground &&
+            !_isOpeningSessionList &&
+            (ModalRoute.of(context)?.isCurrent ?? false),
+      ),
+    );
+  }
+
+  Future<bool> _authorizeStory(String characterId, bool requiresUnlock) async {
+    if (!requiresUnlock) return true;
+    final settings = await widget.storage.loadSettings();
+    if (!mounted) return false;
+    return verifyPrivacyPassword(
+      context: context,
+      settings: settings,
+      storage: widget.storage,
+      title: context.t('解锁私密内容'),
+    );
+  }
+
+  StoryCheckpointService get _checkpoints =>
+      StoryCheckpointService(widget.storage, authorize: _authorizeStory);
+  Future<void> _openCheckpoints() async {
+    unawaited(_speech.stop());
+    _storyScreenOpen = true;
+    if (_session != null) _stateService.cancelStateRefresh(_session!.id);
+    ChatSession? selected;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (c) => StoryCheckpointsScreen(
+          service: _checkpoints,
+          characterId: _character.id,
+          onFork: (s) {
+            selected = s;
+            Navigator.pop(c);
+          },
+        ),
+      ),
+    );
+    _storyScreenOpen = false;
+    if (selected != null && mounted && !_hasUnsavedReply) {
+      await _waitForActiveGeneration();
+      if (mounted) {
+        _session = selected;
+        await _load();
+      }
+    }
+  }
+
+  Future<void> _saveCheckpoint(int index, {bool fork = false}) async {
+    if (!_canMutateConversation ||
+        _hasUnsavedReply ||
+        index >= _messages.length) {
+      return;
+    }
+    final session = _currentSession;
+    final anchor = MessageAnchor.capture(session.id, _messages, index);
+    final title = await storyNameDialog(
+      context,
+      fork ? '新分支名称' : '保存剧情存档',
+      initial: session.title,
+    );
+    if (title == null || !mounted) return;
+    try {
+      if (!_canMutateConversation ||
+          _hasUnsavedReply ||
+          _session?.id != session.id ||
+          !anchor.matches(_messages)) {
+        throw StateError('对话已变化，请重新选择');
+      }
+      final prefix = _messages.take(index + 1).toList();
+      final state = await _stateService.loadCurrentState(
+        session.id,
+        _character.id,
+        prefix,
+      );
+      if (!_canMutateConversation ||
+          _hasUnsavedReply ||
+          _session?.id != session.id) {
+        throw StateError('对话已变化，请重新选择');
+      }
+      final checkpoint = await _checkpoints.create(
+        source: session,
+        character: _character,
+        anchor: anchor,
+        title: title,
+        initialState: state.toJson(),
+      );
+      if (fork) {
+        final branch = await _checkpoints.fork(checkpoint.id, title: title);
+        if (mounted) {
+          _session = branch;
+          await _load();
+        }
+      }
+      if (mounted) context.showSnack(context.t(fork ? '剧情分支已创建' : '剧情存档已保存'));
+    } catch (e) {
+      if (mounted) context.showSnack('$e');
+    }
+  }
+
+  Future<void> _playReply(ChatMessage message) async {
+    final capturedSession = _session;
+    if (capturedSession == null) return;
+    final epoch = widget.storage.datasetEpoch;
+    final index = _messages.indexWhere((m) => m.id == message.id);
+    if (index < 0) return;
+    final anchor = MessageAnchor.capture(capturedSession.id, _messages, index);
+    if (_speech.messageId == message.id && _speech.isPlaying) {
+      await _speech.stop();
+      return;
+    }
+    if (message.effectiveReplyState == 'interrupted' &&
+        !await showConfirmDialog(
+          context: context,
+          title: '朗读中断的回复',
+          content: context.t('这条回复未完成，仍然朗读已保存的正文？'),
+        )) {
+      return;
+    }
+    if (!mounted ||
+        !_foreground ||
+        epoch != widget.storage.datasetEpoch ||
+        _session?.id != capturedSession.id ||
+        !anchor.matches(_messages)) {
+      return;
+    }
+    await _speech.playMessage(
+      message: message,
+      sessionId: _currentSession.id,
+      messageId: message.id,
+      variantId: logicalVariantId(message),
+      datasetEpoch: widget.storage.datasetEpoch,
+      profile: _character.voiceProfiles[_speech.platformKey],
+    );
+    if (mounted &&
+        (_speech.error == 'network_unknown' ||
+            _speech.error == 'network_voice_blocked') &&
+        !widget.settings.allowNetworkSpeechVoices) {
+      final allowed = await showConfirmDialog(
+        context: context,
+        title: context.isEnglish ? 'Allow this system voice?' : '允许此次系统语音？',
+        content: context.isEnglish
+            ? 'This voice may send the reply text to its engine provider over the network. Allow for this playback only?'
+            : '该音色可能通过网络向语音引擎服务商发送正文。仅允许此次朗读吗？',
+      );
+      if (allowed &&
+          mounted &&
+          _foreground &&
+          epoch == widget.storage.datasetEpoch &&
+          _session?.id == capturedSession.id &&
+          anchor.matches(_messages)) {
+        _speech.configure(enabled: true, allowNetworkVoices: true);
+        try {
+          await _speech.playMessage(
+            message: message,
+            sessionId: capturedSession.id,
+            messageId: message.id,
+            variantId: logicalVariantId(message),
+            datasetEpoch: epoch,
+            profile: _character.voiceProfiles[_speech.platformKey],
+          );
+        } finally {
+          _configureSpeech();
+        }
+      }
+    }
+    if (mounted && _speech.error != null) {
+      context.showSnack(
+        speechErrorText(_speech.error!, english: context.isEnglish),
+      );
+    }
+  }
+
   final _inputController = TextEditingController();
+  bool _inspirationOpen = false;
+
+  Future<void> _openReplyInspiration() async {
+    if (_inspirationOpen || !_canUseNonDestructiveControls) return;
+    _inspirationOpen = true;
+    final epoch = widget.storage.datasetEpoch;
+    final sessionId = _session?.id;
+    final revision = _conversationRevision;
+    final characterName = _character.name;
+    final recent = List<ChatMessage>.of(_messages);
+    final draft = _inputController.text;
+    const service = ReplyInspirationService();
+    bool current() =>
+        mounted &&
+        _isCurrentConversation(epoch, sessionId) &&
+        revision == _conversationRevision;
+    try {
+      final suggestion = await showModalBottomSheet<String>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        builder: (_) => ReplyInspirationSheet(
+          generate: (mode, token) async {
+            final config = await widget.storage.loadApiConfig();
+            if (!current() || token.isCancelled) throw AiException('请求已取消。');
+            final endpoint = config.effectiveEndpoint(_selectedEndpointId);
+            final error = endpointValidationError(endpoint);
+            if (error != null) throw AiException(error);
+            final messages = service.buildMessages(
+              characterName: characterName,
+              recentMessages: recent,
+              draft: draft,
+              mode: mode,
+            );
+            final raw = await widget.aiService.sendMessage(
+              apiKey: endpoint!.apiKey,
+              baseUrl: endpoint.baseUrl,
+              model: endpoint.model,
+              messages: messages,
+              cancelToken: token,
+              onUsage: (usage) {
+                if (!current()) return;
+                unawaited(
+                  _recordUsage(
+                    requestType: 'characterReplyInspiration',
+                    model: endpoint.model,
+                    usage: usage,
+                    messages: messages,
+                    summaryUpdated: false,
+                  ),
+                );
+              },
+            );
+            if (!current() || token.isCancelled) throw AiException('请求已取消。');
+            return service.parse(raw);
+          },
+        ),
+      );
+      if (suggestion == null || !current()) return;
+      // Preserve the existing draft; insertion is never a send action.
+      final value = _inputController.value;
+      final selection = value.selection;
+      final start = selection.isValid ? selection.end : value.text.length;
+      final inserted = start > 0 && value.text[start - 1] != '\n'
+          ? '\n$suggestion'
+          : suggestion;
+      _inputController.value = TextEditingValue(
+        text: value.text.replaceRange(start, start, inserted),
+        selection: TextSelection.collapsed(offset: start + inserted.length),
+      );
+      _inputFocusNode.requestFocus();
+    } finally {
+      _inspirationOpen = false;
+    }
+  }
+
   final _inputFocusNode = FocusNode();
   final _scrollController = ScrollController();
   Timer? _toolBarTimer;
@@ -149,6 +773,10 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _stateService = CharacterStateService(widget.storage);
+    _configureSpeech();
+    _speech.addListener(_speechChanged);
     _character = widget.character;
     _conversation = ChatConversationController(characterId: _character.id);
     widget.storage.datasetEpochListenable.addListener(_datasetChanged);
@@ -156,6 +784,9 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _datasetChanged() {
+    unawaited(_speech.stop());
+    if (_session != null) _stateService.cancelStateRefresh(_session!.id);
+    _characterState = null;
     _generationId++;
     _conversationRevision++;
     _cancelToken?.cancel();
@@ -182,6 +813,15 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void didUpdateWidget(covariant ChatScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _configureSpeech();
+    if (!widget.settings.showCharacterStateCard ||
+        !widget.settings.autoUpdateCharacterState) {
+      if (_session != null) _stateService.cancelStateRefresh(_session!.id);
+    }
+    if (widget.settings.showCharacterStateCard &&
+        !oldWidget.settings.showCharacterStateCard) {
+      unawaited(_reloadState());
+    }
     if (oldWidget.settings.showCharacterInnerVoice &&
         !widget.settings.showCharacterInnerVoice) {
       _cancelAllInnerVoiceOperations();
@@ -191,6 +831,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    _speech.removeListener(_speechChanged);
+    unawaited(_speech.stop());
+    WidgetsBinding.instance.removeObserver(this);
+    if (_session != null) _stateService.cancelStateRefresh(_session!.id);
     widget.storage.datasetEpochListenable.removeListener(_datasetChanged);
     _generationId++;
     _invalidateSummaryOperations();
@@ -311,6 +955,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _conversation.load(messages: messages, summary: summary);
         _isLoading = false;
       });
+      unawaited(_reloadState());
     } catch (error) {
       if (!current()) return;
       setState(() {
@@ -347,6 +992,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_isCurrentConversation(epoch, session.id) && _hasUnsavedReply) {
       setState(() => _hasUnsavedReply = false);
     }
+    unawaited(_reloadState());
   }
 
   Future<bool> _saveChatSnapshotIfSessionExists(
@@ -608,7 +1254,13 @@ class _ChatScreenState extends State<ChatScreen> {
       }
       if (!_isCurrentGeneration(generationId, sessionId)) return;
       final context = const MemoryContextService().build(
-        entries: memories,
+        entries: session.isStoryBranch && !session.allowSharedCharacterMemories
+            ? memories.where(
+                (entry) =>
+                    entry.scope == MemoryScope.session &&
+                    entry.sessionId == session.id,
+              )
+            : memories,
         characterId: _character.id,
         sessionId: sessionId,
         messages: contextMessages,
@@ -622,6 +1274,23 @@ class _ChatScreenState extends State<ChatScreen> {
         memoryPrompt: context.memoryPrompt,
         messages: contextMessages,
       );
+      if (chatSettings.showCharacterStateCard &&
+          chatSettings.useCharacterStateInPrompt &&
+          widget.storage.usesSessionStorage) {
+        final state = await _stateService.loadCurrentState(
+          session.id,
+          _character.id,
+          contextMessages,
+        );
+        final prompt = buildCharacterStatePrompt(
+          state,
+          showCard: true,
+          useInPrompt: true,
+        );
+        if (prompt.isNotEmpty) {
+          requestMessages.insert(1, {'role': 'system', 'content': prompt});
+        }
+      }
       final streamResponses = widget.settings.streamResponses;
       assistantMessage = ChatMessage(
         role: 'assistant',
@@ -713,6 +1382,18 @@ class _ChatScreenState extends State<ChatScreen> {
         final variantIndex = variantAt == null
             ? null
             : _messages[messageIndex].selectedVariantIndex;
+        _dispatchFormalReceipt(
+          FormalReplyReceipt(
+            operationId: '$sessionId:$generationId',
+            anchor: MessageAnchor.capture(sessionId, messages, messageIndex),
+            epoch: epoch,
+            sessionToken: storageToken,
+            endpointSnapshot: endpoint,
+            characterSnapshot: _character,
+            messages: messages.take(messageIndex + 1).toList(),
+            persisted: true,
+          ),
+        );
         unawaited(
           _generateInnerVoiceForReply(
             endpoint: endpoint,
@@ -1218,6 +1899,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _openSessionList() async {
     if (_isLoading || _isOpeningSessionList) return;
+    unawaited(_speech.stop());
+    if (_session != null) _stateService.cancelStateRefresh(_session!.id);
     final epoch = widget.storage.datasetEpoch;
     setState(() => _isOpeningSessionList = true);
     try {
@@ -1349,6 +2032,7 @@ class _ChatScreenState extends State<ChatScreen> {
     int messageIndex,
     int variantIndex,
   ) async {
+    _stopStoryEffects();
     if (!_canUseNonDestructiveControls) return;
     final epoch = widget.storage.datasetEpoch;
     final sessionId = _session?.id;
@@ -1413,6 +2097,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _editLastUserMessageAndResend() async {
+    _stopStoryEffects();
     if (!_canMutateConversation) return;
     final epoch = widget.storage.datasetEpoch;
     final entrySessionId = _session?.id;
@@ -1650,6 +2335,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _clearChat() async {
+    _stopStoryEffects();
     if (!_canMutateConversation) return;
     final epoch = widget.storage.datasetEpoch;
     final sessionId = _session?.id;
@@ -1950,6 +2636,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _showChatSettings() async {
     if (!_canUseNonDestructiveControls) return;
+    _stopStoryEffects();
     var draft = _character;
     await showModalBottomSheet<void>(
       context: context,
@@ -2019,6 +2706,44 @@ class _ChatScreenState extends State<ChatScreen> {
                   title: Text(context.t('上下文模式')),
                   subtitle: Text(_contextModeSubtitle(draft)),
                 ),
+                if (_session?.isStoryBranch == true)
+                  SwitchListTile(
+                    title: Text(
+                      context.isEnglish
+                          ? 'Use shared character memories in this branch'
+                          : '本分支使用角色共享长期记忆',
+                    ),
+                    subtitle: Text(
+                      context.isEnglish
+                          ? 'May introduce facts from other routes. Source summaries and session memories remain excluded.'
+                          : '可能引入其他路线的信息；来源总结和来源对话记忆仍不继承。',
+                    ),
+                    value: _session!.allowSharedCharacterMemories,
+                    onChanged: (value) async {
+                      final session = _currentSession;
+                      if (value &&
+                          !await showConfirmDialog(
+                            context: context,
+                            title: context.isEnglish
+                                ? 'Enable shared memories?'
+                                : '启用共享长期记忆？',
+                            content: context.isEnglish
+                                ? 'This can expose facts learned after the checkpoint.'
+                                : '这可能带入存档时间之后才获得的信息。',
+                          )) {
+                        return;
+                      }
+                      if (!mounted || _session?.id != session.id) return;
+                      final updated = session.copyWith(
+                        allowSharedCharacterMemories: value,
+                      );
+                      await widget.storage.saveChatSession(updated);
+                      if (mounted) {
+                        setState(() => _session = updated);
+                        setSheetState(() {});
+                      }
+                    },
+                  ),
                 SegmentedButton<bool>(
                   segments: [
                     ButtonSegment(
@@ -2243,6 +2968,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _deleteMessage(int index) async {
+    _stopStoryEffects();
     if (!_canMutateConversation || index < 0 || index >= _messages.length) {
       return;
     }
@@ -2412,12 +3138,27 @@ class _ChatScreenState extends State<ChatScreen> {
                   : null,
               icon: const Icon(Icons.settings_outlined),
             ),
-            IconButton(
-              tooltip: context.t('记忆与世界书'),
-              onPressed: _canUseNonDestructiveControls
-                  ? _openMemoryManager
-                  : null,
-              icon: const Icon(Icons.menu_book_outlined),
+            PopupMenuButton<String>(
+              tooltip: context.t('更多'),
+              icon: const Icon(Icons.more_vert),
+              onSelected: (value) {
+                if (value == 'memory') {
+                  unawaited(_openMemoryManager());
+                } else if (value == 'checkpoints') {
+                  unawaited(_openCheckpoints());
+                } else if (value == 'collection') {
+                  unawaited(_openCollection());
+                }
+              },
+              itemBuilder: (c) => [
+                PopupMenuItem(
+                  value: 'memory',
+                  enabled: _canUseNonDestructiveControls,
+                  child: Text(c.t('记忆与世界书')),
+                ),
+                PopupMenuItem(value: 'checkpoints', child: Text(c.t('剧情存档'))),
+                PopupMenuItem(value: 'collection', child: Text(c.t('回忆册'))),
+              ],
             ),
           ],
         ),
@@ -2446,6 +3187,36 @@ class _ChatScreenState extends State<ChatScreen> {
         children: [
           Column(
             children: [
+              if (widget.settings.showCharacterStateCard &&
+                  _characterState != null)
+                Padding(
+                  padding: EdgeInsets.only(top: _topInset(context)),
+                  child: CharacterStateCard(
+                    key: ValueKey(_session?.id),
+                    view: _characterState!,
+                    busy: _stateBusy,
+                    english: context.isEnglish,
+                    onEdit: (edit) async {
+                      final s = _currentSession;
+                      await _stateService.editState(
+                        s.id,
+                        _character.id,
+                        _messages,
+                        edit,
+                      );
+                      await _reloadState();
+                    },
+                    onRefresh: () => _refreshState(),
+                    onReset: () async {
+                      await _stateService.resetState(
+                        _currentSession.id,
+                        _character.id,
+                        _messages,
+                      );
+                      await _reloadState();
+                    },
+                  ),
+                ),
               Expanded(
                 child: NotificationListener<ScrollNotification>(
                   onNotification: _handleScrollNotification,
@@ -2453,6 +3224,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ),
               ChatInputComposer(
+                onInspiration: _openReplyInspiration,
                 controller: _inputController,
                 focusNode: _inputFocusNode,
                 isGenerating: _isSending,
@@ -2589,6 +3361,24 @@ class _ChatScreenState extends State<ChatScreen> {
                 ? () => _addMessageToMemory(message)
                 : null,
             onCopy: () => _copyMessage(message),
+            onStoryActions:
+                _canMutateConversation &&
+                    !_hasUnsavedReply &&
+                    message.effectiveContent.trim().isNotEmpty
+                ? () => _messageStoryActions(messageIndex)
+                : null,
+            onSpeak:
+                widget.settings.enableCharacterSpeech &&
+                    message.isAssistant &&
+                    message.effectiveContent.trim().isNotEmpty &&
+                    !_isSending &&
+                    !_hasUnsavedReply
+                ? () => _playReply(message)
+                : null,
+            isSpeaking:
+                _speech.messageId == message.id &&
+                _speech.variantId == logicalVariantId(message) &&
+                _speech.isPlaying,
             onDelete: _canMutateConversation
                 ? () => _deleteMessage(messageIndex)
                 : null,
@@ -2719,6 +3509,9 @@ class _MessageBubble extends StatelessWidget {
     this.controlMessage,
     required this.onCopy,
     this.onDelete,
+    this.onStoryActions,
+    this.onSpeak,
+    this.isSpeaking = false,
   });
 
   final ChatMessage message;
@@ -2742,6 +3535,8 @@ class _MessageBubble extends StatelessWidget {
   final ChatMessage? controlMessage;
   final VoidCallback onCopy;
   final VoidCallback? onDelete;
+  final VoidCallback? onStoryActions, onSpeak;
+  final bool isSpeaking;
 
   @override
   Widget build(BuildContext context) {
@@ -2778,6 +3573,9 @@ class _MessageBubble extends StatelessWidget {
               onAddMemory: onAddMemory,
               onCopy: onCopy,
               onDelete: onDelete,
+              onStoryActions: onStoryActions,
+              onSpeak: onSpeak,
+              isSpeaking: isSpeaking,
             ),
         ],
       );
@@ -2861,13 +3659,24 @@ class _MessageBubble extends StatelessWidget {
                         ),
                       ),
                     ],
-                    ...messageBubbleActions(
+                  ],
+                ),
+              if (showFooter)
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: messageBubbleActions(
                       context,
                       onCopy: onCopy,
                       onDelete: onDelete,
                       onAddMemory: onAddMemory,
+                      onStoryActions: onStoryActions,
+                      onSpeak: onSpeak,
+                      isSpeaking: isSpeaking,
+                      scale: 1.2,
                     ),
-                  ],
+                  ),
                 ),
               if (showFooter && controls.isAssistant)
                 ChatVariantControls(
@@ -2892,7 +3701,9 @@ class _MessageBubble extends StatelessWidget {
         },
       ),
     );
-    if (!showInnerVoiceCard) return bubble;
+    if (!showInnerVoiceCard) {
+      return GestureDetector(onLongPress: onStoryActions, child: bubble);
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [

@@ -200,7 +200,20 @@ void main() {
                 ).readAsString(),
               )
               as Map<String, dynamic>;
-      expect(migrated['messages'], rows);
+      final migratedRows = (migrated['messages'] as List)
+          .cast<Map<String, dynamic>>();
+      expect(migratedRows.map((row) => row['id']), chat.map((m) => m.id));
+      expect(chat.every((message) => message.id.isNotEmpty), isTrue);
+      expect(chat.map((message) => message.id).toSet(), hasLength(rows.length));
+      expect([
+        for (final row in migratedRows)
+          Map<String, dynamic>.from(row)..remove('id'),
+      ], rows);
+      final reopened = await storage.loadChatBySession(session);
+      expect(
+        reopened.map((message) => message.id),
+        chat.map((message) => message.id),
+      );
       final evidence = await Directory('${root.path}/chats')
           .list()
           .where(

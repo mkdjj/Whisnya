@@ -12,6 +12,12 @@ import '../models/image_crop_region.dart';
 import '../models/user_profile.dart';
 import '../services/ai_service.dart';
 import '../services/local_storage_service.dart';
+import '../services/memento_service.dart';
+import '../services/story/story_checkpoint_service.dart';
+import '../services/speech/role_speech_controller.dart';
+import '../utils/privacy_password_prompt.dart';
+import 'memento_screen.dart';
+import 'chat/story_checkpoints_screen.dart';
 import '../services/qq/qq_integration_runtime.dart';
 import '../utils/app_i18n.dart';
 import '../utils/character_import_flow.dart';
@@ -52,6 +58,18 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   late AppSettings _settings;
   var _isBusy = false;
+  final _subpageChanges = ValueNotifier<int>(0);
+
+  void _updateState(VoidCallback action) {
+    setState(action);
+    _subpageChanges.value++;
+  }
+
+  @override
+  void dispose() {
+    _subpageChanges.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -68,8 +86,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _applySettings(AppSettings settings) {
-    setState(() => _settings = settings);
+    RoleSpeechController.instance.configure(
+      enabled: settings.enableCharacterSpeech,
+      allowNetworkVoices: settings.allowNetworkSpeechVoices,
+    );
+    _updateState(() => _settings = settings);
     unawaited(_saveSettings(settings));
+  }
+
+  Future<bool> _unlockStory(String characterId, bool required) async {
+    if (!required) return true;
+    final latest = await widget.storage.loadSettings();
+    if (!mounted) return false;
+    return verifyPrivacyPassword(
+      context: context,
+      settings: latest,
+      storage: widget.storage,
+      title: context.t('解锁私密内容'),
+    );
+  }
+
+  Future<void> _openStoryLibrary(bool collection) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => collection
+            ? MementoScreen(
+                service: MementoService(
+                  storage: widget.storage,
+                  authorize: _unlockStory,
+                ),
+                innerVoiceEnabled: _settings.showCharacterInnerVoice,
+              )
+            : StoryCheckpointsScreen(
+                service: StoryCheckpointService(
+                  widget.storage,
+                  authorize: _unlockStory,
+                ),
+              ),
+      ),
+    );
   }
 
   Future<void> _saveSettings(AppSettings settings) async {
@@ -82,7 +137,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _previewSettings(AppSettings settings) {
-    setState(() => _settings = settings);
+    _updateState(() => _settings = settings);
   }
 
   Future<void> _openApiSettings() async {
@@ -327,7 +382,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _runBusy(Future<void> Function() action) async {
     if (_isBusy) return;
-    setState(() => _isBusy = true);
+    _updateState(() => _isBusy = true);
     try {
       await action();
       if (mounted) {
@@ -340,7 +395,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (error) {
       if (mounted) context.showSnack(error.toString());
     } finally {
-      if (mounted) setState(() => _isBusy = false);
+      if (mounted) _updateState(() => _isBusy = false);
     }
   }
 
@@ -917,104 +972,59 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             _tile(
               icon: Icons.key,
-              title: context.t('API 设置'),
-              subtitle: context.t('模型、Base URL、API Key'),
-              onTap: widget.aiService == null ? null : _openApiSettings,
-            ),
-            SwitchListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-              secondary: const Icon(Icons.stream),
-              title: Text(context.t('流式对话')),
-              subtitle: Text(context.t('边返回边显示')),
-              value: _settings.streamResponses,
-              onChanged: (value) =>
-                  _applySettings(_settings.copyWith(streamResponses: value)),
-            ),
-            SwitchListTile(
-              key: const ValueKey('show-reasoning-setting'),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-              secondary: const Icon(Icons.psychology_alt_outlined),
-              title: Text(context.t('显示思考过程')),
-              subtitle: Text(context.t('把 reasoning_content 显示在回复里')),
-              value: _settings.showReasoningContent,
-              onChanged: (value) => _applySettings(
-                _settings.copyWith(showReasoningContent: value),
-              ),
-            ),
-            SwitchListTile(
-              key: const ValueKey('show-character-inner-voice-setting'),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-              secondary: const Icon(Icons.favorite_border),
-              title: Text(context.t('显示角色心声')),
-              subtitle: Text(context.t('为角色回复生成并显示虚构的内心独白')),
-              value: _settings.showCharacterInnerVoice,
-              onChanged: (value) => _applySettings(
-                _settings.copyWith(showCharacterInnerVoice: value),
-              ),
-            ),
-            SwitchListTile(
-              key: const ValueKey('split-role-messages-setting'),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-              secondary: const Icon(Icons.format_line_spacing),
-              title: Text(context.t('连续气泡输出')),
-              subtitle: Text(context.t('按非空行拆分角色回复')),
-              value: _settings.splitRoleMessages,
-              onChanged: (value) =>
-                  _applySettings(_settings.copyWith(splitRoleMessages: value)),
-            ),
-            KeyedSubtree(
-              key: const ValueKey('world-book-settings-tile'),
-              child: _tile(
-                icon: Icons.menu_book_outlined,
-                title: context.t('关键词世界书'),
-                subtitle: context.t('管理全局世界书和关键词词条'),
-                onTap: _openWorldBookSettings,
-              ),
-            ),
-            KeyedSubtree(
-              key: const ValueKey('qq-integration-settings-tile'),
-              child: _tile(
-                icon: Icons.chat_bubble_outline,
-                title: context.t('QQ 私聊自动回复'),
-                subtitle: Platform.isAndroid
-                    ? context.t('NapCat / Termux 本地 Bridge')
-                    : context.t('当前仅 Android 支持手机后台 QQ 接入'),
-                onTap: Platform.isAndroid && widget.qqRuntime != null
-                    ? _openQqIntegration
-                    : null,
-              ),
-            ),
-            KeyedSubtree(
-              key: const ValueKey('memory-context-limit-setting'),
-              child: _tile(
-                icon: Icons.memory_outlined,
-                title: context.t('记忆上下文上限'),
-                subtitle: context.t(
-                  '每次最多注入 ${_settings.memoryContextMaxCharacters} 个字符',
-                ),
-                child: _compactSlider(
-                  value: _settings.memoryContextMaxCharacters.toDouble(),
-                  min: 500,
-                  max: 12000,
-                  divisions: 23,
-                  onChanged: (value) => _previewSettings(
-                    _settings.copyWith(
-                      memoryContextMaxCharacters: value.round(),
-                    ),
-                  ),
-                  onChangeEnd: (value) => _applySettings(
-                    _settings.copyWith(
-                      memoryContextMaxCharacters: value.round(),
-                    ),
-                  ),
-                ),
+              title: context.t('API 与连接'),
+              onTap: () => _openSubSettingsPage(
+                title: 'API 与连接',
+                childrenBuilder: (_) => _connectionSettingsChildren(),
               ),
             ),
             _tile(
-              icon: Icons.language,
-              title: context.t('语言'),
-              subtitle: languageName(context, _settings.languageCode),
-              onTap: _pickLanguage,
+              icon: Icons.chat_bubble_outline,
+              title: context.t('聊天与回复'),
+              onTap: () => _openSubSettingsPage(
+                title: '聊天与回复',
+                childrenBuilder: (_) => _chatSettingsChildren(),
+              ),
+            ),
+            _tile(
+              icon: Icons.record_voice_over_outlined,
+              title: context.t('角色状态与语音'),
+              onTap: () => _openSubSettingsPage(
+                title: '角色状态与语音',
+                childrenBuilder: (_) => _roleSettingsChildren(),
+              ),
+            ),
+            _tile(
+              icon: Icons.collections_bookmark_outlined,
+              title: context.t('记忆与收藏'),
+              onTap: () => _openSubSettingsPage(
+                title: '记忆与收藏',
+                childrenBuilder: (_) => _memorySettingsChildren(),
+              ),
+            ),
+            _tile(
+              icon: Icons.palette_outlined,
+              title: context.t('外观与语言'),
+              onTap: () => _openSubSettingsPage(
+                title: '外观与语言',
+                childrenBuilder: (_) => _appearanceSettingsChildren(),
+              ),
+            ),
+            _tile(
+              icon: Icons.lock_outline,
+              title: context.t('隐私与安全'),
+              onTap: () => _openSubSettingsPage(
+                title: '隐私与安全',
+                childrenBuilder: (_) => _privacySettingsChildren(),
+              ),
+            ),
+            _tile(
+              icon: Icons.backup_outlined,
+              title: context.t('数据与备份'),
+              onTap: () => _openSubSettingsPage(
+                title: '数据与备份',
+                childrenBuilder: (_) => _dataSettingsChildren(),
+              ),
             ),
             _tile(
               icon: Icons.person_outline,
@@ -1022,72 +1032,237 @@ class _SettingsScreenState extends State<SettingsScreen> {
               subtitle: _settings.userProfile.name,
               onTap: _openUserProfileSettings,
             ),
-            _tile(
-              icon: Icons.checkroom_outlined,
-              title: context.t('主题设置'),
-              subtitle: context.t('与界面和颜色相关的一些设置'),
-              onTap: _openThemeSettings,
-            ),
-            _tile(
-              icon: Icons.summarize_outlined,
-              title: context.t('聊天总结'),
-              subtitle: context.t('配置角色聊天和群聊总结项目'),
-              onTap: _openSummarySettings,
-            ),
-            _sectionTitle(context.t('隐私')),
-            _tile(
-              icon: Icons.lock_outline,
-              title: context.t('隐私密码'),
-              subtitle: _settings.hasPrivacyPassword
-                  ? context.t('已设置')
-                  : context.t('未设置'),
-              onTap: _showPasswordSettings,
-            ),
-            _sectionTitle(context.t('数据')),
-            _tile(
-              icon: Icons.archive_outlined,
-              title: context.t('批量导入角色卡'),
-              subtitle: context.t('支持 Whisnya 角色包和常见角色卡文件'),
-              onTap: _isBusy ? null : _importCharacterCards,
-            ),
-            _tile(
-              icon: Icons.backup_outlined,
-              title: context.t('导出全部数据'),
-              subtitle: context.t('默认不包含 API Key'),
-              onTap: _isBusy ? null : _exportAllData,
-            ),
-            _tile(
-              icon: Icons.restore,
-              title: context.t('导入全部数据'),
-              subtitle: context.t('会覆盖当前本地数据'),
-              onTap: _isBusy ? null : _importAllData,
-            ),
-            _tile(
-              icon: Icons.history,
-              title: context.t('恢复上次导入前数据'),
-              subtitle: context.t('回滚点包含私密聊天，仅保存在本机'),
-              onTap: _isBusy ? null : _restorePreviousBackup,
-            ),
-            if (_isBusy)
-              ValueListenableBuilder<String>(
-                valueListenable: widget.storage.backupStage,
-                builder: (context, stage, _) => Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(stage.isEmpty ? '处理中…' : stage),
-                ),
-              ),
           ],
         ),
       ),
     );
   }
 
-  Widget _sectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
-      child: Text(title, style: Theme.of(context).textTheme.titleSmall),
-    );
-  }
+  List<Widget> _connectionSettingsChildren() => [
+    _tile(
+      icon: Icons.key,
+      title: context.t('API 设置'),
+      subtitle: context.t('模型、Base URL、API Key'),
+      onTap: widget.aiService == null ? null : _openApiSettings,
+    ),
+    KeyedSubtree(
+      key: const ValueKey('qq-integration-settings-tile'),
+      child: _tile(
+        icon: Icons.chat_bubble_outline,
+        title: context.t('QQ 私聊自动回复'),
+        subtitle: Platform.isAndroid
+            ? context.t('NapCat / Termux 本地 Bridge')
+            : context.t('当前仅 Android 支持手机后台 QQ 接入'),
+        onTap: Platform.isAndroid && widget.qqRuntime != null
+            ? _openQqIntegration
+            : null,
+      ),
+    ),
+  ];
+
+  List<Widget> _chatSettingsChildren() => [
+    SwitchListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+      secondary: const Icon(Icons.stream),
+      title: Text(context.t('流式对话')),
+      subtitle: Text(context.t('边返回边显示')),
+      value: _settings.streamResponses,
+      onChanged: (value) =>
+          _applySettings(_settings.copyWith(streamResponses: value)),
+    ),
+    SwitchListTile(
+      key: const ValueKey('show-reasoning-setting'),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+      secondary: const Icon(Icons.psychology_alt_outlined),
+      title: Text(context.t('显示思考过程')),
+      subtitle: Text(context.t('把 reasoning_content 显示在回复里')),
+      value: _settings.showReasoningContent,
+      onChanged: (value) =>
+          _applySettings(_settings.copyWith(showReasoningContent: value)),
+    ),
+    SwitchListTile(
+      key: const ValueKey('show-character-inner-voice-setting'),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+      secondary: const Icon(Icons.favorite_border),
+      title: Text(context.t('显示角色心声')),
+      subtitle: Text(context.t('为角色回复生成并显示虚构的内心独白')),
+      value: _settings.showCharacterInnerVoice,
+      onChanged: (value) =>
+          _applySettings(_settings.copyWith(showCharacterInnerVoice: value)),
+    ),
+    SwitchListTile(
+      key: const ValueKey('split-role-messages-setting'),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+      secondary: const Icon(Icons.format_line_spacing),
+      title: Text(context.t('连续气泡输出')),
+      subtitle: Text(context.t('按非空行拆分角色回复')),
+      value: _settings.splitRoleMessages,
+      onChanged: (value) =>
+          _applySettings(_settings.copyWith(splitRoleMessages: value)),
+    ),
+    _tile(
+      icon: Icons.summarize_outlined,
+      title: context.t('聊天总结'),
+      subtitle: context.t('配置角色聊天和群聊总结项目'),
+      onTap: _openSummarySettings,
+    ),
+  ];
+
+  List<Widget> _roleSettingsChildren() => [
+    SwitchListTile(
+      title: Text(context.t('显示角色状态卡')),
+      subtitle: Text(context.t('每个对话独立记录；默认不调用 AI')),
+      value: _settings.showCharacterStateCard,
+      onChanged: (value) =>
+          _applySettings(_settings.copyWith(showCharacterStateCard: value)),
+    ),
+    SwitchListTile(
+      title: Text(context.t('自动更新角色状态')),
+      subtitle: Text(context.t('正式回复保存后额外调用一次 API，可能产生费用')),
+      value: _settings.autoUpdateCharacterState,
+      onChanged: !_settings.showCharacterStateCard
+          ? null
+          : (value) => _applySettings(
+              _settings.copyWith(autoUpdateCharacterState: value),
+            ),
+    ),
+    SwitchListTile(
+      title: Text(context.t('将角色状态加入上下文')),
+      subtitle: Text(context.t('仅状态卡开启时生效')),
+      value: _settings.useCharacterStateInPrompt,
+      onChanged: !_settings.showCharacterStateCard
+          ? null
+          : (value) => _applySettings(
+              _settings.copyWith(useCharacterStateInPrompt: value),
+            ),
+    ),
+    SwitchListTile(
+      title: Text(context.t('启用角色语音')),
+      subtitle: Text(context.t('使用 Android / Windows 系统语音引擎')),
+      value: _settings.enableCharacterSpeech,
+      onChanged: (value) =>
+          _applySettings(_settings.copyWith(enableCharacterSpeech: value)),
+    ),
+    SwitchListTile(
+      title: Text(context.t('自动朗读新回复')),
+      subtitle: Text(context.t('只朗读当前聊天新保存的正式正文')),
+      value: _settings.autoReadAssistantReplies,
+      onChanged: (value) =>
+          _applySettings(_settings.copyWith(autoReadAssistantReplies: value)),
+    ),
+    SwitchListTile(
+      title: Text(context.t('允许需要网络或网络需求未知的音色')),
+      subtitle: Text(context.t('系统引擎可能向其服务商发送正文')),
+      value: _settings.allowNetworkSpeechVoices,
+      onChanged: (value) =>
+          _applySettings(_settings.copyWith(allowNetworkSpeechVoices: value)),
+    ),
+  ];
+
+  List<Widget> _memorySettingsChildren() => [
+    KeyedSubtree(
+      key: const ValueKey('world-book-settings-tile'),
+      child: _tile(
+        icon: Icons.menu_book_outlined,
+        title: context.t('关键词世界书'),
+        subtitle: context.t('管理全局世界书和关键词词条'),
+        onTap: _openWorldBookSettings,
+      ),
+    ),
+    KeyedSubtree(
+      key: const ValueKey('memory-context-limit-setting'),
+      child: _tile(
+        icon: Icons.memory_outlined,
+        title: context.t('记忆上下文上限'),
+        subtitle: context.t(
+          '每次最多注入 ${_settings.memoryContextMaxCharacters} 个字符',
+        ),
+        child: _compactSlider(
+          value: _settings.memoryContextMaxCharacters.toDouble(),
+          min: 500,
+          max: 12000,
+          divisions: 23,
+          onChanged: (value) => _previewSettings(
+            _settings.copyWith(memoryContextMaxCharacters: value.round()),
+          ),
+          onChangeEnd: (value) => _applySettings(
+            _settings.copyWith(memoryContextMaxCharacters: value.round()),
+          ),
+        ),
+      ),
+    ),
+    ListTile(
+      leading: const Icon(Icons.bookmarks_outlined),
+      title: Text(context.t('剧情存档')),
+      onTap: () => _openStoryLibrary(false),
+    ),
+    ListTile(
+      leading: const Icon(Icons.collections_bookmark_outlined),
+      title: Text(context.t('回忆册')),
+      onTap: () => _openStoryLibrary(true),
+    ),
+  ];
+
+  List<Widget> _appearanceSettingsChildren() => [
+    _tile(
+      icon: Icons.language,
+      title: context.t('语言'),
+      subtitle: languageName(context, _settings.languageCode),
+      onTap: _pickLanguage,
+    ),
+    _tile(
+      icon: Icons.checkroom_outlined,
+      title: context.t('主题设置'),
+      subtitle: context.t('与界面和颜色相关的一些设置'),
+      onTap: _openThemeSettings,
+    ),
+  ];
+
+  List<Widget> _privacySettingsChildren() => [
+    _tile(
+      icon: Icons.lock_outline,
+      title: context.t('隐私密码'),
+      subtitle: _settings.hasPrivacyPassword
+          ? context.t('已设置')
+          : context.t('未设置'),
+      onTap: _showPasswordSettings,
+    ),
+  ];
+
+  List<Widget> _dataSettingsChildren() => [
+    _tile(
+      icon: Icons.archive_outlined,
+      title: context.t('批量导入角色卡'),
+      subtitle: context.t('支持 Whisnya 角色包和常见角色卡文件'),
+      onTap: _isBusy ? null : _importCharacterCards,
+    ),
+    _tile(
+      icon: Icons.backup_outlined,
+      title: context.t('导出全部数据'),
+      subtitle: context.t('默认不包含 API Key'),
+      onTap: _isBusy ? null : _exportAllData,
+    ),
+    _tile(
+      icon: Icons.restore,
+      title: context.t('导入全部数据'),
+      subtitle: context.t('会覆盖当前本地数据'),
+      onTap: _isBusy ? null : _importAllData,
+    ),
+    _tile(
+      icon: Icons.history,
+      title: context.t('恢复上次导入前数据'),
+      subtitle: context.t('回滚点包含私密聊天，仅保存在本机'),
+      onTap: _isBusy ? null : _restorePreviousBackup,
+    ),
+    if (_isBusy)
+      ValueListenableBuilder<String>(
+        valueListenable: widget.storage.backupStage,
+        builder: (context, stage, _) => Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(stage.isEmpty ? '处理中…' : stage),
+        ),
+      ),
+  ];
 
   Future<void> _openThemeSettings() {
     return _openSubSettingsPage(
@@ -1109,35 +1284,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }) {
     return Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => StatefulBuilder(
-          builder: (pageContext, setPageState) {
-            void refresh() {
-              if (pageContext.mounted) setPageState(() {});
-            }
+        builder: (_) => ListenableBuilder(
+          listenable: _subpageChanges,
+          builder: (_, _) => StatefulBuilder(
+            builder: (pageContext, setPageState) {
+              void refresh() {
+                if (pageContext.mounted) setPageState(() {});
+              }
 
-            return ColoredBox(
-              color: Colors.white,
-              child: AppBackground(
-                settings: _settings,
-                child: Scaffold(
-                  backgroundColor: Colors.transparent,
-                  appBar: AppBar(
-                    title: Text(pageContext.t(title)),
+              return ColoredBox(
+                color: Colors.white,
+                child: AppBackground(
+                  settings: _settings,
+                  child: Scaffold(
                     backgroundColor: Colors.transparent,
-                    elevation: 0,
-                    scrolledUnderElevation: 0,
-                    surfaceTintColor: Colors.transparent,
-                  ),
-                  body: AdaptivePage(
-                    child: ListView(
-                      padding: const EdgeInsets.fromLTRB(0, 12, 0, 80),
-                      children: childrenBuilder(refresh),
+                    appBar: AppBar(
+                      title: Text(pageContext.t(title)),
+                      backgroundColor: Colors.transparent,
+                      elevation: 0,
+                      scrolledUnderElevation: 0,
+                      surfaceTintColor: Colors.transparent,
+                    ),
+                    body: AdaptivePage(
+                      child: ListView(
+                        padding: const EdgeInsets.fromLTRB(0, 12, 0, 80),
+                        children: childrenBuilder(refresh),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
       ),
     );

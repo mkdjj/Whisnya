@@ -1,5 +1,12 @@
 # Whisnya
 
+## 1.5.3+25
+
+- 新增剧情存档与分支、角色状态卡、回忆册和角色语音。
+- 新增手动触发的回复灵感、支持暂停与手动接管的双 AI 故事演绎，以及有证据的剧情事实记录。
+- 设置按分类拆分为下级页面，调整聊天操作按钮与演绎页面布局。
+- 修复手指放在演绎气泡上无法滚动，以及折叠栏与滚动状态冲突导致的末尾灰块。
+
 ## 1.5.1+23
 
 - 已删除 QQ 通知监听、RemoteInput 和无障碍回复链路。
@@ -90,7 +97,7 @@ APK 会生成在：
 build/app/outputs/flutter-apk/app-release.apk
 ```
 
-当前发布版本是 `1.5.1+23`。每次公开发版都要同时递增 `versionName`
+当前源码版本是 `1.5.3+25`。每次公开发版都要同时递增 `versionName`
 和 `versionCode`。Android 包名是 `com.mkdjj.whisnya`。
 
 如果要公开分发，请先配置自己的 Android 签名文件：
@@ -106,7 +113,7 @@ Copy-Item android/key.properties.example android/key.properties
 推荐发布文件名：
 
 ```text
-Whisnya-android-v1.5.1-release.apk
+Whisnya-android-v1.5.3-release.apk
 ```
 
 ## 其他平台
@@ -128,7 +135,7 @@ build/windows/x64/runner/Release/
 推荐 Windows 发布文件名：
 
 ```text
-Whisnya-windows-x64-v1.5.1.zip
+Whisnya-windows-x64-v1.5.3.zip
 ```
 
 iOS 或 macOS 需要先生成平台文件，然后在安装了 Xcode 的 macOS 上打包：

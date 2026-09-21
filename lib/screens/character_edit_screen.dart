@@ -8,6 +8,8 @@ import 'package:flutter/services.dart';
 
 import '../models/api_config.dart';
 import '../models/app_character.dart';
+import '../models/character_voice_profile.dart';
+import 'character_voice_settings_screen.dart';
 import '../models/chat_bubble_theme.dart';
 import '../models/image_crop_region.dart';
 import '../services/local_storage_service.dart';
@@ -43,6 +45,7 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
   late final TextEditingController _extraPromptController;
 
   var _apiConfig = ApiConfig();
+  Map<String, CharacterVoiceProfile> _voiceProfiles = {};
   var _defaultEndpointId = '';
   var _roleBubblePresetId = '';
   var _userBubblePresetId = '';
@@ -56,6 +59,7 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
   void initState() {
     super.initState();
     final character = widget.character;
+    _voiceProfiles = Map.of(character?.voiceProfiles ?? {});
     _draftCharacterId =
         character?.id ?? 'character_${DateTime.now().microsecondsSinceEpoch}';
     _nameController = TextEditingController(text: character?.name ?? '');
@@ -128,6 +132,16 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
       openingMessage: _openingMessageController.text.trim(),
       extraPrompt: _extraPromptController.text.trim(),
       defaultEndpointId: _defaultEndpointId,
+      voiceProfiles: _voiceProfiles,
+      worldBookIds: existing?.worldBookIds ?? const [],
+      chatSummaryMessageLimit:
+          existing?.chatSummaryMessageLimit ??
+          AppCharacter.defaultChatSummaryMessageLimit,
+      topBarOpacity: existing?.topBarOpacity ?? 0,
+      sourceType: existing?.sourceType ?? '',
+      sourceNovelId: existing?.sourceNovelId ?? '',
+      sourceNovelTitle: existing?.sourceNovelTitle ?? '',
+      sourceNovelRoleName: existing?.sourceNovelRoleName ?? '',
       useFullChatContext: existing?.useFullChatContext ?? true,
       isPinned: existing?.isPinned ?? false,
       isHidden: existing?.isHidden ?? false,
@@ -446,6 +460,29 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
             ),
             const SizedBox(height: 12),
             _multiLineField(_descriptionController, context.t('简介')),
+            ExpansionTile(
+              title: Text(context.t('角色语音')),
+              children: [
+                ListTile(
+                  title: Text(context.t('系统音色与试听')),
+                  subtitle: Text(context.t('音色仅适用于当前设备平台，保存角色后生效')),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () async {
+                    final profiles = await Navigator.of(context)
+                        .push<Map<String, CharacterVoiceProfile>>(
+                          MaterialPageRoute(
+                            builder: (_) => CharacterVoiceSettingsScreen(
+                              profiles: _voiceProfiles,
+                            ),
+                          ),
+                        );
+                    if (profiles != null && mounted) {
+                      setState(() => _voiceProfiles = profiles);
+                    }
+                  },
+                ),
+              ],
+            ),
             const SizedBox(height: 12),
             _multiLineField(_personalityController, context.t('性格')),
             const SizedBox(height: 12),

@@ -277,6 +277,10 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
                           value: AiUsageCategory.theater,
                           label: Text(sheetContext.t('群聊')),
                         ),
+                        ButtonSegment(
+                          value: AiUsageCategory.autoStory,
+                          label: Text(sheetContext.t('演绎')),
+                        ),
                       ],
                       selected: {category},
                       onSelectionChanged: (value) =>

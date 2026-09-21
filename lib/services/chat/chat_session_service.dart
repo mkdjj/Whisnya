@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../../models/chat_message.dart';
+import '../../models/message_anchor.dart';
 import '../../models/chat_session.dart';
 import '../../models/chat_summary.dart';
 import '../../models/character_memory_entry.dart';
@@ -10,6 +11,7 @@ import '../storage/json_file_store.dart';
 import '../storage/storage_paths.dart';
 import '../storage/session_operation_coordinator.dart';
 import 'chat_summary_service.dart';
+import '../story/character_state_storage.dart';
 
 class ChatSessionService {
   ChatSessionService({required Directory root, JsonFileStore? jsonStore})
@@ -142,6 +144,7 @@ class ChatSessionService {
         openingMessageInitialized:
             normalized.openingMessageInitialized ||
             sessions[index].openingMessageInitialized,
+        allowSharedCharacterMemories: normalized.allowSharedCharacterMemories,
       );
       return sessions;
     });
@@ -196,7 +199,7 @@ class ChatSessionService {
     final latestSource = sessions[sourceIndex];
     final messages = await loadChatBySession(latestSource);
     final now = DateTime.now();
-    final copy = ChatSession(
+    final copy = latestSource.copyWith(
       id: _newSessionId(),
       characterId: latestSource.characterId,
       title: '${ChatSession.normalizedTitle(latestSource.title)}（副本）',
@@ -222,6 +225,13 @@ class ChatSessionService {
       latestSource.characterId,
       latestSource.id,
       copy.id,
+    );
+    await cloneStateFile(
+      _paths.root,
+      _store,
+      latestSource.id,
+      copy.id,
+      copy.characterId,
     );
     await _updateSessions((sessions) => sessions..add(copy));
     return copy;
@@ -269,6 +279,7 @@ class ChatSessionService {
     });
     await _deleteIfExists(_paths.chatBySession(session.id));
     await _deleteIfExists(_paths.summaryBySession(session.id));
+    await _deleteStateFiles(session.id);
     await deleteSessionMemories(session.characterId, session.id);
   }
 
@@ -319,22 +330,91 @@ class ChatSessionService {
 
   Future<List<ChatMessage>> loadChatBySession(ChatSession session) async {
     _validateSession(session);
-    final decoded = await _store.read(_paths.chatBySession(session.id), {
+    final file = _paths.chatBySession(session.id);
+    // Normal reads retain the store's recovery/admission/instrumentation path.
+    // Only legacy identity migration needs a locked re-read before patching.
+    final snapshot = await _store.read(file, <String, dynamic>{
       'sessionId': session.id,
       'characterId': session.characterId,
       'messages': <dynamic>[],
     });
-    if (decoded is! Map<String, dynamic>) {
-      throw const FormatException('Invalid session chat file');
-    }
-    final messages = decoded['messages'];
-    if (messages is! List) {
+    if (snapshot is! Map<String, dynamic> || snapshot['messages'] is! List) {
       throw const FormatException('Invalid session messages');
     }
-    return messages
-        .whereType<Map<String, dynamic>>()
-        .map(ChatMessage.fromJson)
-        .toList();
+    final rows = snapshot['messages'] as List<dynamic>;
+    bool stableIds(List<dynamic> values) {
+      final seen = <String>{};
+      for (final row in values.whereType<Map<String, dynamic>>()) {
+        final id = row['id'];
+        if (id is! String || id.isEmpty || !seen.add(id)) return false;
+      }
+      return true;
+    }
+
+    if (stableIds(rows) &&
+        rows.whereType<Map<String, dynamic>>().every((row) {
+          final variants = row['variants'];
+          return variants is! List<dynamic> || stableIds(variants);
+        })) {
+      return rows
+          .whereType<Map<String, dynamic>>()
+          .map(ChatMessage.fromJson)
+          .toList();
+    }
+    return _store.synchronized(file, () async {
+      if (await _store.recoveryNeeded(file)) await _store.recover(file);
+      final decoded = await file.exists()
+          ? jsonDecode(await file.readAsString())
+          : {
+              'sessionId': session.id,
+              'characterId': session.characterId,
+              'messages': <dynamic>[],
+            };
+      if (decoded is! Map<String, dynamic>) {
+        throw const FormatException('Invalid session chat file');
+      }
+      final messages = decoded['messages'];
+      if (messages is! List) {
+        throw const FormatException('Invalid session messages');
+      }
+      // Patch raw rows rather than round-tripping models: unknown and damaged
+      // candidate fields remain available for recovery and future versions.
+      var changed = false;
+      final ids = <String>{};
+      for (final row in messages.whereType<Map<String, dynamic>>()) {
+        final existing = row['id'];
+        if (existing is! String || existing.isEmpty || !ids.add(existing)) {
+          var id = newStoryId();
+          while (!ids.add(id)) {
+            id = newStoryId();
+          }
+          row['id'] = id;
+          changed = true;
+        }
+        final candidates = row['variants'];
+        if (candidates is! List) continue;
+        final variantIds = <String>{};
+        for (final variant in candidates.whereType<Map<String, dynamic>>()) {
+          final existingVariant = variant['id'];
+          if (existingVariant is String &&
+              existingVariant.isNotEmpty &&
+              variantIds.add(existingVariant)) {
+            continue;
+          }
+          var id = newStoryId();
+          while (!variantIds.add(id)) {
+            id = newStoryId();
+          }
+          variant['id'] = id;
+          changed = true;
+        }
+      }
+      if (changed) await _store.writeNow(file, decoded, compact: true);
+      return messages
+          .whereType<Map<String, dynamic>>()
+          .map(ChatMessage.fromJson)
+          .toList();
+    });
   }
 
   Future<void> saveChatBySession(
@@ -359,7 +439,7 @@ class ChatSessionService {
     bool touchSession = true,
   }) async {
     _validateSession(session);
-    messages = messages
+    messages = assignMessageIds(messages)
         .where((m) => !m.isAssistant || m.effectiveContent.trim().isNotEmpty)
         .toList();
     final captured = token ?? captureToken(session);
@@ -882,6 +962,11 @@ class ChatSessionService {
         _paths.summaryBySession(current.id),
         summary.toJson(),
       );
+      final rawState = await _store.read(
+        _paths.characterState(current.id),
+        null,
+      );
+      _validateStateOwnership(current, rawState);
       if (rawChat is! Map<String, dynamic> ||
           rawChat['messages'] is! List ||
           rawSummary is! Map<String, dynamic>) {
@@ -893,11 +978,13 @@ class ChatSessionService {
         'session': current.toJson(),
         'chat': rawChat,
         'summary': rawSummary,
+        'state': rawState,
       });
       final next = summaryAfterChatClear(summary, DateTime.now());
       try {
         await _writeSummary(next);
         await _writeChat(current, const []);
+        await _deleteStateFiles(current.id);
         await _updateSessions((latest) {
           final index = latest.indexWhere((s) => s.id == current.id);
           if (index < 0) throw StateError('对话不存在');
@@ -914,20 +1001,22 @@ class ChatSessionService {
     });
   }
 
-  Future<void> recoverPendingClears() async {
+  Future<void> recoverPendingClears({bool pruneOrphanState = false}) async {
     final directory = _clearJournal('placeholder').parent;
-    if (!await directory.exists()) return;
     final ids = <String>{};
-    await for (final entry in directory.list()) {
-      final name = entry.uri.pathSegments.last;
-      final match = RegExp(
-        r'^clear_([A-Za-z0-9_-]+)\.json(?:\.(?:bak|tmp))?$',
-      ).firstMatch(name);
-      if (match != null) ids.add(match[1]!);
+    if (await directory.exists()) {
+      await for (final entry in directory.list()) {
+        final name = entry.uri.pathSegments.last;
+        final match = RegExp(
+          r'^clear_([A-Za-z0-9_-]+)\.json(?:\.(?:bak|tmp))?$',
+        ).firstMatch(name);
+        if (match != null) ids.add(match[1]!);
+      }
     }
     for (final id in ids) {
       await _run(id, () async {});
     }
+    if (pruneOrphanState) await _pruneOrphanState();
   }
 
   Future<void> _recoverClear(String id) async {
@@ -951,6 +1040,9 @@ class ChatSessionService {
     }
     final chat = value['chat'];
     final summary = value['summary'];
+    if (value.containsKey('state')) {
+      _validateStateOwnership(session, value['state']);
+    }
     if (chat is! Map<String, dynamic> || summary is! Map<String, dynamic>) {
       throw const FormatException('Invalid clear transaction snapshot');
     }
@@ -962,6 +1054,14 @@ class ChatSessionService {
     if (indexed == null) throw StateError('Clear transaction target missing');
     await _store.write(_paths.summaryBySession(id), summary);
     await _store.write(_paths.chatBySession(id), chat, compact: true);
+    if (value.containsKey('state')) {
+      final state = value['state'];
+      if (state == null) {
+        await _deleteStateFiles(id);
+      } else {
+        await _store.write(_paths.characterState(id), state);
+      }
+    }
     await _updateSessions((sessions) {
       final index = sessions.indexWhere((s) => s.id == id);
       if (index < 0) throw StateError('Clear transaction target missing');
@@ -973,6 +1073,57 @@ class ChatSessionService {
     });
     await journal.delete();
   }
+
+  void _validateStateOwnership(ChatSession session, dynamic state) {
+    if (state != null &&
+        (state is! Map<String, dynamic> ||
+            state['sessionId'] != session.id ||
+            state['characterId'] != session.characterId)) {
+      throw const FormatException('Clear state ownership mismatch');
+    }
+  }
+
+  Future<void> _deleteStateFiles(String id) async {
+    final file = _paths.characterState(id);
+    // Remove recovery candidates too; a later read must not resurrect cleared state.
+    for (final path in [file.path, '${file.path}.bak', '${file.path}.tmp']) {
+      await _deleteIfExists(File(path));
+    }
+  }
+
+  Future<void> _pruneOrphanState() => _store.maintain(() async {
+    if (!await _paths.chatSessions.exists()) return;
+    final raw = await _store.read(_paths.chatSessions, null);
+    if (raw is! List ||
+        raw.any(
+          (r) =>
+              r is! Map<String, dynamic> ||
+              r['id'] is! String ||
+              !_isSafeId(r['id'] as String),
+        )) {
+      return; // An unreadable index is not evidence that a session was deleted.
+    }
+    final indexed = raw
+        .cast<Map<String, dynamic>>()
+        .map((r) => r['id'])
+        .toSet();
+    final directory = _paths.characterState('placeholder').parent;
+    if (!await directory.exists()) return;
+    await for (final entry in directory.list(followLinks: false)) {
+      if (entry is! File) continue;
+      final match = RegExp(
+        r'^([A-Za-z0-9_-]+)\.json(?:\.(?:bak|tmp))?$',
+      ).firstMatch(entry.uri.pathSegments.last);
+      if (match == null || indexed.contains(match[1])) continue;
+      // Quarantine instead of destroying a potentially recoverable old orphan.
+      var target = '${entry.path}.orphan';
+      var suffix = 0;
+      while (await File(target).exists()) {
+        target = '${entry.path}.orphan.${++suffix}';
+      }
+      await entry.rename(target);
+    }
+  });
 
   void _validateClearSnapshot(
     ChatSession session,

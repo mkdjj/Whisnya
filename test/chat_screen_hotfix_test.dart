@@ -24,6 +24,128 @@ import 'package:whisnya/widgets/message_bubble_parts.dart';
 import 'package:whisnya/widgets/chat_bubble.dart';
 
 void main() {
+  testWidgets('closing inspiration during API loading prevents a request', (
+    tester,
+  ) async {
+    final character = _character();
+    final storage = _SessionStorage(
+      character: character,
+      sessions: [_session(openingMessageInitialized: true)],
+    );
+    final gateway = _SummaryGateway();
+    await _pumpChat(tester, storage, character, gateway: gateway);
+    final gate = Completer<void>();
+    storage.apiLoadGate = gate;
+    await tester.tap(find.byTooltip('回复灵感'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.byTooltip('关闭'));
+    gate.complete();
+    await tester.pumpAndSettle();
+    expect(gateway.summaryCallCount, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'inspiration does not interrupt an active reply on a narrow screen',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final character = _character();
+      final storage = _SessionStorage(
+        character: character,
+        sessions: [_session(openingMessageInitialized: true)],
+      );
+      final gateway = _InspirationGateway();
+      addTearDown(gateway.close);
+      await _pumpChat(tester, storage, character, gateway: gateway);
+      await _send(tester, '你好');
+      await _pumpUntil(tester, () => gateway.callCount == 1);
+      await tester.tap(find.byTooltip('回复灵感'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('我在这里'));
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.stop), findsOneWidget);
+      expect(storage.chats['session'], hasLength(1));
+      gateway.controllers.single.add('继续回复');
+      await gateway.controllers.single.close();
+      await tester.pumpAndSettle();
+      expect(storage.chats['session']!.last.content, '继续回复');
+      expect(storage.usageTypes, contains('characterReplyInspiration'));
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        '我在这里',
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('inspiration is opt-in and inserts into draft without sending', (
+    tester,
+  ) async {
+    final character = _character();
+    final storage = _SessionStorage(
+      character: character,
+      sessions: [_session(openingMessageInitialized: true)],
+      chat: [_message('assistant', '你还好吗？')],
+    );
+    final gateway = _SummaryGateway();
+    await _pumpChat(tester, storage, character, gateway: gateway);
+    expect(gateway.summaryCallCount, 0);
+    await tester.enterText(find.byType(TextField), '原有草稿');
+    tester.widget<TextField>(find.byType(TextField)).controller!.selection =
+        const TextSelection(baseOffset: 0, extentOffset: 4);
+    await tester.tap(find.byTooltip('回复灵感'));
+    await _pumpUntil(tester, () => gateway.summaryCallCount == 1);
+    gateway.completeSummary(
+      '[{"label":"温柔","text":"我在这里"},{"label":"调侃","text":"舍不得？"},{"label":"推进","text":"出去走走"}]',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('我在这里'));
+    await tester.pumpAndSettle();
+    final draft = tester
+        .widget<TextField>(find.byType(TextField))
+        .controller!
+        .text;
+    expect(draft, contains('原有草稿'));
+    expect(draft, contains('我在这里'));
+    expect(storage.chats['session'], hasLength(1));
+    expect(gateway.summaryCallCount, 1);
+    expect(find.byIcon(Icons.stop), findsNothing);
+  });
+
+  testWidgets('message actions share an enlarged row on a narrow screen', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final character = _character();
+    final storage = _SessionStorage(
+      character: character,
+      sessions: [_session(openingMessageInitialized: true)],
+      chat: [_message('assistant', '测试回复')],
+    );
+    await _pumpChat(tester, storage, character);
+    final copy = find.byTooltip('复制消息');
+    final story = find.byTooltip('剧情与回忆');
+    expect(copy, findsOneWidget);
+    expect(story, findsOneWidget);
+    expect(tester.getCenter(copy).dy, tester.getCenter(story).dy);
+    expect(tester.getSize(copy), const Size(48, 48));
+    expect(
+      tester.widget<Icon>(find.byIcon(Icons.copy)).size,
+      closeTo(19.2, .001),
+    );
+    expect(tester.takeException(), isNull);
+    await tester.tap(story);
+    await tester.pumpAndSettle();
+    expect(find.byType(BottomSheet), findsOneWidget);
+  });
+
   testWidgets('network failure flushes and persists the interrupted reply', (
     tester,
   ) async {
@@ -924,13 +1046,10 @@ void main() {
           .onPressed,
       isNull,
     );
+    expect(find.byIcon(Icons.menu_book_outlined), findsNothing);
     expect(
-      tester
-          .widget<IconButton>(
-            find.widgetWithIcon(IconButton, Icons.menu_book_outlined),
-          )
-          .onPressed,
-      isNotNull,
+      tester.getCenter(find.byIcon(Icons.more_vert)).dx,
+      greaterThan(tester.getCenter(find.byIcon(Icons.settings_outlined)).dx),
     );
     expect(
       tester
@@ -977,7 +1096,20 @@ void main() {
     Navigator.of(tester.element(find.byType(BottomSheet))).pop();
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.menu_book_outlined));
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<PopupMenuItem<String>>(
+            find.ancestor(
+              of: find.text('记忆与世界书'),
+              matching: find.byType(PopupMenuItem<String>),
+            ),
+          )
+          .enabled,
+      isTrue,
+    );
+    await tester.tap(find.text('记忆与世界书'));
     await tester.pumpAndSettle();
     expect(find.byType(MemoryManagerScreen), findsOneWidget);
     Navigator.of(tester.element(find.byType(MemoryManagerScreen))).pop();
@@ -2050,6 +2182,22 @@ class _RecordingGateway implements AiGateway {
   }) async* {
     this.messages = messages;
     yield '回复';
+  }
+}
+
+final class _InspirationGateway extends _ControlledGateway {
+  @override
+  Future<String> sendMessage({
+    required String apiKey,
+    required String baseUrl,
+    required String model,
+    required List<Map<String, String>> messages,
+    double temperature = 0.8,
+    AiCancelToken? cancelToken,
+    void Function(AiUsage usage)? onUsage,
+  }) async {
+    onUsage?.call(const AiUsage());
+    return '[{"label":"温柔","text":"我在这里"},{"label":"调侃","text":"舍不得？"},{"label":"推进","text":"出去走走"}]';
   }
 }
 
