@@ -837,4 +837,114 @@ void main() {
       expect(edited.turns.last.source, StoryTurnSource.manual);
     },
   );
+  for (final manual in [false, true]) {
+    test(
+      'last-turn replacement preserves earlier evidence (manual=$manual)',
+      () async {
+        final turns = List.generate(
+          4,
+          (i) => StoryTurn.fromJson({
+            ...turnFixture(i).toJson(),
+            if (manual && i == 3) 'source': 'manual',
+          }),
+        );
+        StoryFact fact(int ordinal) => StoryFact(
+          text: 'Fact $ordinal',
+          evidenceTurnIds: ['turn-$ordinal'],
+          evidence: [
+            StoryEvidence(turnId: 'turn-$ordinal', quote: 'Hello $ordinal'),
+          ],
+        );
+        final earlier = fact(0), replaced = fact(3);
+        await store.mutateStory(
+          'story-1',
+          (doc) => AutoStoryDocument.fromJson({
+            ...doc
+                .copyWith(
+                  status: StoryStatus.paused,
+                  turns: turns,
+                  directorCheckpoints: [
+                    for (final ordinal in [1, 3])
+                      DirectorCheckpoint(
+                        checkpointId: 'cp-$ordinal',
+                        coveredThroughOrdinal: ordinal,
+                        coveredTurnIdsHash: storyTurnsHash(
+                          turns.take(ordinal + 1).toList(),
+                        ),
+                        planVersion: 1,
+                        summary: 'Summary $ordinal',
+                        confirmedFacts: [ordinal == 1 ? earlier : replaced],
+                      ),
+                  ],
+                  currentCheckpointId: 'cp-3',
+                  lockedFacts: [earlier, replaced],
+                  events: [
+                    for (final ordinal in [1, 3])
+                      StoryEvent(
+                        eventId: 'scene-$ordinal',
+                        kind: 'sceneTransition',
+                        effectiveAfterOrdinal: ordinal,
+                        content: 'Scene $ordinal',
+                        sourceCheckpointId: 'cp-$ordinal',
+                        status: 'applied',
+                      ),
+                    StoryEvent(
+                      eventId: 'instruction',
+                      kind: 'directorInstruction',
+                      effectiveAfterOrdinal: 3,
+                      content: 'Keep the pace',
+                    ),
+                  ],
+                )
+                .toJson(),
+            'replanSummary': 'Summary 3',
+            'replanCoveredThroughOrdinal': 3,
+          }),
+        );
+        final before = await store.loadStory('story-1');
+        if (manual) {
+          await store.editLastManualTurn('story-1', 'Changed');
+        } else {
+          final token = await store.reserveRequest(
+            'story-1',
+            RequestPurpose.regenerate,
+            replaceLast: true,
+          );
+          await store.commitTurn(
+            token,
+            StoryTurn(
+              turnId: 'replacement',
+              ordinal: 3,
+              speakerId: 'B',
+              content: 'Changed',
+              requestId: token.requestId,
+              replacesTurnId: 'turn-3',
+            ),
+          );
+        }
+        final after = await store.loadStory('story-1');
+        expect(after.turns.map((t) => t.content), [
+          'Hello 0',
+          'Hello 1',
+          'Hello 2',
+          'Changed',
+        ]);
+        expect(after.turns.last.replacesTurnId, 'turn-3');
+        expect(
+          after.turns.last.source,
+          manual ? StoryTurnSource.manual : StoryTurnSource.ai,
+        );
+        expect(after.currentCheckpointId, 'cp-1');
+        expect(after.directorCheckpoints.map((c) => c.checkpointId), ['cp-1']);
+        expect(after.lockedFacts.map((f) => f.text), ['Fact 0']);
+        expect(after.events.map((e) => e.eventId), ['scene-1', 'instruction']);
+        expect(after.replanSummary, 'Summary 1');
+        expect(after.replanCoveredThroughOrdinal, 1);
+        expect(after.status, StoryStatus.paused);
+        expect(after.goalStatus, 'pending');
+        expect(after.runGeneration, before.runGeneration + 1);
+        expect(after.usageTotals.attempts, manual ? 0 : 1);
+      },
+    );
+  }
 }

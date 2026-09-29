@@ -237,7 +237,7 @@ class AutoStoryListScreenState extends State<AutoStoryListScreen> {
                       0,
                       homeListTop(context) - kToolbarHeight,
                       0,
-                      148,
+                      24,
                     ),
                     itemCount: _stories.length,
                     itemBuilder: (context, index) {

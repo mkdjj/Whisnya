@@ -99,7 +99,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.settings_outlined));
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byWidgetPredicate(
+        (w) => w is PopupMenuItem<String> && w.value == 'settings',
+      ),
+    );
     await tester.pumpAndSettle();
     final setting = find.byKey(
       const ValueKey('chat-background-transparency-setting'),
@@ -149,7 +155,13 @@ void main() {
     );
     expect(appBar.backgroundColor!.a, closeTo(0.25, 0.001));
 
-    await tester.tap(find.byIcon(Icons.settings_outlined));
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byWidgetPredicate(
+        (w) => w is PopupMenuItem<String> && w.value == 'settings',
+      ),
+    );
     await tester.pumpAndSettle();
     final setting = find.byKey(
       const ValueKey('chat-top-bar-transparency-setting'),
@@ -189,7 +201,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.settings_outlined));
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byWidgetPredicate(
+        (w) => w is PopupMenuItem<String> && w.value == 'settings',
+      ),
+    );
     await tester.pumpAndSettle();
 
     final rolePreset = find.byKey(

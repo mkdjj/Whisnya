@@ -230,7 +230,7 @@ class NovelScreenState extends State<NovelScreen> {
               0,
               homeListTop(context) - kToolbarHeight,
               0,
-              50,
+              24,
             ),
             gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
               maxCrossAxisExtent: 320,
@@ -289,7 +289,7 @@ class NovelScreenState extends State<NovelScreen> {
               0,
               homeListTop(context) - kToolbarHeight,
               0,
-              50,
+              24,
             ),
             itemCount: _books.length,
             separatorBuilder: (context, index) => const SizedBox(height: 8),

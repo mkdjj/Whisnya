@@ -47,6 +47,48 @@ final class NovelReaderController {
     _chapters = [...chapters];
   }
 
+  NovelBook bookForCatalog(List<NovelChapter> chapters, String rule) {
+    int locate(int offset) {
+      final index = chapters.lastIndexWhere((c) => c.startOffset <= offset);
+      return index < 0 ? 0 : index;
+    }
+
+    final current = _chapters.isEmpty ? null : _chapters[safeChapterIndex];
+    final offset = current == null
+        ? 0
+        : current.startOffset +
+              ((current.endOffset - current.startOffset) * _readProgress)
+                  .round();
+    final index = locate(offset);
+    final target = chapters.isEmpty ? null : chapters[index];
+    final bookmarks =
+        _book.bookmarkedChapterIndexes
+            .where((i) => i >= 0 && i < _chapters.length)
+            .map((i) => locate(_chapters[i].startOffset))
+            .toSet()
+            .toList()
+          ..sort();
+    return _book.copyWith(
+      chapterRule: rule,
+      chapterIndex: index,
+      readingProgress: _book.readingMode != 1
+          ? _readProgress
+          : target == null || target.endOffset <= target.startOffset
+          ? 0
+          : ((offset - target.startOffset) /
+                    (target.endOffset - target.startOffset))
+                .clamp(0, 1),
+      bookmarkedChapterIndexes: chapters.isEmpty ? [] : bookmarks,
+      manualChapterTitles: const [],
+    );
+  }
+
+  void applyCatalog(NovelBook book, List<NovelChapter> chapters) {
+    _book = book;
+    _readProgress = book.readingProgress;
+    replaceChapters(chapters);
+  }
+
   NovelBook bookForChapter(int index) => _book.copyWith(
     chapterIndex: _chapters.isEmpty
         ? 0

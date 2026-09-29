@@ -342,13 +342,10 @@ class _AutoStoryEditorScreenState extends State<AutoStoryEditorScreen> {
           return AutoStoryDocument.fromJson({
             ...replanned.toJson(),
             'replanSummary':
-                latest.currentCheckpoint?.summary ??
-                latest.toJson()['replanSummary'] ??
-                '',
+                latest.currentCheckpoint?.summary ?? latest.replanSummary,
             'replanCoveredThroughOrdinal':
                 latest.currentCheckpoint?.coveredThroughOrdinal ??
-                latest.toJson()['replanCoveredThroughOrdinal'] ??
-                -1,
+                latest.replanCoveredThroughOrdinal,
             'replanStartRound': (latest.turns.length + 1) ~/ 2,
             'replanStageIndex': 0,
           });

@@ -46,6 +46,7 @@ class MediaBackground extends StatelessWidget {
     final path = imagePath.trim();
     if (path.isEmpty) return child;
     final alpha = opacity.clamp(0, 1).toDouble();
+    if (alpha == 0) return child;
 
     return Stack(
       fit: StackFit.expand,
@@ -75,19 +76,33 @@ Widget croppedFileImage(
   File file, {
   ImageCropRegion region = ImageCropRegion.full,
 }) {
-  if (region.isFull) {
-    return Image.file(
-      file,
-      fit: BoxFit.cover,
-      errorBuilder: (_, _, _) => const SizedBox.shrink(),
-    );
-  }
-
   return LayoutBuilder(
     builder: (context, constraints) {
       final viewport = Size(constraints.maxWidth, constraints.maxHeight);
       if (viewport.width <= 0 || viewport.height <= 0) {
         return const SizedBox.shrink();
+      }
+      Widget decodedImage(Size displaySize, BoxFit fit) {
+        final size = backgroundDecodeSize(
+          displaySize,
+          MediaQuery.devicePixelRatioOf(context),
+        );
+        return Image(
+          image: ResizeImage(
+            FileImage(file),
+            width: size.width.toInt(),
+            height: size.height.toInt(),
+            policy: ResizeImagePolicy.fit,
+          ),
+          fit: fit,
+          errorBuilder: (_, _, _) => const SizedBox.shrink(),
+        );
+      }
+
+      if (region.isFull) {
+        // Without source dimensions, a square bound preserves either orientation.
+        final side = math.max(viewport.width, viewport.height);
+        return decodedImage(Size.square(side), BoxFit.cover);
       }
       final sourceWidth = math.max(region.sourceAspectRatio, 0.001);
       const sourceHeight = 1.0;
@@ -110,15 +125,35 @@ Widget croppedFileImage(
               top: -cropY * scale + (viewport.height - cropHeight * scale) / 2,
               width: sourceWidth * scale,
               height: sourceHeight * scale,
-              child: Image.file(
-                file,
-                fit: BoxFit.fill,
-                errorBuilder: (_, _, _) => const SizedBox.shrink(),
+              child: decodedImage(
+                Size(sourceWidth * scale, sourceHeight * scale),
+                BoxFit.fill,
               ),
             ),
           ],
         ),
       );
     },
+  );
+}
+
+/// Bound decoded pixels even for tiny crops of enormous source images.
+/// Quantization avoids a new image-cache entry for every small layout change.
+Size backgroundDecodeSize(Size displaySize, double pixelRatio) {
+  double dimension(double value) => value.isFinite && value > 0
+      ? (value * pixelRatio.clamp(1, 4) / 64).ceilToDouble() * 64
+      : 2048;
+  final width = dimension(displaySize.width);
+  final height = dimension(displaySize.height);
+  final scale = math.min(
+    1.0,
+    math.min(
+      4096 / math.max(width, height),
+      math.sqrt(4 * 1024 * 1024 / (width * height)),
+    ),
+  );
+  return Size(
+    math.max(1, (width * scale).floor()).toDouble(),
+    math.max(1, (height * scale).floor()).toDouble(),
   );
 }

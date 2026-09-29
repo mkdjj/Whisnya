@@ -28,6 +28,7 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
   var _apiConfig = ApiConfig();
   var _selectedEndpointId = '';
   var _content = '';
+  var _catalogs = NovelCatalogLoader('');
   NovelSummaryCache? _summaryCache;
   var _isLoading = true;
   var _isBusy = false;
@@ -58,6 +59,8 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
     try {
       final apiConfig = await widget.storage.loadApiConfig();
       final content = await widget.storage.loadNovelText(_book);
+      final catalogs = NovelCatalogLoader(content);
+      final catalog = await catalogs.load(_book.chapterRule);
       final summaryCache = await NovelSummaryService(
         widget.storage,
       ).loadCache(_book.id);
@@ -67,9 +70,10 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
         _selectedEndpointId =
             apiConfig.effectiveEndpoint(_selectedEndpointId)?.id ?? '';
         _content = content;
+        _catalogs = catalogs;
         _reader.load(
           readChunks: splitNovelText(content, 1600),
-          chapters: _applyManualChapterTitles(buildNovelChapters(content)),
+          chapters: _applyManualChapterTitles(catalog.chapters),
         );
         _summaryCache = summaryCache;
         _isLoading = false;
@@ -106,6 +110,8 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
         NovelChapter(
           title: titles[i].trim().isEmpty ? chapters[i].title : titles[i],
           content: chapters[i].content,
+          startOffset: chapters[i].startOffset,
+          endOffset: chapters[i].endOffset,
         ),
     ];
   }
@@ -932,6 +938,20 @@ ${role.speakingStyle}
                       unawaited(_editCatalog());
                     },
                   ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.auto_fix_high_outlined),
+                  title: const Text('重新识别目录'),
+                  subtitle: Text(
+                    novelCatalogRules[_book.chapterRule] ?? '自动识别',
+                  ),
+                  onTap: _isBusy
+                      ? null
+                      : () {
+                          Navigator.of(context).pop();
+                          unawaited(_rebuildCatalog());
+                        },
+                ),
                 SettingSlider(
                   label: '阅读字体大小',
                   value: _book.fontSize,
@@ -1094,6 +1114,154 @@ ${role.speakingStyle}
     );
   }
 
+  Future<void> _rebuildCatalog() async {
+    if (_isBusy) return;
+    final epoch = widget.storage.datasetEpoch;
+    var rule = _book.chapterRule == 'legacy' ? 'auto' : _book.chapterRule;
+    if (!novelCatalogRules.containsKey(rule)) rule = 'auto';
+    late NovelCatalog preview;
+    setState(() {
+      _isBusy = true;
+      _busyText = '正在识别目录…';
+    });
+    try {
+      preview = await _catalogs.load(rule);
+    } catch (error) {
+      if (mounted) context.showSnack('目录识别失败：$error');
+      return;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isBusy = false;
+          _busyText = '';
+        });
+      }
+    }
+    if (!mounted || epoch != widget.storage.datasetEpoch) return;
+    var loading = false;
+    String? parseError;
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('重新识别目录'),
+          content: SizedBox(
+            width: 520,
+            height: MediaQuery.sizeOf(context).height * .55,
+            child: CustomScrollView(
+              slivers: [
+                SliverToBoxAdapter(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      DropdownButton<String>(
+                        value: rule,
+                        isExpanded: true,
+                        items: [
+                          for (final entry in novelCatalogRules.entries)
+                            DropdownMenuItem(
+                              value: entry.key,
+                              child: Text(entry.value),
+                            ),
+                        ],
+                        onChanged: loading
+                            ? null
+                            : (value) async {
+                                if (value == null) return;
+                                setDialogState(() {
+                                  rule = value;
+                                  loading = true;
+                                  parseError = null;
+                                });
+                                try {
+                                  final result = await _catalogs.load(value);
+                                  if (!context.mounted || rule != value) return;
+                                  setDialogState(() {
+                                    preview = result;
+                                    loading = false;
+                                  });
+                                } catch (error) {
+                                  if (!context.mounted || rule != value) return;
+                                  setDialogState(() {
+                                    parseError = '识别失败：$error';
+                                    loading = false;
+                                  });
+                                }
+                              },
+                      ),
+                      if (loading) const LinearProgressIndicator(),
+                      if (parseError != null) Text(parseError!),
+                      Text(
+                        loading
+                            ? '正在识别目录…'
+                            : '${preview.chapters.length} 条${preview.usedFallback ? ' · 未找到可靠标题，已按段落分段' : ''}',
+                      ),
+                      const Text('原文不变；书签按原文位置迁移，阅读进度近似保留。应用会清除手动改过的目录名称。'),
+                      const SizedBox(height: 8),
+                    ],
+                  ),
+                ),
+                SliverList.builder(
+                  itemCount: loading || parseError != null
+                      ? 0
+                      : preview.chapters.length,
+                  itemBuilder: (_, index) {
+                    final chapter = preview.chapters[index];
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text('${index + 1}. ${chapter.title}'),
+                      subtitle: Text(
+                        novelChapterPreview(chapter.content),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed:
+                  loading || parseError != null || preview.chapters.isEmpty
+                  ? null
+                  : () => Navigator.pop(dialogContext, true),
+              child: const Text('应用目录'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (accepted != true || !mounted) return;
+    final next = _reader
+        .bookForCatalog(preview.chapters, rule)
+        .copyWith(updatedAt: DateTime.now());
+    try {
+      await widget.storage.jsonStore.runOperation(
+        () => widget.storage.saveNovel(next),
+        expectedEpoch: epoch,
+      );
+      if (!mounted || epoch != widget.storage.datasetEpoch) return;
+      setState(() => _reader.applyCatalog(next, preview.chapters));
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _readScrollController.hasClients) {
+          _readScrollController.jumpTo(
+            _reader.offsetForMaxExtent(
+              _readScrollController.position.maxScrollExtent,
+            ),
+          );
+        }
+      });
+    } catch (error) {
+      if (mounted) context.showSnack('目录保存失败，原目录未更改：$error');
+    }
+  }
+
   Future<void> _editCatalog() async {
     if (_chapters.isEmpty) return;
     final controller = TextEditingController(
@@ -1144,10 +1312,10 @@ ${role.speakingStyle}
     final next = _book.copyWith(manualChapterTitles: titles);
     await _saveBook(next);
     if (!mounted) return;
+    final catalog = await _catalogs.load(_book.chapterRule);
+    if (!mounted) return;
     setState(() {
-      _reader.replaceChapters(
-        _applyManualChapterTitles(buildNovelChapters(_content)),
-      );
+      _reader.replaceChapters(_applyManualChapterTitles(catalog.chapters));
     });
   }
 

@@ -19,6 +19,25 @@ class FailingCollectionIndexStore extends JsonFileStore {
   }
 }
 
+class CountingCollectionItemStore extends JsonFileStore {
+  final itemReads = <String, int>{};
+  int characterReads = 0;
+
+  @override
+  Future<dynamic> read(
+    File file,
+    dynamic fallback, {
+    bool recoverOnInvalid = false,
+  }) {
+    final path = file.path.replaceAll('\\', '/');
+    if (path.contains('/collection/items/')) {
+      itemReads.update(file.path, (count) => count + 1, ifAbsent: () => 1);
+    }
+    if (path.endsWith('/characters.json')) characterReads++;
+    return super.read(file, fallback, recoverOnInvalid: recoverOnInvalid);
+  }
+}
+
 void main() {
   late Directory dir;
   late LocalStorageService storage;
@@ -252,6 +271,92 @@ void main() {
       expect(await media.exists(), false);
     },
   );
+  test('deleting a snapshot without avatars skips other item reads', () async {
+    final store = CountingCollectionItemStore();
+    final service = MementoService(
+      storage: LocalStorageService(appDataDirectory: dir, jsonStore: store),
+    );
+    final removed = await service.createMemento(draft('no-avatar-removed'));
+    final kept = await service.createMemento(draft('no-avatar-kept'));
+    final paths = await service.paths;
+    store.itemReads.clear();
+
+    await service.deleteMemento(removed.id);
+
+    expect(store.itemReads[paths.item(kept.id).path] ?? 0, 0);
+    expect(await paths.item(removed.id).exists(), false);
+    expect(await paths.item(kept.id).exists(), true);
+  });
+  test(
+    'collection query reads current character locks once for all rows',
+    () async {
+      final store = CountingCollectionItemStore();
+      final service = MementoService(
+        storage: LocalStorageService(appDataDirectory: dir, jsonStore: store),
+      );
+      await service.createMemento(draft('query-a'));
+      await service.createMemento(draft('query-b'));
+      await service.createMemento(draft('query-c'));
+      store.characterReads = 0;
+
+      expect(await service.queryMementos(const MementoQuery()), hasLength(3));
+      expect(store.characterReads, 1);
+
+      store.characterReads = 0;
+      expect(
+        await service.queryMementos(const MementoQuery(keyword: 'STAY')),
+        hasLength(3),
+      );
+      expect(store.characterReads, 1);
+    },
+  );
+  test('avatar scan stops after a retained item accounts for it', () async {
+    final store = CountingCollectionItemStore();
+    final service = MementoService(
+      storage: LocalStorageService(appDataDirectory: dir, jsonStore: store),
+    );
+    final source = File('${dir.path}/shared-avatar.png');
+    await source.writeAsBytes([4, 5, 6]);
+    final asset = await service.copyRecognizedAvatar(
+      source.path,
+      recognizedPaths: {source.path},
+    );
+    Future<MementoSnapshot> withAvatar(String key) {
+      final base = draft(key);
+      return service.createMemento(
+        MementoDraft(
+          idempotencyKey: base.idempotencyKey,
+          title: base.title,
+          characterId: base.characterId,
+          characterNameSnapshot: base.characterNameSnapshot,
+          sessionTitleSnapshot: base.sessionTitleSnapshot,
+          sourceSessionId: base.sourceSessionId,
+          entries: [
+            MementoEntry.capture(
+              sessionId: 's',
+              messages: messages,
+              index: 0,
+              speakerName: 'Before',
+              avatarAssetId: asset,
+            ),
+          ],
+        ),
+      );
+    }
+
+    final removed = await withAvatar('shared-removed');
+    final shared = await withAvatar('shared-kept');
+    final tail = await service.createMemento(draft('shared-tail'));
+    final paths = await service.paths;
+    store.itemReads.clear();
+
+    await service.deleteMemento(removed.id);
+
+    expect(store.itemReads[paths.item(shared.id).path], 1);
+    expect(store.itemReads[paths.item(tail.id).path] ?? 0, 0);
+    expect(await paths.item(removed.id).exists(), false);
+    expect(await paths.media(asset!).readAsBytes(), [4, 5, 6]);
+  });
   test(
     'index failure rolls back metadata instead of splitting list and detail',
     () async {

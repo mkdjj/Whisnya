@@ -18,6 +18,56 @@ import 'package:whisnya/services/ai_service.dart';
 import 'package:whisnya/services/local_storage_service.dart';
 
 void main() {
+  testWidgets(
+    'transparent navigation clips all home content above its bounds',
+    (tester) async {
+      tester.view.physicalSize = const Size(500, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HomeScreen(
+            storage: _TrackingStorage(
+              characters: List.generate(
+                20,
+                (i) => AppCharacter.fromJson({'id': '$i', 'name': '角色 $i'}),
+              ),
+            ),
+            aiService: AiService(
+              client: MockClient((_) async => throw UnimplementedError()),
+            ),
+            settings: const AppSettings(navigationBarOpacity: 0),
+            onSettingsChanged: () async {},
+          ),
+        ),
+      );
+      await _pumpFrames(tester);
+      void checkBounds() {
+        final content = tester.getRect(
+          find.byKey(const ValueKey('home-content-viewport')),
+        );
+        final navigation = tester.getRect(find.byType(NavigationBar));
+        expect(content.bottom, lessThanOrEqualTo(navigation.top));
+        expect(tester.takeException(), isNull);
+      }
+
+      checkBounds();
+      await tester.drag(find.byType(ListView).first, const Offset(0, -400));
+      await _pumpFrames(tester);
+      checkBounds();
+      for (final icon in [
+        Icons.menu_book_outlined,
+        Icons.forum_outlined,
+        Icons.settings_outlined,
+      ]) {
+        await tester.tap(find.byIcon(icon));
+        await _pumpFrames(tester);
+        checkBounds();
+      }
+    },
+  );
+
   testWidgets('dataset import refreshes characters and cached tabs', (
     tester,
   ) async {

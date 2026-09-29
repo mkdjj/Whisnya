@@ -1,5 +1,12 @@
 # Whisnya
 
+## 1.5.4+2026
+
+- 改进 TXT 目录识别，支持选择规则、预览后应用、大文本后台解析和当前书籍缓存。
+- 修复底部导航重叠、背景图透明度方向、深色设置底色，缩小列表多余留白。
+- 优化演绎、记忆、回忆册与图片处理，调整窄屏界面布局。
+- ARM64 APK 内部版本码为 2026，高于之前发布版的 2025；保留原签名用于覆盖更新。
+
 ## 1.5.3+25
 
 - 新增剧情存档与分支、角色状态卡、回忆册和角色语音。
@@ -97,7 +104,7 @@ APK 会生成在：
 build/app/outputs/flutter-apk/app-release.apk
 ```
 
-当前源码版本是 `1.5.3+25`。每次公开发版都要同时递增 `versionName`
+当前源码版本是 `1.5.4+2026`。每次公开发版都要比较历史 APK 的实际版本码（包括分架构偏移），并同时递增 `versionName`
 和 `versionCode`。Android 包名是 `com.mkdjj.whisnya`。
 
 如果要公开分发，请先配置自己的 Android 签名文件：
@@ -113,7 +120,7 @@ Copy-Item android/key.properties.example android/key.properties
 推荐发布文件名：
 
 ```text
-Whisnya-android-v1.5.3-release.apk
+Whisnya-android-v1.5.4-arm64-v8a-release.apk
 ```
 
 ## 其他平台

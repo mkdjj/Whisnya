@@ -16,6 +16,8 @@ import '../../prompts/prompt_builder.dart';
 import '../../services/ai_service.dart';
 import '../../services/local_storage_service.dart';
 import '../../services/novel_parser.dart';
+import '../../services/novel_catalog.dart';
+import '../../services/novel_catalog_loader.dart';
 import '../../services/novel_summary_service.dart';
 import '../../services/theater/novel_theater_factory.dart';
 import '../../utils/app_i18n.dart';

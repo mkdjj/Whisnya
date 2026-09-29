@@ -138,6 +138,7 @@ class _CharacterVoiceSettingsScreenState
             ),
           if (speech.platformKey == 'android' && engines.isNotEmpty)
             DropdownButtonFormField<String>(
+              isExpanded: true,
               initialValue: engines.contains(draft.engineId)
                   ? draft.engineId
                   : null,

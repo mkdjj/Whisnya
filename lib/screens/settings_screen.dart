@@ -42,6 +42,7 @@ class SettingsScreen extends StatefulWidget {
     required this.onSettingsChanged,
     this.aiService,
     this.qqRuntime,
+    this.embedded = false,
     super.key,
   });
 
@@ -49,6 +50,7 @@ class SettingsScreen extends StatefulWidget {
   final AiService? aiService;
   final QqIntegrationRuntime? qqRuntime;
   final AppSettings settings;
+  final bool embedded;
   final Future<void> Function() onSettingsChanged;
 
   @override
@@ -486,8 +488,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required double opacity,
     required ValueChanged<double> onChanged,
     required ValueChanged<double> onChangeEnd,
+    bool imageOpacity = false,
   }) {
-    final transparency = opacityToTransparency(opacity);
+    final transparency = imageOpacity
+        ? opacity.clamp(0, 1).toDouble()
+        : opacityToTransparency(opacity);
     return _tile(
       icon: icon,
       title: context.t(title),
@@ -497,8 +502,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         min: 0,
         max: 1,
         divisions: 100,
-        onChanged: (value) => onChanged(transparencyToOpacity(value)),
-        onChangeEnd: (value) => onChangeEnd(transparencyToOpacity(value)),
+        onChanged: (value) =>
+            onChanged(imageOpacity ? value : transparencyToOpacity(value)),
+        onChangeEnd: (value) =>
+            onChangeEnd(imageOpacity ? value : transparencyToOpacity(value)),
       ),
     );
   }
@@ -959,83 +966,83 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _content() {
-    return AppBackground(
-      settings: _settings,
-      child: AdaptivePage(
-        child: ListView(
-          padding: EdgeInsets.fromLTRB(
-            0,
-            homeListTop(context) - kToolbarHeight,
-            0,
-            148,
-          ),
-          children: [
-            _tile(
-              icon: Icons.key,
-              title: context.t('API 与连接'),
-              onTap: () => _openSubSettingsPage(
-                title: 'API 与连接',
-                childrenBuilder: (_) => _connectionSettingsChildren(),
-              ),
-            ),
-            _tile(
-              icon: Icons.chat_bubble_outline,
-              title: context.t('聊天与回复'),
-              onTap: () => _openSubSettingsPage(
-                title: '聊天与回复',
-                childrenBuilder: (_) => _chatSettingsChildren(),
-              ),
-            ),
-            _tile(
-              icon: Icons.record_voice_over_outlined,
-              title: context.t('角色状态与语音'),
-              onTap: () => _openSubSettingsPage(
-                title: '角色状态与语音',
-                childrenBuilder: (_) => _roleSettingsChildren(),
-              ),
-            ),
-            _tile(
-              icon: Icons.collections_bookmark_outlined,
-              title: context.t('记忆与收藏'),
-              onTap: () => _openSubSettingsPage(
-                title: '记忆与收藏',
-                childrenBuilder: (_) => _memorySettingsChildren(),
-              ),
-            ),
-            _tile(
-              icon: Icons.palette_outlined,
-              title: context.t('外观与语言'),
-              onTap: () => _openSubSettingsPage(
-                title: '外观与语言',
-                childrenBuilder: (_) => _appearanceSettingsChildren(),
-              ),
-            ),
-            _tile(
-              icon: Icons.lock_outline,
-              title: context.t('隐私与安全'),
-              onTap: () => _openSubSettingsPage(
-                title: '隐私与安全',
-                childrenBuilder: (_) => _privacySettingsChildren(),
-              ),
-            ),
-            _tile(
-              icon: Icons.backup_outlined,
-              title: context.t('数据与备份'),
-              onTap: () => _openSubSettingsPage(
-                title: '数据与备份',
-                childrenBuilder: (_) => _dataSettingsChildren(),
-              ),
-            ),
-            _tile(
-              icon: Icons.person_outline,
-              title: context.t('用户设定'),
-              subtitle: _settings.userProfile.name,
-              onTap: _openUserProfileSettings,
-            ),
-          ],
+    final content = AdaptivePage(
+      child: ListView(
+        padding: EdgeInsets.fromLTRB(
+          0,
+          homeListTop(context) - kToolbarHeight,
+          0,
+          24,
         ),
+        children: [
+          _tile(
+            icon: Icons.key,
+            title: context.t('API 与连接'),
+            onTap: () => _openSubSettingsPage(
+              title: 'API 与连接',
+              childrenBuilder: (_) => _connectionSettingsChildren(),
+            ),
+          ),
+          _tile(
+            icon: Icons.chat_bubble_outline,
+            title: context.t('聊天与回复'),
+            onTap: () => _openSubSettingsPage(
+              title: '聊天与回复',
+              childrenBuilder: (_) => _chatSettingsChildren(),
+            ),
+          ),
+          _tile(
+            icon: Icons.record_voice_over_outlined,
+            title: context.t('角色状态与语音'),
+            onTap: () => _openSubSettingsPage(
+              title: '角色状态与语音',
+              childrenBuilder: (_) => _roleSettingsChildren(),
+            ),
+          ),
+          _tile(
+            icon: Icons.collections_bookmark_outlined,
+            title: context.t('记忆与收藏'),
+            onTap: () => _openSubSettingsPage(
+              title: '记忆与收藏',
+              childrenBuilder: (_) => _memorySettingsChildren(),
+            ),
+          ),
+          _tile(
+            icon: Icons.palette_outlined,
+            title: context.t('外观与语言'),
+            onTap: () => _openSubSettingsPage(
+              title: '外观与语言',
+              childrenBuilder: (_) => _appearanceSettingsChildren(),
+            ),
+          ),
+          _tile(
+            icon: Icons.lock_outline,
+            title: context.t('隐私与安全'),
+            onTap: () => _openSubSettingsPage(
+              title: '隐私与安全',
+              childrenBuilder: (_) => _privacySettingsChildren(),
+            ),
+          ),
+          _tile(
+            icon: Icons.backup_outlined,
+            title: context.t('数据与备份'),
+            onTap: () => _openSubSettingsPage(
+              title: '数据与备份',
+              childrenBuilder: (_) => _dataSettingsChildren(),
+            ),
+          ),
+          _tile(
+            icon: Icons.person_outline,
+            title: context.t('用户设定'),
+            subtitle: _settings.userProfile.name,
+            onTap: _openUserProfileSettings,
+          ),
+        ],
       ),
     );
+    return widget.embedded
+        ? content
+        : AppBackground(settings: _settings, child: content);
   }
 
   List<Widget> _connectionSettingsChildren() => [
@@ -1293,7 +1300,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               }
 
               return ColoredBox(
-                color: Colors.white,
+                color: Theme.of(pageContext).scaffoldBackgroundColor,
                 child: AppBackground(
                   settings: _settings,
                   child: Scaffold(
@@ -1407,6 +1414,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _transparencyTile(
         icon: Icons.opacity,
         title: '界面背景透明度',
+        imageOpacity: true,
         opacity: _settings.globalBackgroundOpacity,
         onChanged: (opacity) =>
             preview(_settings.copyWith(globalBackgroundOpacity: opacity)),

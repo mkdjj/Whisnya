@@ -41,8 +41,7 @@ class AutoStoryBudget {
     final stage = story.plan[story.stageIndex];
     final used =
         story.completedRounds -
-        (checkpoint?.stageStartedRound ??
-            (story.toJson()['replanStartRound'] as int? ?? 0));
+        (checkpoint?.stageStartedRound ?? story.replanStartRound);
     return story.completedRounds % 5 == 0 ||
         story.completedRounds >= story.config.plannedRounds ||
         used == stage.targetRounds ||

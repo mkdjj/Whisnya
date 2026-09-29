@@ -1011,6 +1011,7 @@ class LocalStorageService {
       id: id,
       title: title.trim().isEmpty ? '未命名小说' : title.trim(),
       textPath: file.path,
+      chapterRule: 'auto',
       createdAt: now,
       updatedAt: now,
     );

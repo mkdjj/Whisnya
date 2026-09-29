@@ -1,5 +1,12 @@
 # Whisnya
 
+## 1.5.4+2026
+
+- Improve TXT chapter recognition with selectable rules, preview before applying, reader-scoped caching and background parsing for large books.
+- Fix bottom navigation overlap, background slider direction and dark settings pages; reduce excess list spacing.
+- Optimize story, memory, collection and image processing, and refine narrow-screen layouts.
+- Android ARM64 APK versionCode is 2026, above the previous published versionCode 2025. Keep the existing signing certificate for in-place updates.
+
 ## 1.5.3+25
 
 - Added story checkpoints and branches, character state cards, memories, and character speech.
@@ -97,7 +104,7 @@ The APK will be generated at:
 build/app/outputs/flutter-apk/app-release.apk
 ```
 
-Current source version is `1.5.3+25`. Keep both `versionName` and `versionCode` increasing for every public release. The Android package name is
+Current source version is `1.5.4+2026`. Keep both `versionName` and the actual APK `versionCode` increasing for every public release, including historical ABI offsets. The Android package name is
 `com.mkdjj.whisnya`.
 
 For public distribution, configure your own Android signing key first:
@@ -113,7 +120,7 @@ Then edit `android/key.properties` with your real passwords. Both
 Recommended release asset name:
 
 ```text
-Whisnya-android-v1.5.3-release.apk
+Whisnya-android-v1.5.4-arm64-v8a-release.apk
 ```
 
 ## Other Platforms

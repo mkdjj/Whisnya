@@ -4,6 +4,7 @@ import '../../models/ai_usage.dart';
 import '../../models/api_config.dart';
 import '../ai/ai_conversation_runner.dart';
 import '../ai/ai_gateway.dart';
+import '../../utils/stream_text_buffer.dart';
 import 'auto_story_validator.dart';
 
 class AutoStoryActorResult {
@@ -44,6 +45,13 @@ class AutoStoryActorService {
     if (token.isCancelled) throw AiException('请求已取消。');
     final content = StringBuffer();
     final reasoning = StringBuffer();
+    final draftUpdates = StreamTextBuffer(
+      onFlush: (_) {
+        if (!token.isCancelled) {
+          onDraft?.call(content.toString(), reasoning.toString());
+        }
+      },
+    );
     AiUsage? usage;
     void record(AiUsage value) {
       usage = value;
@@ -95,7 +103,11 @@ class AutoStoryActorService {
           done.completeError(const FormatException('演员输出超出安全长度。'));
           return;
         }
-        onDraft?.call(content.toString(), reasoning.toString());
+        if (onDraft != null &&
+            (event.contentDelta.isNotEmpty ||
+                (includeReasoning && event.reasoningDelta.isNotEmpty))) {
+          draftUpdates.add(' ');
+        }
       },
       onError: (Object error, StackTrace stack) {
         if (!done.isCompleted) done.completeError(error, stack);
@@ -107,6 +119,7 @@ class AutoStoryActorService {
     try {
       await done.future;
       if (token.isCancelled) throw AiException('请求已取消。');
+      draftUpdates.flush();
       return AutoStoryActorResult(
         content: AutoStoryValidator.actorContent(
           content.toString(),
@@ -119,6 +132,7 @@ class AutoStoryActorService {
       );
     } finally {
       timer.cancel();
+      draftUpdates.dispose();
       // Some providers do not complete cancellation. Never await their cleanup.
       unawaited(subscription.cancel());
     }

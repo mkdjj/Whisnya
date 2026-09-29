@@ -60,71 +60,89 @@ class ChatInputComposer extends StatelessWidget {
             shadowColor: Colors.black.withValues(alpha: alpha),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (onInspiration != null)
-                    IconButton(
-                      tooltip: context.t('回复灵感'),
-                      onPressed: enabled ? onInspiration : null,
-                      icon: const Icon(Icons.lightbulb_outline, size: 20),
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  if (onContinue != null)
-                    IconButton(
-                      tooltip: context.t('继续一轮'),
-                      onPressed: !enabled || isGenerating ? null : onContinue,
-                      icon: const Icon(Icons.play_arrow),
-                    ),
-                  Expanded(
-                    child: TextField(
-                      controller: controller,
-                      focusNode: focusNode,
-                      enabled: enabled,
-                      minLines: 1,
-                      maxLines: 5,
-                      textInputAction: TextInputAction.newline,
-                      decoration: InputDecoration(
-                        hintText: context.t('输入消息'),
-                        isDense: true,
-                        border: inputBorder,
-                        enabledBorder: inputBorder,
-                        focusedBorder: focusedInputBorder,
-                        disabledBorder: inputBorder,
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      if (onInspiration != null)
+                        IconButton(
+                          tooltip: context.t('回复灵感'),
+                          onPressed: enabled ? onInspiration : null,
+                          icon: const Icon(Icons.lightbulb_outline, size: 20),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      if (onContinue != null)
+                        IconButton(
+                          tooltip: context.t('继续一轮'),
+                          onPressed: !enabled || isGenerating
+                              ? null
+                              : onContinue,
+                          icon: const Icon(Icons.play_arrow),
+                        ),
+                      Expanded(
+                        child: TextField(
+                          controller: controller,
+                          focusNode: focusNode,
+                          enabled: enabled,
+                          minLines: 1,
+                          maxLines: 5,
+                          textInputAction: TextInputAction.newline,
+                          decoration: InputDecoration(
+                            hintText: context.t('输入消息'),
+                            isDense: true,
+                            border: inputBorder,
+                            enabledBorder: inputBorder,
+                            focusedBorder: focusedInputBorder,
+                            disabledBorder: inputBorder,
+                          ),
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: 8),
+                      ValueListenableBuilder<TextEditingValue>(
+                        valueListenable: controller,
+                        builder: (context, value, _) => IconButton.filled(
+                          tooltip: context.t(isGenerating ? '停止生成' : '发送'),
+                          onPressed: isGenerating
+                              ? onStop
+                              : !enabled
+                              ? null
+                              : requireText && value.text.trim().isEmpty
+                              ? null
+                              : onSend,
+                          icon: Icon(isGenerating ? Icons.stop : Icons.send),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  if (!isGenerating && onRetry != null) ...[
-                    IconButton(
-                      tooltip: context.t('重试上一条'),
-                      onPressed: enabled ? onRetry : null,
-                      icon: const Icon(Icons.refresh),
+                  if (!isGenerating &&
+                      (onRetry != null || onEditResend != null))
+                    Wrap(
+                      alignment: WrapAlignment.end,
+                      spacing: 8,
+                      children: [
+                        if (onRetry != null)
+                          Tooltip(
+                            message: context.t('重试上一条'),
+                            child: TextButton.icon(
+                              onPressed: enabled ? onRetry : null,
+                              icon: const Icon(Icons.refresh, size: 18),
+                              label: Text(context.t('重试上一条')),
+                            ),
+                          ),
+                        if (onEditResend != null)
+                          Tooltip(
+                            message: context.t('编辑并重发'),
+                            child: TextButton.icon(
+                              onPressed: enabled ? onEditResend : null,
+                              icon: const Icon(Icons.edit_note, size: 18),
+                              label: Text(context.t('编辑并重发')),
+                            ),
+                          ),
+                      ],
                     ),
-                    const SizedBox(width: 4),
-                  ],
-                  if (!isGenerating && onEditResend != null) ...[
-                    IconButton(
-                      tooltip: context.t('编辑并重发'),
-                      onPressed: enabled ? onEditResend : null,
-                      icon: const Icon(Icons.edit_note),
-                    ),
-                    const SizedBox(width: 4),
-                  ],
-                  ValueListenableBuilder<TextEditingValue>(
-                    valueListenable: controller,
-                    builder: (context, value, _) => IconButton.filled(
-                      tooltip: context.t(isGenerating ? '停止生成' : '发送'),
-                      onPressed: isGenerating
-                          ? onStop
-                          : !enabled
-                          ? null
-                          : requireText && value.text.trim().isEmpty
-                          ? null
-                          : onSend,
-                      icon: Icon(isGenerating ? Icons.stop : Icons.send),
-                    ),
-                  ),
                 ],
               ),
             ),

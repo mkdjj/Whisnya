@@ -220,9 +220,7 @@ class AutoStoryDirectorService {
     // Retain already established conditions until their minimum duration elapses.
     if (previous?.stageSatisfied == true) satisfied = true;
     final completeCoverage = coveredThroughOrdinal == story.turns.length - 1;
-    final startRound =
-        previous?.stageStartedRound ??
-        (story.toJson()['replanStartRound'] as int? ?? 0);
+    final startRound = previous?.stageStartedRound ?? story.replanStartRound;
     final minimumMet =
         story.completedRounds - startRound >= currentStage.minRounds;
     final reached = json['goalReached'] == true;

@@ -8,8 +8,69 @@ import 'package:whisnya/models/world_book.dart';
 import 'package:whisnya/screens/settings_screen.dart';
 import 'package:whisnya/services/local_storage_service.dart';
 import 'package:whisnya/utils/app_i18n.dart';
+import 'package:whisnya/widgets/app_background.dart';
 
 void main() {
+  testWidgets('settings subpages use the dark theme base color', (
+    tester,
+  ) async {
+    final storage = _WorldBookStorage();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData.dark(),
+        locale: const Locale('zh'),
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        home: Scaffold(
+          body: SettingsScreen(
+            storage: storage,
+            settings: const AppSettings(),
+            onSettingsChanged: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('外观与语言'));
+    await tester.pumpAndSettle();
+    final background = find.byType(AppBackground).last;
+    final box = tester.widget<ColoredBox>(
+      find.ancestor(of: background, matching: find.byType(ColoredBox)).first,
+    );
+    expect(box.color, ThemeData.dark().scaffoldBackgroundColor);
+  });
+  testWidgets(
+    'background percentage follows image visibility without reversing surface transparency',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 1800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final storage = _WorldBookStorage();
+      await tester.pumpWidget(_app(storage));
+      await tester.tap(find.text('外观与语言'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('主题设置'));
+      await tester.pumpAndSettle();
+      Slider slider(String title) => tester.widget<Slider>(
+        find.descendant(
+          of: find
+              .ancestor(of: find.text(title), matching: find.byType(Column))
+              .first,
+          matching: find.byType(Slider),
+        ),
+      );
+      expect(slider('界面背景透明度').value, 1);
+      expect(slider('底部导航栏透明度').value, 0);
+      expect(slider('列表卡片透明度').value, 0);
+      slider('界面背景透明度').onChangeEnd!(0);
+      await tester.pumpAndSettle();
+      expect(storage.savedSettings?.globalBackgroundOpacity, 0);
+      slider('界面背景透明度').onChangeEnd!(1);
+      await tester.pumpAndSettle();
+      expect(storage.savedSettings?.globalBackgroundOpacity, 1);
+    },
+  );
+
   testWidgets(
     'world book settings lives in memory category and opens the global list',
     (tester) async {
@@ -148,6 +209,12 @@ AppCharacter _character({List<String> worldBookIds = const []}) =>
     });
 
 final class _WorldBookStorage extends LocalStorageService {
+  AppSettings? savedSettings;
+  @override
+  Future<void> saveSettings(AppSettings settings) async {
+    savedSettings = settings;
+  }
+
   final books = <WorldBook>[];
   final entries = <String, List<WorldBookEntry>>{};
   final characters = <AppCharacter>[];

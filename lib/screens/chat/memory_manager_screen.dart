@@ -509,6 +509,8 @@ class _MemoryManagerScreenState extends State<MemoryManagerScreen>
         ],
         bottom: TabBar(
           controller: _tabController,
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
           tabs: [
             Tab(text: context.t('长期记忆')),
             Tab(text: context.t('当前对话记忆')),

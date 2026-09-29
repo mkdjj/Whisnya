@@ -32,12 +32,14 @@ class ShareCardOptions {
 
 class ShareCardBlock {
   const ShareCardBlock({
+    required this.entryIndex,
     required this.speaker,
     required this.text,
     required this.continued,
     this.time,
     this.avatarAssetId,
   });
+  final int entryIndex;
   final String speaker, text;
   final bool continued;
   final DateTime? time;
@@ -67,10 +69,76 @@ double _textHeight(String text, TextStyle style) {
 }
 
 class ShareCardPlan {
-  ShareCardPlan._(this.options, this.title, this.pages);
+  ShareCardPlan._(
+    this._snapshot,
+    this.options,
+    this.title,
+    this.pages,
+    this._hiddenEntries,
+    this._includesInnerVoice,
+  );
+  final MementoSnapshot _snapshot;
   final ShareCardOptions options;
   final String title;
   final List<ShareCardPage> pages;
+  final Set<int> _hiddenEntries;
+  final bool _includesInnerVoice;
+
+  /// Reuses the measured text chunks when only presentation metadata changes.
+  ShareCardPlan withPresentation(
+    MementoSnapshot snapshot,
+    ShareCardOptions next,
+  ) {
+    final nextTitle = next.title ?? snapshot.title;
+    final nextIncludesInnerVoice =
+        next.showInnerVoice && next.innerVoiceAllowed;
+    if (!identical(snapshot, _snapshot) ||
+        nextTitle != title ||
+        nextIncludesInnerVoice != _includesInnerVoice ||
+        next.hiddenEntries.length != _hiddenEntries.length ||
+        !_hiddenEntries.containsAll(next.hiddenEntries)) {
+      return prepare(snapshot, next);
+    }
+    final blockMetadataChanged =
+        next.userName != options.userName ||
+        next.characterName != options.characterName ||
+        next.showTime != options.showTime ||
+        next.showAvatars != options.showAvatars;
+    final nextPages = blockMetadataChanged
+        ? List<ShareCardPage>.unmodifiable([
+            for (final page in pages)
+              ShareCardPage([
+                for (final block in page.blocks)
+                  ShareCardBlock(
+                    entryIndex: block.entryIndex,
+                    speaker: snapshot.entries[block.entryIndex].role == 'user'
+                        ? next.userName
+                        : (next.characterName ??
+                              snapshot
+                                  .entries[block.entryIndex]
+                                  .speakerNameSnapshot),
+                    text: block.text,
+                    continued: block.continued,
+                    time: next.showTime
+                        ? snapshot.entries[block.entryIndex].time
+                        : null,
+                    avatarAssetId: next.showAvatars
+                        ? snapshot.entries[block.entryIndex].avatarAssetId
+                        : null,
+                  ),
+              ]),
+          ])
+        : pages;
+    return ShareCardPlan._(
+      snapshot,
+      next,
+      title,
+      nextPages,
+      _hiddenEntries,
+      _includesInnerVoice,
+    );
+  }
+
   static ShareCardPlan prepare(
     MementoSnapshot snapshot,
     ShareCardOptions options,
@@ -140,6 +208,7 @@ class ShareCardPlan {
         final chunk = chars.sublist(offset, offset + best).join();
         blocks.add(
           ShareCardBlock(
+            entryIndex: i,
             speaker: e.role == 'user'
                 ? options.userName
                 : (options.characterName ?? e.speakerNameSnapshot),
@@ -158,7 +227,14 @@ class ShareCardPlan {
     if (blocks.isNotEmpty) pages.add(ShareCardPage(blocks));
     if (pages.isEmpty) throw StateError('请选择至少一条非空消息');
     if (pages.length > 12) throw StateError('超过 12 页，请减少选择内容');
-    return ShareCardPlan._(options, title, List.unmodifiable(pages));
+    return ShareCardPlan._(
+      snapshot,
+      options,
+      title,
+      List.unmodifiable(pages),
+      Set.unmodifiable(options.hiddenEntries),
+      options.showInnerVoice && options.innerVoiceAllowed,
+    );
   }
 }
 

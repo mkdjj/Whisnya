@@ -818,12 +818,9 @@ class AutoStoryDocument extends _JsonModel {
   String? get currentCheckpointId => _json['currentCheckpointId'] == null
       ? null
       : _text(_json, 'currentCheckpointId', max: 128);
-  DirectorCheckpoint? get currentCheckpoint {
-    for (final c in directorCheckpoints) {
-      if (c.checkpointId == currentCheckpointId) return c;
-    }
-    return null;
-  }
+  late final DirectorCheckpoint? currentCheckpoint = directorCheckpoints
+      .where((c) => c.checkpointId == currentCheckpointId)
+      .firstOrNull;
 
   int get stageIndex =>
       currentCheckpoint?.stageIndex ?? (plan.isEmpty ? 0 : replanStageIndex);
@@ -833,7 +830,9 @@ class AutoStoryDocument extends _JsonModel {
   int get completedRounds => turns.length ~/ 2;
   int get nextOrdinal => turns.length;
   int get currentRound => completedRounds + 1;
-  String get replanSummary => _text(_json, 'replanSummary');
+  String get replanSummary => replanSummaryOr('');
+  String replanSummaryOr(String fallback) =>
+      _text(_json, 'replanSummary', fallback: fallback);
   int get replanCoveredThroughOrdinal => _int(
     _json,
     'replanCoveredThroughOrdinal',
@@ -868,7 +867,7 @@ class AutoStoryDocument extends _JsonModel {
       max: 500,
     ).map((v) => Map<String, dynamic>.unmodifiable(_map(v))),
   );
-  StoryUsageTotals get usageTotals => StoryUsageTotals(requestLedger);
+  late final StoryUsageTotals usageTotals = StoryUsageTotals(requestLedger);
   DateTime get createdAt => _date(_json, 'createdAt');
   DateTime get updatedAt => _date(_json, 'updatedAt');
   void validate() {

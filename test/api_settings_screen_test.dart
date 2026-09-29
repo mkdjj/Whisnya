@@ -6,6 +6,40 @@ import 'package:whisnya/services/ai_service.dart';
 import 'package:whisnya/services/local_storage_service.dart';
 
 void main() {
+  testWidgets('default API card fits narrow screens with large text', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final storage = _MemoryStorage();
+    storage.saved = ApiConfig(
+      defaultEndpointId: 'one',
+      endpoints: [
+        AiEndpointConfig.fromJson({
+          'id': 'one',
+          'name': '很长的自定义 API 配置名称',
+          'model': 'a-long-model-name',
+          'baseUrl': 'https://example.com/v1',
+        }),
+      ],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(2)),
+          child: child!,
+        ),
+        home: ApiSettingsScreen(storage: storage, aiService: _ModelAiService()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.text('很长的自定义 API 配置名称'), findsOneWidget);
+  });
   testWidgets('loads models after URL and key and saves the automatic choice', (
     tester,
   ) async {

@@ -14,10 +14,16 @@ class NovelDecodeException implements Exception {
 }
 
 class NovelChapter {
-  const NovelChapter({required this.title, required this.content});
+  const NovelChapter({
+    required this.title,
+    required this.content,
+    this.startOffset = 0,
+    this.endOffset = 0,
+  });
 
   final String title;
   final String content;
+  final int startOffset, endOffset;
 }
 
 String decodeNovelBytes(List<int> bytes, {String? encoding}) {

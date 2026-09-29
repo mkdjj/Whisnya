@@ -48,6 +48,7 @@ app.*.symbols
 app.*.map.json
 
 # Android local files and build artifacts
+/android/build/
 /android/local.properties
 /android/key.properties
 *.jks

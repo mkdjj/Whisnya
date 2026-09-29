@@ -54,6 +54,7 @@ import '../../widgets/app_background.dart';
 import '../../widgets/chat_bubble.dart';
 import '../../widgets/chat_bubble_preset_picker.dart';
 import '../../widgets/chat_input_composer.dart';
+import '../../widgets/chat_header_panel.dart';
 import '../../widgets/chat/character_inner_voice_dialog.dart';
 import '../../widgets/chat/character_inner_voice_preview.dart';
 import '../../widgets/chat_variant_controls.dart';
@@ -1170,30 +1171,32 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     var networkCompleted = false;
     var committed = false;
     ChatMessage? assistantMessage;
-    var reply = '';
-    var reasoning = '';
+    final reply = StringBuffer();
+    final reasoning = StringBuffer();
     var placeholder = false;
     SessionOperationToken? storageToken;
     void finalize(String state) {
       if (committed || !_isCurrentGeneration(generationId, sessionId)) return;
       committed = true;
       if (variantAt != null && state != 'completed') return;
-      if (reply.trim().isEmpty) {
+      final replyText = reply.toString();
+      final reasoningText = reasoning.toString();
+      if (replyText.trim().isEmpty) {
         if (placeholder) _conversation.dropEmptyAssistantTail();
         _draft.value = null;
         return;
       }
       final message = assistantMessage!.copyWith(
-        content: reply,
-        reasoningContent: reasoning,
+        content: replyText,
+        reasoningContent: reasoningText,
         replyState: state,
       );
       if (variantAt != null) {
         _conversation.addAssistantVariant(
           variantAt,
           ChatReplyVariant(
-            content: reply,
-            reasoningContent: reasoning,
+            content: replyText,
+            reasoningContent: reasoningText,
             replyState: state,
             time: message.time,
             endpointId: endpoint.id,
@@ -1316,8 +1319,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           }
           if (variantAt == null) {
             _draft.value = assistantMessage!.copyWith(
-              content: reply,
-              reasoningContent: reasoning,
+              content: reply.toString(),
+              reasoningContent: reasoning.toString(),
             );
           }
         },
@@ -1333,8 +1336,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       );
       await for (final chunk in _responseDeltas(request, cancelToken)) {
         if (!_isCurrentGeneration(generationId, sessionId)) return;
-        reply += chunk.contentDelta;
-        reasoning += chunk.reasoningDelta;
+        reply.write(chunk.contentDelta);
+        reasoning.write(chunk.reasoningDelta);
         requestBuffer.add(
           chunk.contentDelta.isEmpty ? '\u200b' : chunk.contentDelta,
         );
@@ -1358,7 +1361,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         }
       }
       requestBuffer.flush();
-      if (reply.trim().isEmpty) {
+      if (reply.toString().trim().isEmpty) {
         throw AiException('API 没有返回可用回复。');
       }
       if (!_isCurrentGeneration(generationId, sessionId)) return;
@@ -1400,7 +1403,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             session: session,
             messageIndex: messageIndex,
             variantIndex: variantIndex,
-            replySnapshot: reply,
+            replySnapshot: reply.toString(),
             characterDefinition: PromptBuilder.buildSystemPrompt(
               _character,
               userProfile: userProfile,
@@ -1421,7 +1424,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       requestBuffer?.flush();
       if (!networkCompleted) {
         setState(() => finalize('interrupted'));
-        if (variantAt == null && reply.trim().isNotEmpty) {
+        if (variantAt == null && reply.toString().trim().isNotEmpty) {
           try {
             final saved = await _saveChatSnapshotIfSessionExists(
               session,
@@ -3103,10 +3106,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(_character.name),
+                Text(
+                  _character.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
                 if (_session != null)
                   Text(
                     _session!.title,
+                    maxLines: 1,
                     style: Theme.of(context).textTheme.labelSmall,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -3126,18 +3134,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               onPressed: _showSearchDialog,
               icon: const Icon(Icons.search),
             ),
-            IconButton(
-              tooltip: context.t('查看历史总结'),
-              onPressed: _hasActiveChatOperation ? null : _showSummaryDialog,
-              icon: const Icon(Icons.summarize_outlined),
-            ),
-            IconButton(
-              tooltip: context.t('聊天设置'),
-              onPressed: _canUseNonDestructiveControls
-                  ? _showChatSettings
-                  : null,
-              icon: const Icon(Icons.settings_outlined),
-            ),
             PopupMenuButton<String>(
               tooltip: context.t('更多'),
               icon: const Icon(Icons.more_vert),
@@ -3148,9 +3144,24 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   unawaited(_openCheckpoints());
                 } else if (value == 'collection') {
                   unawaited(_openCollection());
+                } else if (value == 'summary' && !_hasActiveChatOperation) {
+                  unawaited(_showSummaryDialog());
+                } else if (value == 'settings' &&
+                    _canUseNonDestructiveControls) {
+                  unawaited(_showChatSettings());
                 }
               },
               itemBuilder: (c) => [
+                PopupMenuItem(
+                  value: 'summary',
+                  enabled: !_hasActiveChatOperation,
+                  child: Text(c.t('查看历史总结')),
+                ),
+                PopupMenuItem(
+                  value: 'settings',
+                  enabled: _canUseNonDestructiveControls,
+                  child: Text(c.t('聊天设置')),
+                ),
                 PopupMenuItem(
                   value: 'memory',
                   enabled: _canUseNonDestructiveControls,
@@ -3183,40 +3194,72 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       opacity: _character.backgroundImageOpacity,
       blur: _character.backgroundBlur,
       overlayOpacity: 0.18,
-      child: Stack(
-        children: [
-          Column(
+      child: LayoutBuilder(
+        builder: (context, constraints) => Padding(
+          padding: EdgeInsets.only(top: _topInset(context)),
+          child: Column(
             children: [
-              if (widget.settings.showCharacterStateCard &&
-                  _characterState != null)
-                Padding(
-                  padding: EdgeInsets.only(top: _topInset(context)),
-                  child: CharacterStateCard(
-                    key: ValueKey(_session?.id),
-                    view: _characterState!,
-                    busy: _stateBusy,
-                    english: context.isEnglish,
-                    onEdit: (edit) async {
-                      final s = _currentSession;
-                      await _stateService.editState(
-                        s.id,
-                        _character.id,
-                        _messages,
-                        edit,
-                      );
-                      await _reloadState();
-                    },
-                    onRefresh: () => _refreshState(),
-                    onReset: () async {
-                      await _stateService.resetState(
-                        _currentSession.id,
-                        _character.id,
-                        _messages,
-                      );
-                      await _reloadState();
-                    },
-                  ),
-                ),
+              ChatHeaderPanel(
+                maxHeight:
+                    (constraints.maxHeight - _topInset(context)).clamp(
+                      0,
+                      double.infinity,
+                    ) *
+                    .35,
+                tools: showTopBar
+                    ? _TopBar(
+                        endpoints: _apiConfig.enabledEndpoints,
+                        selectedEndpointId: _selectedEndpointId,
+                        isSummarizing: _isSummarizing,
+                        canSummarize:
+                            !_isSending &&
+                            !_isSummarizing &&
+                            _messages.isNotEmpty,
+                        hasBackground: _character.backgroundImage
+                            .trim()
+                            .isNotEmpty,
+                        onEndpointChanged: (endpointId) {
+                          if (endpointId != null) {
+                            setState(() => _selectedEndpointId = endpointId);
+                            _showToolsTemporarily();
+                          }
+                        },
+                        onSummarize: () {
+                          _showToolsTemporarily();
+                          unawaited(_summarize());
+                        },
+                      )
+                    : null,
+                stateCard:
+                    widget.settings.showCharacterStateCard &&
+                        _characterState != null
+                    ? CharacterStateCard(
+                        key: ValueKey(_session?.id),
+                        view: _characterState!,
+                        busy: _stateBusy,
+                        english: context.isEnglish,
+                        onEdit: (edit) async {
+                          final s = _currentSession;
+                          await _stateService.editState(
+                            s.id,
+                            _character.id,
+                            _messages,
+                            edit,
+                          );
+                          await _reloadState();
+                        },
+                        onRefresh: () => _refreshState(),
+                        onReset: () async {
+                          await _stateService.resetState(
+                            _currentSession.id,
+                            _character.id,
+                            _messages,
+                          );
+                          await _reloadState();
+                        },
+                      )
+                    : null,
+              ),
               Expanded(
                 child: NotificationListener<ScrollNotification>(
                   onNotification: _handleScrollNotification,
@@ -3242,42 +3285,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               ),
             ],
           ),
-          Positioned(
-            top: _topInset(context),
-            left: 0,
-            right: 0,
-            child: IgnorePointer(
-              ignoring: !showTopBar,
-              child: AnimatedSlide(
-                offset: showTopBar ? Offset.zero : const Offset(0, -1.15),
-                duration: const Duration(milliseconds: 240),
-                curve: Curves.easeOutCubic,
-                child: AnimatedOpacity(
-                  opacity: showTopBar ? 1 : 0,
-                  duration: const Duration(milliseconds: 180),
-                  child: _TopBar(
-                    endpoints: _apiConfig.enabledEndpoints,
-                    selectedEndpointId: _selectedEndpointId,
-                    isSummarizing: _isSummarizing,
-                    canSummarize:
-                        !_isSending && !_isSummarizing && _messages.isNotEmpty,
-                    hasBackground: _character.backgroundImage.trim().isNotEmpty,
-                    onEndpointChanged: (endpointId) {
-                      if (endpointId != null) {
-                        setState(() => _selectedEndpointId = endpointId);
-                        _showToolsTemporarily();
-                      }
-                    },
-                    onSummarize: () {
-                      _showToolsTemporarily();
-                      unawaited(_summarize());
-                    },
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -3304,7 +3312,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         controller: _scrollController,
         reverse: true,
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: EdgeInsets.fromLTRB(0, _topInset(context) + 12, 0, 16),
+        padding: const EdgeInsets.fromLTRB(0, 12, 0, 16),
         itemCount: _messages.length + (showTyping ? 1 : 0),
         itemBuilder: (context, index) {
           if (showTyping && index == 0) {

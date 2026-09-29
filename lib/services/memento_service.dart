@@ -368,19 +368,28 @@ class MementoService {
     final p = await paths;
     await storage.jsonStore.waitFor(p.index);
     final rows = await _index(p);
+    final keyword = query.keyword.toLowerCase();
+    final characters = await storage.jsonStore.read(
+      File('${p.root.path}/characters.json'),
+      <dynamic>[],
+    );
+    final lockedIds = (characters as List)
+        .whereType<Map<dynamic, dynamic>>()
+        .where((character) => character['isLocked'] == true)
+        .map((character) => character['id'])
+        .whereType<String>()
+        .toSet();
     final out = <MementoIndex>[];
     for (final r in rows) {
       if (query.characterId != null && r['characterId'] != query.characterId) {
         continue;
       }
-      final locked = await _protected(
-        r['characterId'] as String,
-        r['requiresUnlock'] == true,
-      );
-      if (locked && (query.keyword.isNotEmpty || query.tag != null)) continue;
+      final locked =
+          r['requiresUnlock'] == true || lockedIds.contains(r['characterId']);
+      if (locked && (keyword.isNotEmpty || query.tag != null)) continue;
       final tags = (r['tags'] as List).cast<String>();
       if (query.tag != null && !tags.contains(query.tag)) continue;
-      if (query.keyword.isNotEmpty) {
+      if (keyword.isNotEmpty) {
         final raw = await storage.jsonStore.read(
           p.item(r['id'] as String),
           null,
@@ -393,7 +402,7 @@ class MementoService {
         final haystack =
             '${s.title}\n${s.note}\n${s.entries.map((e) => e.contentSnapshot).join('\n')}'
                 .toLowerCase();
-        if (!haystack.contains(query.keyword.toLowerCase())) continue;
+        if (!haystack.contains(keyword)) continue;
       }
       out.add(
         MementoIndex(
@@ -455,6 +464,7 @@ class MementoService {
           .whereType<String>()
           .toSet();
       for (final row in rows.where((r) => r['id'] != id)) {
+        if (candidates.isEmpty) break;
         final raw = await storage.jsonStore.read(
           p.item(row['id'] as String),
           null,

@@ -24,6 +24,68 @@ import 'package:whisnya/widgets/message_bubble_parts.dart';
 import 'package:whisnya/widgets/chat_bubble.dart';
 
 void main() {
+  testWidgets('memory tabs scroll to complete labels at large text sizes', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final character = _character();
+    final session = _session();
+    final storage = _SessionStorage(character: character, sessions: [session]);
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        supportedLocales: appSupportedLocales,
+        localizationsDelegates: appLocalizationsDelegates,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(2)),
+          child: child!,
+        ),
+        home: MemoryManagerScreen(
+          storage: storage,
+          aiService: _RecordingGateway(),
+          character: character,
+          session: session,
+          selectedEndpointId: 'endpoint',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.widget<TabBar>(find.byType(TabBar)).isScrollable, isTrue);
+    await tester.drag(find.byType(TabBar), const Offset(-500, 0));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('关键词世界书'));
+    await tester.pumpAndSettle();
+    expect(find.text('添加世界书'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('chat app bar reserves title space on narrow screens', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final character = _character();
+    final storage = _SessionStorage(
+      character: character,
+      sessions: [_session()],
+    );
+    await _pumpChat(tester, storage, character);
+    final bar = tester.widget<AppBar>(
+      find.byKey(const ValueKey('character-chat-app-bar')),
+    );
+    expect(bar.actions!.length, lessThanOrEqualTo(3));
+    await tester.tap(find.byTooltip('更多'));
+    await tester.pumpAndSettle();
+    expect(find.text('查看历史总结'), findsOneWidget);
+    expect(find.text('聊天设置'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets('closing inspiration during API loading prevents a request', (
     tester,
   ) async {
@@ -1030,26 +1092,30 @@ void main() {
     await _pumpUntil(tester, () => gateway.callCount == 1);
 
     expect(find.byIcon(Icons.stop), findsOneWidget);
+    await tester.tap(find.byTooltip('更多'));
+    await tester.pumpAndSettle();
     expect(
       tester
-          .widget<IconButton>(
-            find.widgetWithIcon(IconButton, Icons.settings_outlined),
+          .widget<PopupMenuItem<String>>(
+            find.widgetWithText(PopupMenuItem<String>, '聊天设置'),
           )
-          .onPressed,
-      isNotNull,
+          .enabled,
+      isTrue,
     );
     expect(
       tester
-          .widget<IconButton>(
-            find.widgetWithIcon(IconButton, Icons.summarize_outlined),
+          .widget<PopupMenuItem<String>>(
+            find.widgetWithText(PopupMenuItem<String>, '查看历史总结'),
           )
-          .onPressed,
-      isNull,
+          .enabled,
+      isFalse,
     );
+    await tester.tapAt(const Offset(8, 500));
+    await tester.pumpAndSettle();
     expect(find.byIcon(Icons.menu_book_outlined), findsNothing);
     expect(
       tester.getCenter(find.byIcon(Icons.more_vert)).dx,
-      greaterThan(tester.getCenter(find.byIcon(Icons.settings_outlined)).dx),
+      greaterThan(tester.getCenter(find.byIcon(Icons.search)).dx),
     );
     expect(
       tester
@@ -1068,7 +1134,9 @@ void main() {
       isNotNull,
     );
 
-    await tester.tap(find.byIcon(Icons.settings_outlined));
+    await tester.tap(find.byTooltip('更多'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('聊天设置'));
     await tester.pumpAndSettle();
     expect(find.byType(BottomSheet), findsOneWidget);
     expect(find.byIcon(Icons.stop), findsOneWidget);
@@ -1265,9 +1333,7 @@ void main() {
     final gateway = _SummaryGateway();
     await _pumpChat(tester, storage, character, gateway: gateway);
 
-    tester
-        .widget<FilledButton>(find.widgetWithText(FilledButton, '结束并总结'))
-        .onPressed!();
+    await _tapSummaryTools(tester);
     await tester.pump();
     await _pumpUntil(tester, () => gateway.summaryCallCount == 1);
 
@@ -1336,8 +1402,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(
-      tester.widget<AnimatedSlide>(find.byType(AnimatedSlide)).offset,
-      Offset.zero,
+      find.widgetWithText(FilledButton, '结束并总结').hitTestable(),
+      findsOneWidget,
     );
     gateway.completeSummary('新总结', 1);
     await _pumpUntil(tester, () => gateway.callCount == 1);
@@ -1365,9 +1431,7 @@ void main() {
       gateway: gateway,
       session: sessionA,
     );
-    tester
-        .widget<FilledButton>(find.widgetWithText(FilledButton, '结束并总结'))
-        .onPressed!();
+    await _tapSummaryTools(tester);
     await _pumpUntil(tester, () => gateway.summaryCallCount == 1);
 
     await tester.pumpWidget(
@@ -1420,9 +1484,7 @@ void main() {
       gateway: gateway,
       session: sessionA,
     );
-    tester
-        .widget<FilledButton>(find.widgetWithText(FilledButton, '结束并总结'))
-        .onPressed!();
+    await _tapSummaryTools(tester);
     await _pumpUntil(tester, () => gateway.summaryCallCount == 1);
 
     await tester.tap(find.byTooltip('对话管理'));
@@ -1474,7 +1536,9 @@ void main() {
           find.widgetWithIcon(IconButton, Icons.forum_outlined),
         )
         .onPressed!;
-    await tester.tap(find.byTooltip('查看历史总结'));
+    await tester.tap(find.byTooltip('更多'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('查看历史总结'));
     await tester.pumpAndSettle();
     expect(find.text('A 的总结'), findsOneWidget);
 
@@ -1818,6 +1882,13 @@ Future<void> _send(WidgetTester tester, String text) async {
       .widget<IconButton>(find.widgetWithIcon(IconButton, Icons.send))
       .onPressed
       ?.call();
+  await tester.pump();
+}
+
+Future<void> _tapSummaryTools(WidgetTester tester) async {
+  await tester.drag(find.byType(ListView).first, const Offset(0, 80));
+  await tester.pump();
+  await tester.tap(find.widgetWithText(FilledButton, '结束并总结'));
   await tester.pump();
 }
 

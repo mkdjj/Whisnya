@@ -46,6 +46,7 @@ try {
         $output = Join-Path $root 'build/app/outputs/flutter-apk/app-arm64-v8a-release.apk'
     } else {
         $env:ORG_GRADLE_PROJECT_whisnyaArm64Only = 'true'
+        $abiArgs = @('--android-project-arg=whisnyaArm64Only=true', '--android-project-arg=disable-abi-filtering=true')
         $output = Join-Path $root 'build/app/outputs/flutter-apk/app-release.apk'
     }
     $started = Get-Date
@@ -76,6 +77,12 @@ try {
             throw 'Certificate differs from historical APK; data-preserving upgrade is not verified.'
         }
         $signatureNote = 'Historical APK certificate matches.'
+        Run 'historical-version-code' $analyzer @('manifest','version-code',$HistoricalApk)
+        $historicalCode = ((Get-Content (Join-Path $report 'historical-version-code.log') | Where-Object { $_ -notlike 'exit=*' }) -join '').Trim()
+        if ($expectedCode -lt [long]$historicalCode) {
+            throw "APK versionCode $expectedCode is lower than historical versionCode $historicalCode; refusing downgrade package."
+        }
+        $signatureNote += " VersionCode checked: $historicalCode -> $expectedCode."
     }
     foreach ($property in @('version-name','version-code','application-id','debuggable')) {
         Run "manifest-$property" $analyzer @('manifest',$property,$output)

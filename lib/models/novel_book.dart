@@ -53,6 +53,7 @@ class NovelBook {
     this.fontSize = 18,
     this.lineHeight = 1.65,
     this.manualChapterTitles = const [],
+    this.chapterRule = 'legacy',
     this.readerTheme = 0,
     this.bookmarkedChapterIndexes = const [],
     this.lastOpenedAt,
@@ -75,6 +76,7 @@ class NovelBook {
   final double fontSize;
   final double lineHeight;
   final List<String> manualChapterTitles;
+  final String chapterRule;
   final int readerTheme;
   final List<int> bookmarkedChapterIndexes;
   final DateTime? lastOpenedAt;
@@ -97,6 +99,7 @@ class NovelBook {
     double? fontSize,
     double? lineHeight,
     List<String>? manualChapterTitles,
+    String? chapterRule,
     int? readerTheme,
     List<int>? bookmarkedChapterIndexes,
     DateTime? lastOpenedAt,
@@ -117,6 +120,7 @@ class NovelBook {
       fontSize: fontSize ?? this.fontSize,
       lineHeight: lineHeight ?? this.lineHeight,
       manualChapterTitles: manualChapterTitles ?? this.manualChapterTitles,
+      chapterRule: chapterRule ?? this.chapterRule,
       readerTheme: readerTheme ?? this.readerTheme,
       bookmarkedChapterIndexes:
           bookmarkedChapterIndexes ?? this.bookmarkedChapterIndexes,
@@ -149,6 +153,7 @@ class NovelBook {
       fontSize: jsonDouble(json['fontSize'], 18),
       lineHeight: jsonDouble(json['lineHeight'], 1.65),
       manualChapterTitles: _readStringList(json['manualChapterTitles']),
+      chapterRule: json['chapterRule'] as String? ?? 'legacy',
       readerTheme: json['readerTheme'] as int? ?? 0,
       bookmarkedChapterIndexes: _readIntList(json['bookmarkedChapterIndexes']),
       lastOpenedAt: DateTime.tryParse(json['lastOpenedAt'] as String? ?? ''),
@@ -172,6 +177,7 @@ class NovelBook {
       'fontSize': fontSize,
       'lineHeight': lineHeight,
       'manualChapterTitles': manualChapterTitles,
+      'chapterRule': chapterRule,
       'readerTheme': readerTheme,
       'bookmarkedChapterIndexes': bookmarkedChapterIndexes,
       if (lastOpenedAt != null) 'lastOpenedAt': lastOpenedAt!.toIso8601String(),

@@ -21,6 +21,67 @@ class Gateway implements AiGateway, StructuredAiGateway {
 }
 
 void main() {
+  testWidgets('draft updates coalesce bursts and flush final reasoning', (
+    tester,
+  ) async {
+    final gateway = Gateway();
+    final drafts = <(String, String)>[];
+    final result = AutoStoryActorService(gateway).generate(
+      endpoint: endpoint(),
+      messages: const [],
+      actorName: '糖璃',
+      otherActorName: '小雨',
+      includeReasoning: true,
+      onDraft: (text, reasoning) => drafts.add((text, reasoning)),
+    );
+    for (var i = 0; i < 100; i++) {
+      gateway.controller.add(
+        const AiResponseDelta(contentDelta: '你', reasoningDelta: '想'),
+      );
+    }
+    await tester.pump();
+    expect(drafts, isEmpty);
+    await tester.pump(const Duration(milliseconds: 40));
+    expect(drafts, [('你' * 100, '想' * 100)]);
+    gateway.controller.add(
+      const AiResponseDelta(contentDelta: '好', reasoningDelta: '完'),
+    );
+    unawaited(gateway.controller.close());
+    await tester.pump();
+    final completed = await result;
+    expect(completed.content, '${'你' * 100}好');
+    expect(completed.reasoningContent, '${'想' * 100}完');
+    expect(drafts.last, (completed.content, completed.reasoningContent));
+    expect(drafts.length, 2);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(drafts.length, 2);
+  });
+
+  testWidgets('cancelled actor has no delayed draft publication', (
+    tester,
+  ) async {
+    final gateway = Gateway();
+    final token = AiCancelToken();
+    final drafts = <String>[];
+    final result = AutoStoryActorService(gateway).generate(
+      endpoint: endpoint(),
+      messages: const [],
+      actorName: '糖璃',
+      otherActorName: '小雨',
+      cancelToken: token,
+      onDraft: (text, _) => drafts.add(text),
+    );
+    final cancelled = expectLater(result, throwsA(isA<AiException>()));
+    gateway.controller.add(const AiResponseDelta(contentDelta: '尚未显示'));
+    await tester.pump();
+    token.cancel();
+    unawaited(gateway.controller.close());
+    await tester.pump();
+    await cancelled;
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(drafts, isEmpty);
+  });
+
   test(
     'actor validation strips only own leading label and rejects multi actor scripts',
     () {

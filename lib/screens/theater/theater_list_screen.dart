@@ -224,7 +224,7 @@ class TheaterListScreenState extends State<TheaterListScreen> {
               0,
               homeListTop(context) - kToolbarHeight,
               0,
-              120,
+              24,
             ),
             itemCount: _sessions.length,
             separatorBuilder: (_, _) => const SizedBox(height: 8),

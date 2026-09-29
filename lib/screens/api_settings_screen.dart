@@ -464,84 +464,100 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
     final isTesting = endpoint.id == _testingEndpointId;
     return Card(
       margin: EdgeInsets.zero,
-      child: ListTile(
-        leading: Icon(
-          endpoint.enabled ? Icons.memory : Icons.memory_outlined,
-          color: endpoint.enabled ? null : Theme.of(context).disabledColor,
-        ),
-        title: Row(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Flexible(child: Text(endpoint.name)),
-            if (isDefault) ...[
-              const SizedBox(width: 8),
-              Chip(label: Text(context.t('默认模型'))),
-            ],
-          ],
-        ),
-        subtitle: Text(
-          [
-            endpoint.model.isEmpty ? context.t('未填写模型') : endpoint.model,
-            endpoint.baseUrl.isEmpty
-                ? context.t('未填写 Base URL')
-                : endpoint.baseUrl,
-            endpoint.enabled ? context.t('已启用') : context.t('已禁用'),
-          ].join('\n'),
-        ),
-        isThreeLine: true,
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextButton(
-              onPressed: isTesting ? null : () => _testEndpoint(endpoint),
-              child: isTesting
-                  ? const SizedBox.square(
-                      dimension: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Text(context.t('测试')),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  endpoint.enabled ? Icons.memory : Icons.memory_outlined,
+                  color: endpoint.enabled
+                      ? null
+                      : Theme.of(context).disabledColor,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    endpoint.name,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+              ],
             ),
-            PopupMenuButton<_EndpointAction>(
-              onSelected: (action) => _handleAction(action, endpoint),
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: _EndpointAction.edit,
-                  child: ListTile(
-                    leading: const Icon(Icons.edit),
-                    title: Text(context.t('编辑配置')),
-                  ),
+            const SizedBox(height: 8),
+            Text(
+              [
+                endpoint.model.isEmpty ? context.t('未填写模型') : endpoint.model,
+                endpoint.baseUrl.isEmpty
+                    ? context.t('未填写 Base URL')
+                    : endpoint.baseUrl,
+                endpoint.enabled ? context.t('已启用') : context.t('已禁用'),
+              ].join('\n'),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                if (isDefault) Chip(label: Text(context.t('默认模型'))),
+                TextButton(
+                  onPressed: isTesting ? null : () => _testEndpoint(endpoint),
+                  child: isTesting
+                      ? const SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text(context.t('测试')),
                 ),
-                PopupMenuItem(
-                  value: _EndpointAction.duplicate,
-                  child: ListTile(
-                    leading: const Icon(Icons.copy),
-                    title: Text(context.t('复制配置')),
-                  ),
-                ),
-                PopupMenuItem(
-                  value: _EndpointAction.setDefault,
-                  enabled: !isDefault && endpoint.enabled,
-                  child: ListTile(
-                    leading: const Icon(Icons.check_circle_outline),
-                    title: Text(context.t('设为默认')),
-                  ),
-                ),
-                PopupMenuItem(
-                  value: _EndpointAction.toggle,
-                  child: ListTile(
-                    leading: Icon(
-                      endpoint.enabled
-                          ? Icons.toggle_off_outlined
-                          : Icons.toggle_on_outlined,
+                PopupMenuButton<_EndpointAction>(
+                  onSelected: (action) => _handleAction(action, endpoint),
+                  itemBuilder: (context) => [
+                    PopupMenuItem(
+                      value: _EndpointAction.edit,
+                      child: ListTile(
+                        leading: const Icon(Icons.edit),
+                        title: Text(context.t('编辑配置')),
+                      ),
                     ),
-                    title: Text(context.t(endpoint.enabled ? '禁用配置' : '启用配置')),
-                  ),
-                ),
-                PopupMenuItem(
-                  value: _EndpointAction.delete,
-                  child: ListTile(
-                    leading: const Icon(Icons.delete_outline),
-                    title: Text(context.t('删除 API 配置')),
-                  ),
+                    PopupMenuItem(
+                      value: _EndpointAction.duplicate,
+                      child: ListTile(
+                        leading: const Icon(Icons.copy),
+                        title: Text(context.t('复制配置')),
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: _EndpointAction.setDefault,
+                      enabled: !isDefault && endpoint.enabled,
+                      child: ListTile(
+                        leading: const Icon(Icons.check_circle_outline),
+                        title: Text(context.t('设为默认')),
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: _EndpointAction.toggle,
+                      child: ListTile(
+                        leading: Icon(
+                          endpoint.enabled
+                              ? Icons.toggle_off_outlined
+                              : Icons.toggle_on_outlined,
+                        ),
+                        title: Text(
+                          context.t(endpoint.enabled ? '禁用配置' : '启用配置'),
+                        ),
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: _EndpointAction.delete,
+                      child: ListTile(
+                        leading: const Icon(Icons.delete_outline),
+                        title: Text(context.t('删除 API 配置')),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),

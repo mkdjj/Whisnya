@@ -37,10 +37,8 @@ class MemoryContextService {
             entry.scope == MemoryScope.session && entry.sessionId == sessionId,
       );
     }
-    final recentText = messages
+    final recentText = messages.reversed
         .where((message) => message.isUser || message.isAssistant)
-        .toList()
-        .reversed
         .take(20)
         .map((message) => message.effectiveContent)
         .join('\n')
@@ -197,28 +195,53 @@ List<_PromptEntry> _selectContextItems(
 ) {
   final selected = <_PromptEntry>[];
   final limit = maxCharacters.clamp(0, 12000).toInt();
+  var used = _runeLength(_rules);
+  var hasWorld = false;
+  var hasLongTerm = false;
+  var hasSession = false;
+  final worldGroupNames = <String>{};
   for (final item in candidates) {
-    final full = [...selected, _PromptEntry(item, item.content)];
-    if (_runeLength(_format(full)) <= limit) {
-      selected.add(full.last);
+    late final int fixedCost;
+    if (item.worldBookEntry != null) {
+      final name = item.worldBookName!;
+      final newGroup = !worldGroupNames.contains(name);
+      fixedCost =
+          (hasWorld ? 0 : 2 + _runeLength(_worldSectionHeader)) +
+          (newGroup ? _runeLength(_worldGroupHeader(name)) + 1 : 0) +
+          (hasWorld ? 1 : 0) +
+          _runeLength(_worldLinePrefix(item.worldBookEntry!));
+    } else {
+      final isSession = item.memory!.scope == MemoryScope.session;
+      final hasSection = isSession ? hasSession : hasLongTerm;
+      final header = isSession ? _sessionSectionHeader : _longTermSectionHeader;
+      fixedCost =
+          (hasSection ? 1 : 2 + _runeLength(header)) +
+          _runeLength(_memoryLinePrefix(item.title));
+    }
+
+    final contentLength = _runeLength(item.content);
+    if (used + fixedCost + contentLength <= limit) {
+      selected.add(_PromptEntry(item, item.content));
+      used += fixedCost + contentLength;
+      if (item.worldBookEntry != null) {
+        hasWorld = true;
+        worldGroupNames.add(item.worldBookName!);
+      } else if (item.memory!.scope == MemoryScope.session) {
+        hasSession = true;
+      } else {
+        hasLongTerm = true;
+      }
       continue;
     }
-    final runes = item.content.runes.toList();
-    var low = 1;
-    var high = runes.length;
-    String? fitting;
-    while (low <= high) {
-      final middle = (low + high) ~/ 2;
-      final text = String.fromCharCodes(runes.take(middle));
-      if (_runeLength(_format([...selected, _PromptEntry(item, text)])) <=
-          limit) {
-        fitting = text;
-        low = middle + 1;
-      } else {
-        high = middle - 1;
-      }
+    final fittingLength = limit - used - fixedCost;
+    if (fittingLength > 0) {
+      selected.add(
+        _PromptEntry(
+          item,
+          String.fromCharCodes(item.content.runes.take(fittingLength)),
+        ),
+      );
     }
-    if (fitting != null) selected.add(_PromptEntry(item, fitting));
     break;
   }
   return selected;
@@ -272,11 +295,11 @@ String _format(List<_PromptEntry> items) {
     worldGroups.putIfAbsent(item.item.worldBookName!, () => []).add(item);
   }
   for (final group in worldGroups.entries) {
-    worldLines.add('【世界书：${group.key}】');
+    worldLines.add(_worldGroupHeader(group.key));
     worldLines.addAll(
       group.value.map((item) {
         final entry = item.item.worldBookEntry!;
-        return '- ${entry.title}（触发词：${entry.keywords.join('、')}）：${item.content}';
+        return '${_worldLinePrefix(entry)}${item.content}';
       }),
     );
   }
@@ -289,20 +312,29 @@ String _format(List<_PromptEntry> items) {
   );
   final sections = <String>[];
   if (worldLines.isNotEmpty) {
-    sections.add('【关键词世界书】\n${worldLines.join('\n')}');
+    sections.add('$_worldSectionHeader${worldLines.join('\n')}');
   }
   if (longTerm.isNotEmpty) {
     sections.add(
-      '【长期记忆】\n${longTerm.map((item) => '- ${item.item.title}：${item.content}').join('\n')}',
+      '$_longTermSectionHeader${longTerm.map((item) => '${_memoryLinePrefix(item.item.title)}${item.content}').join('\n')}',
     );
   }
   if (session.isNotEmpty) {
     sections.add(
-      '【当前对话记忆】\n${session.map((item) => '- ${item.item.title}：${item.content}').join('\n')}',
+      '$_sessionSectionHeader${session.map((item) => '${_memoryLinePrefix(item.item.title)}${item.content}').join('\n')}',
     );
   }
   return [...sections, _rules].join('\n\n');
 }
+
+const _worldSectionHeader = '【关键词世界书】\n';
+const _longTermSectionHeader = '【长期记忆】\n';
+const _sessionSectionHeader = '【当前对话记忆】\n';
+
+String _worldGroupHeader(String name) => '【世界书：$name】';
+String _worldLinePrefix(WorldBookEntry entry) =>
+    '- ${entry.title}（触发词：${entry.keywords.join('、')}）：';
+String _memoryLinePrefix(String title) => '- $title：';
 
 const _rules = '''【记忆使用规则】
 1. 世界书描述世界背景、地点、组织和客观规则。

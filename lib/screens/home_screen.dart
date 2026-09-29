@@ -507,54 +507,59 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _currentBody() {
-    return IndexedStack(
-      index: _tabIndex,
-      children: [
-        AppBackground(settings: widget.settings, child: _buildBody()),
-        _visitedTabs.contains(HomeDestination.novels.index)
-            ? AppBackground(
-                settings: widget.settings,
-                child: NovelScreen(
-                  key: _novelKey,
-                  storage: widget.storage,
-                  aiService: widget.aiService,
-                  settings: widget.settings,
-                  useGridView: _novelGridView,
-                ),
-              )
-            : const SizedBox.shrink(),
-        _visitedTabs.contains(HomeDestination.theater.index)
-            ? AppBackground(
-                settings: widget.settings,
-                child: TheaterListScreen(
-                  key: _theaterKey,
-                  storage: widget.storage,
-                  aiService: widget.aiService,
-                  settings: widget.settings,
-                ),
-              )
-            : const SizedBox.shrink(),
-        _visitedTabs.contains(HomeDestination.autoStory.index)
-            ? AppBackground(
-                settings: widget.settings,
-                child: AutoStoryListScreen(
-                  key: _autoStoryKey,
-                  storage: widget.storage,
-                  aiService: widget.aiService,
-                  settings: widget.settings,
-                ),
-              )
-            : const SizedBox.shrink(),
-        _visitedTabs.contains(HomeDestination.settings.index)
-            ? SettingsScreen(
-                storage: widget.storage,
-                aiService: widget.aiService,
-                qqRuntime: widget.qqRuntime,
-                settings: widget.settings,
-                onSettingsChanged: _settingsChanged,
-              )
-            : const SizedBox.shrink(),
-      ],
+    return AppBackground(
+      settings: widget.settings,
+      child: Builder(
+        builder: (context) => Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.paddingOf(context).bottom,
+          ),
+          child: ClipRect(
+            key: const ValueKey('home-content-viewport'),
+            child: IndexedStack(
+              index: _tabIndex,
+              children: [
+                _buildBody(),
+                _visitedTabs.contains(HomeDestination.novels.index)
+                    ? NovelScreen(
+                        key: _novelKey,
+                        storage: widget.storage,
+                        aiService: widget.aiService,
+                        settings: widget.settings,
+                        useGridView: _novelGridView,
+                      )
+                    : const SizedBox.shrink(),
+                _visitedTabs.contains(HomeDestination.theater.index)
+                    ? TheaterListScreen(
+                        key: _theaterKey,
+                        storage: widget.storage,
+                        aiService: widget.aiService,
+                        settings: widget.settings,
+                      )
+                    : const SizedBox.shrink(),
+                _visitedTabs.contains(HomeDestination.autoStory.index)
+                    ? AutoStoryListScreen(
+                        key: _autoStoryKey,
+                        storage: widget.storage,
+                        aiService: widget.aiService,
+                        settings: widget.settings,
+                      )
+                    : const SizedBox.shrink(),
+                _visitedTabs.contains(HomeDestination.settings.index)
+                    ? SettingsScreen(
+                        storage: widget.storage,
+                        aiService: widget.aiService,
+                        qqRuntime: widget.qqRuntime,
+                        settings: widget.settings,
+                        embedded: true,
+                        onSettingsChanged: _settingsChanged,
+                      )
+                    : const SizedBox.shrink(),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -647,7 +652,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: characters.isEmpty
                 ? Center(child: Text(context.t('没有匹配的角色')))
                 : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(0, 0, 0, 148),
+                    padding: const EdgeInsets.fromLTRB(0, 0, 0, 24),
                     itemCount: characters.length,
                     separatorBuilder: (context, index) =>
                         const SizedBox(height: 8),

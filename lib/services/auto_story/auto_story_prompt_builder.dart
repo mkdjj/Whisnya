@@ -45,7 +45,7 @@ ${repair ? '上次回复格式不合规。本次仅输出本人一条完整正�
         'content':
             '''共同开端：${story.config.opening}
 当前已生效场景：${story.events.where((e) => e.kind == 'sceneTransition' && e.status == 'applied' && e.effectiveAfterOrdinal < story.nextOrdinal).lastOrNull?.content ?? story.config.opening}
-已发生事实摘要：${checkpoint?.summary ?? (story.toJson()['replanSummary'] as String? ?? '尚无摘要，以正式正文为准。')}
+已发生事实摘要：${checkpoint?.summary ?? story.replanSummaryOr('尚无摘要，以正式正文为准。')}
 用户锁定事实（不可擅自改写）：${story.lockedFacts.map((f) => f.text).join('；')}
 当前阶段：${stage?.title ?? ''}
 当前阶段目标：${stage?.objective ?? ''}
@@ -102,10 +102,9 @@ ${_worldContext(story, actorId)}
     AutoStoryDocument story, {
     bool repair = false,
   }) {
-    final raw = story.toJson();
     final covered =
         story.currentCheckpoint?.coveredThroughOrdinal ??
-        (raw['replanCoveredThroughOrdinal'] as int? ?? -1);
+        story.replanCoveredThroughOrdinal;
     final unsummarized = story.turns.skip(covered + 1).toList();
     if (unsummarized.fold<int>(0, (sum, t) => sum + t.content.runes.length) >
         48000) {
@@ -136,8 +135,7 @@ ${_worldContext(story, actorId)}
           'replyLength': _length(story.config.replyLengthPreset),
           'confirmedWorldContext': _worldContext(story, 'A'),
           'actualSummary':
-              story.currentCheckpoint?.summary ??
-              (raw['replanSummary'] as String? ?? ''),
+              story.currentCheckpoint?.summary ?? story.replanSummary,
           'actualUnsummarizedTurns': unsummarized
               .map((t) => {'turnId': t.turnId, 'content': t.content})
               .toList(),

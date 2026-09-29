@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -45,6 +46,7 @@ class _MementoScreenState extends State<MementoScreen> {
   final search = TextEditingController(), tag = TextEditingController();
   late Future<List<MementoIndex>> rows;
   late Future<List<AppCharacter>> characters;
+  Timer? _filterDebounce;
   String? selectedCharacter;
   @override
   void initState() {
@@ -56,6 +58,7 @@ class _MementoScreenState extends State<MementoScreen> {
   }
 
   void _epoch() {
+    _filterDebounce?.cancel();
     selectedCharacter = widget.characterId;
     characters = widget.service.storage.loadCharacters();
     if (mounted) setState(_reload);
@@ -71,8 +74,19 @@ class _MementoScreenState extends State<MementoScreen> {
     );
   }
 
+  void _scheduleFilterReload() {
+    _filterDebounce?.cancel();
+    setState(() {
+      rows = Completer<List<MementoIndex>>().future;
+    });
+    _filterDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (mounted) setState(_reload);
+    });
+  }
+
   @override
   void dispose() {
+    _filterDebounce?.cancel();
     widget.service.storage.datasetEpochListenable.removeListener(_epoch);
     search.dispose();
     tag.dispose();
@@ -134,6 +148,7 @@ class _MementoScreenState extends State<MementoScreen> {
                         ),
                     ],
                     onChanged: (id) => setState(() {
+                      _filterDebounce?.cancel();
                       selectedCharacter = id == '' ? null : id;
                       _reload();
                     }),
@@ -145,12 +160,12 @@ class _MementoScreenState extends State<MementoScreen> {
                   labelText: context.t('搜索标题、备注和正文'),
                   prefixIcon: Icon(Icons.search),
                 ),
-                onChanged: (_) => setState(_reload),
+                onChanged: (_) => _scheduleFilterReload(),
               ),
               TextField(
                 controller: tag,
                 decoration: InputDecoration(labelText: context.t('按标签筛选')),
-                onChanged: (_) => setState(_reload),
+                onChanged: (_) => _scheduleFilterReload(),
               ),
             ],
           ),
@@ -162,7 +177,7 @@ class _MementoScreenState extends State<MementoScreen> {
               if (s.hasError) {
                 return Center(child: Text(context.t('${s.error}')));
               }
-              if (!s.hasData) {
+              if (s.connectionState != ConnectionState.done || !s.hasData) {
                 return const Center(child: CircularProgressIndicator());
               }
               if (s.data!.isEmpty) {
@@ -536,6 +551,7 @@ class _ShareCardEditorScreenState extends State<ShareCardEditorScreen>
   late final TextEditingController title, character, user;
   final capture = GlobalKey();
   final hidden = <int>{};
+  Timer? _titleDebounce;
   ShareCardTemplate template = ShareCardTemplate.dialogue;
   bool avatars = false, time = false, inner = false, busy = false, valid = true;
   bool _localizedDefaultName = false;
@@ -568,6 +584,7 @@ class _ShareCardEditorScreenState extends State<ShareCardEditorScreen>
   }
 
   void _invalidate() {
+    _titleDebounce?.cancel();
     if (mounted) {
       setState(() {
         valid = false;
@@ -583,6 +600,7 @@ class _ShareCardEditorScreenState extends State<ShareCardEditorScreen>
 
   @override
   void dispose() {
+    _titleDebounce?.cancel();
     title.dispose();
     character.dispose();
     user.dispose();
@@ -591,25 +609,27 @@ class _ShareCardEditorScreenState extends State<ShareCardEditorScreen>
     super.dispose();
   }
 
-  void _prepare() {
+  ShareCardOptions _options() => ShareCardOptions(
+    title: title.text,
+    characterName: character.text,
+    userName: user.text,
+    template: template,
+    showAvatars: avatars,
+    showTime: time,
+    showInnerVoice: inner,
+    innerVoiceAllowed: widget.innerVoiceEnabled,
+    hiddenEntries: hidden,
+    backgroundPath: background,
+    backgroundColor: color,
+    mediaDirectory: widget.mediaDirectory,
+  );
+
+  void _prepare({bool reusePagination = false}) {
     try {
-      plan = ShareCardPlan.prepare(
-        widget.snapshot,
-        ShareCardOptions(
-          title: title.text,
-          characterName: character.text,
-          userName: user.text,
-          template: template,
-          showAvatars: avatars,
-          showTime: time,
-          showInnerVoice: inner,
-          innerVoiceAllowed: widget.innerVoiceEnabled,
-          hiddenEntries: hidden,
-          backgroundPath: background,
-          backgroundColor: color,
-          mediaDirectory: widget.mediaDirectory,
-        ),
-      );
+      final options = _options();
+      plan = reusePagination && plan != null
+          ? plan!.withPresentation(widget.snapshot, options)
+          : ShareCardPlan.prepare(widget.snapshot, options);
       page = page.clamp(0, plan!.pages.length - 1);
       error = null;
     } catch (e) {
@@ -620,8 +640,15 @@ class _ShareCardEditorScreenState extends State<ShareCardEditorScreen>
 
   void _change(VoidCallback action) => setState(() {
     action();
-    _prepare();
+    _prepare(reusePagination: true);
   });
+  void _scheduleTitleLayout() {
+    _titleDebounce?.cancel();
+    _titleDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (mounted && valid) setState(_prepare);
+    });
+  }
+
   Future<void> _background() async {
     final result = await FilePicker.platform.pickFiles(type: FileType.image);
     final path = result?.files.single.path;
@@ -634,7 +661,10 @@ class _ShareCardEditorScreenState extends State<ShareCardEditorScreen>
   }
 
   Future<void> _save() async {
-    if (plan == null || busy || !valid) return;
+    if (busy || !valid) return;
+    _titleDebounce?.cancel();
+    setState(_prepare);
+    if (plan == null) return;
     setState(() => busy = true);
     final p = plan!;
     final epoch = widget.datasetEpoch.value;
@@ -745,7 +775,7 @@ class _ShareCardEditorScreenState extends State<ShareCardEditorScreen>
                   controller: title,
                   maxLength: 80,
                   decoration: InputDecoration(labelText: context.t('分享标题')),
-                  onChanged: (_) => _change(() {}),
+                  onChanged: (_) => _scheduleTitleLayout(),
                 ),
                 DropdownButton<ShareCardTemplate>(
                   value: template,

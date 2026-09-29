@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whisnya/models/character_memory_entry.dart';
 import 'package:whisnya/models/chat_message.dart';
@@ -83,6 +85,47 @@ void main() {
     },
   );
 
+  test('reads only the tail needed for twenty eligible messages', () {
+    final messages = _CountingMessages([
+      for (var index = 0; index < 1000; index++)
+        message('user', 'filler $index'),
+      message('system', 'ignored'),
+      message('assistant', 'TAIL-ONLY'),
+    ]);
+    final result = const MemoryContextService().build(
+      entries: [
+        memory(id: 'tail', content: 'match', keywords: const ['tail-only']),
+      ],
+      characterId: 'character',
+      sessionId: 'session',
+      messages: messages,
+      maxCharacters: 4000,
+    );
+
+    expect(result.activeEntries.map((entry) => entry.id), ['tail']);
+    expect(messages.readCount, lessThanOrEqualTo(25));
+  });
+
+  test('preserves newest-first matching with system gaps and Unicode', () {
+    final result = const MemoryContextService().build(
+      entries: [
+        memory(id: 'reverse', content: 'reverse', keywords: const ['😀\n中文']),
+        memory(id: 'forward', content: 'forward', keywords: const ['中文\n😀']),
+        memory(id: 'system', content: 'system', keywords: const ['hidden']),
+      ],
+      characterId: 'character',
+      sessionId: 'session',
+      messages: [
+        message('user', '中文'),
+        message('system', 'hidden'),
+        message('assistant', '😀'),
+      ],
+      maxCharacters: 4000,
+    );
+
+    expect(result.activeEntries.map((entry) => entry.id), ['reverse']);
+  });
+
   test(
     'sorts stably, removes duplicate content, and safely truncates runes',
     () {
@@ -112,4 +155,27 @@ void main() {
       );
     },
   );
+}
+
+class _CountingMessages extends ListBase<ChatMessage> {
+  _CountingMessages(this._messages);
+
+  final List<ChatMessage> _messages;
+  int readCount = 0;
+
+  @override
+  int get length => _messages.length;
+
+  @override
+  set length(int value) => throw UnsupportedError('read-only test list');
+
+  @override
+  ChatMessage operator [](int index) {
+    readCount++;
+    return _messages[index];
+  }
+
+  @override
+  void operator []=(int index, ChatMessage value) =>
+      throw UnsupportedError('read-only test list');
 }

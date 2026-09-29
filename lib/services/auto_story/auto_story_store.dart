@@ -69,7 +69,6 @@ class AutoStoryStore {
     } on FileSystemException catch (e) {
       throw StoryStorageException(e);
     }
-    _headers = null;
   }
 
   Future<T> _locked<T>(
@@ -105,7 +104,7 @@ class AutoStoryStore {
       await _writeNow(file, doc);
       return doc;
     });
-    await _refreshIndexBestEffort();
+    await _refreshIndexBestEffort(storyId: draft.id);
     return result;
   }
 
@@ -163,7 +162,7 @@ class AutoStoryStore {
       await _writeNow(file, next);
       return next;
     });
-    await _refreshIndexBestEffort();
+    await _refreshIndexBestEffort(storyId: storyId);
     return result;
   }
 
@@ -264,7 +263,7 @@ class AutoStoryStore {
       );
       return _token(doc.id, record);
     });
-    await _refreshIndexBestEffort();
+    await _refreshIndexBestEffort(storyId: storyId);
     return result;
   }
 
@@ -338,7 +337,9 @@ class AutoStoryStore {
         await _writeNow(file, next);
         return CommitResult.applied;
       }, expectedEpoch: token.datasetEpoch);
-      if (result == CommitResult.applied) await _refreshIndexBestEffort();
+      if (result == CommitResult.applied) {
+        await _refreshIndexBestEffort(storyId: token.storyId);
+      }
       return result;
     } on StateError {
       if (token.datasetEpoch != datasetEpoch) return CommitResult.stale;
@@ -373,40 +374,7 @@ class AutoStoryStore {
               'Replacement must carry new identity and replaced ID',
             );
           }
-          final checkpoints = doc.directorCheckpoints
-              .where((c) => c.coveredThroughOrdinal < turn.ordinal)
-              .toList();
-          final retained = checkpoints.map((c) => c.checkpointId).toSet();
-          final current = checkpoints
-              .where((c) => c.planVersion == doc.config.planVersion)
-              .lastOrNull;
-          return _invalidateReplanSummary(
-            doc.copyWith(
-              turns: [...doc.turns.take(doc.turns.length - 1), turn],
-              directorCheckpoints: checkpoints,
-              currentCheckpointId: current?.checkpointId,
-              clearCurrentCheckpoint: current == null,
-              lockedFacts: doc.lockedFacts
-                  .where(
-                    (f) =>
-                        !f.evidenceTurnIds.contains(previous.turnId) &&
-                        !f.evidence.any((e) => e.turnId == previous.turnId),
-                  )
-                  .toList(),
-              events: doc.events
-                  .where(
-                    (e) =>
-                        e.sourceCheckpointId == null ||
-                        retained.contains(e.sourceCheckpointId),
-                  )
-                  .toList(),
-              status: StoryStatus.paused,
-              goalStatus: 'pending',
-              pauseAfterCurrent: false,
-              runGeneration: doc.runGeneration + 1,
-            ),
-            turn.ordinal,
-          );
+          return _replaceLastTurn(doc, turn);
         }
         return doc.copyWith(turns: [...doc.turns, turn]);
       });
@@ -527,7 +495,7 @@ class AutoStoryStore {
         ),
       );
     }, expectedEpoch: token.datasetEpoch);
-    await _refreshIndexBestEffort();
+    await _refreshIndexBestEffort(storyId: token.storyId);
   }
 
   Future<void> recordUsage(
@@ -537,6 +505,7 @@ class AutoStoryStore {
     int? totalTokens,
   }) async {
     if (token.datasetEpoch != datasetEpoch) return;
+    var wrote = false;
     try {
       await _locked(token.storyId, (file, doc) async {
         if (doc == null) return;
@@ -574,9 +543,13 @@ class AutoStoryStore {
             updatedAt: DateTime.now(),
           ),
         );
+        wrote = true;
       }, expectedEpoch: token.datasetEpoch);
     } on StateError {
       if (token.datasetEpoch == datasetEpoch) rethrow;
+    }
+    if (wrote && token.datasetEpoch == datasetEpoch) {
+      await _refreshIndexBestEffort(storyId: token.storyId);
     }
   }
 
@@ -624,7 +597,7 @@ class AutoStoryStore {
     } on StateError {
       if (token.datasetEpoch == datasetEpoch) rethrow;
     }
-    await _refreshIndexBestEffort();
+    await _refreshIndexBestEffort(storyId: token.storyId);
   }
 
   Future<AutoStoryDocument> addManualTurn(String storyId, String content) =>
@@ -654,9 +627,8 @@ class AutoStoryStore {
         final target = File(path);
         if (await target.exists()) await target.delete();
       }
-      _headers = null;
     });
-    await _refreshIndexBestEffort();
+    await _refreshIndexBestEffort(storyId: storyId);
   }
 
   Future<AutoStoryDocument> editLastManualTurn(
@@ -682,6 +654,12 @@ class AutoStoryStore {
       source: StoryTurnSource.manual,
       replacesTurnId: old.turnId,
     );
+    return _replaceLastTurn(doc, turn);
+  });
+
+  // Both callers validate their own source and operation before replacing.
+  AutoStoryDocument _replaceLastTurn(AutoStoryDocument doc, StoryTurn turn) {
+    final old = doc.turns.last;
     final checkpoints = doc.directorCheckpoints
         .where((c) => c.coveredThroughOrdinal < old.ordinal)
         .toList();
@@ -716,7 +694,7 @@ class AutoStoryStore {
       ),
       turn.ordinal,
     );
-  });
+  }
 
   AutoStoryDocument _invalidateReplanSummary(
     AutoStoryDocument doc,
@@ -799,49 +777,151 @@ class AutoStoryStore {
   }
 
   Future<List<AutoStoryHeader>> listStories() async {
-    if (_headers == null || _headersEpoch != datasetEpoch) {
+    if (_headers == null || _headersEpoch != datasetEpoch || indexNeedsRepair) {
       await _refreshIndexBestEffort();
     }
     return List.unmodifiable(_headers ?? []);
   }
 
   Future<void> repairIndex() => storage.jsonStore.runOperation(() async {
-    final headers = <AutoStoryHeader>[];
-    _unreadableStories.clear();
-    for (final file in await _storyFiles()) {
-      try {
-        final doc = await storage.jsonStore.synchronized(
-          file,
-          () => _readNow(file),
-        );
-        if (doc != null) headers.add(AutoStoryHeader(doc));
-      } on FormatException catch (error) {
-        final name = file.path.replaceAll('\\', '/').split('/').last;
-        _unreadableStories[name.substring(0, name.length - 5)] = error.message;
-      }
-    }
-    headers.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-    _headers = List.unmodifiable(headers);
-    _headersEpoch = datasetEpoch;
     final index = File(
       '${(await storage.appDataDirectory).path}/auto_story_index.json',
     );
-    await storage.jsonStore.synchronized(
-      index,
-      () => storage.jsonStore.writeNow(
+    // Index first, then story locks. Incremental updates use the same order.
+    await storage.jsonStore.synchronized(index, () async {
+      final headers = <AutoStoryHeader>[];
+      _unreadableStories.clear();
+      for (final file in await _storyFiles()) {
+        try {
+          final doc = await storage.jsonStore.synchronized(
+            file,
+            () => _readNow(file),
+          );
+          if (doc != null) headers.add(AutoStoryHeader(doc));
+        } on FormatException catch (error) {
+          final name = file.path.replaceAll('\\', '/').split('/').last;
+          _unreadableStories[name.substring(0, name.length - 5)] =
+              error.message;
+        }
+      }
+      headers.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      _headers = List.unmodifiable(headers);
+      _headersEpoch = datasetEpoch;
+      await storage.jsonStore.writeNow(
         index,
         headers.map((h) => h.toJson()).toList(),
-      ),
-    );
-    indexNeedsRepair = false;
+      );
+      indexNeedsRepair = false;
+    });
   });
-  Future<void> _refreshIndexBestEffort() async {
+
+  Future<bool> _updateIndex(
+    String storyId,
+    int epoch,
+  ) => storage.jsonStore.runOperation(() async {
+    final index = File(
+      '${(await storage.appDataDirectory).path}/auto_story_index.json',
+    );
+    return storage.jsonStore.synchronized(index, () async {
+      if (!await index.exists()) return false;
+      final dynamic decoded;
+      try {
+        decoded = jsonDecode(await index.readAsString());
+      } on FormatException {
+        return false;
+      }
+      if (decoded is! List) return false;
+      final rows = <Map<String, dynamic>>[];
+      final ids = <String>{};
+      for (final row in decoded) {
+        if (row is! Map<String, dynamic> ||
+            row['id'] is! String ||
+            !RegExp(r'^[A-Za-z0-9_-]{1,128}$').hasMatch(row['id'] as String) ||
+            !ids.add(row['id'] as String) ||
+            row['title'] is! String ||
+            row['actors'] is! List ||
+            (row['actors'] as List).length != 2 ||
+            !(row['actors'] as List).every(
+              (actor) =>
+                  actor is Map<String, dynamic> &&
+                  (actor['actorId'] == 'A' || actor['actorId'] == 'B') &&
+                  actor['name'] is String &&
+                  (actor['sourceId'] == null || actor['sourceId'] is String) &&
+                  (actor['avatarRelativePath'] == null ||
+                      actor['avatarRelativePath'] is String) &&
+                  actor['lockedSource'] is bool,
+            ) ||
+            row['status'] is! String ||
+            !StoryStatus.values.any((s) => s.name == row['status']) ||
+            (row['pauseReason'] != null &&
+                !StoryPauseReason.values.any(
+                  (r) => r.name == row['pauseReason'],
+                )) ||
+            row['completedRounds'] is! int ||
+            row['plannedRounds'] is! int ||
+            row['stageIndex'] is! int ||
+            row['privacyRequired'] is! bool ||
+            row['updatedAt'] is! String ||
+            DateTime.tryParse(row['updatedAt'] as String) == null) {
+          return false;
+        }
+        rows.add(row);
+      }
+      final file = await _file(storyId);
+      final AutoStoryDocument? doc;
+      try {
+        doc = await storage.jsonStore.synchronized(file, () => _readNow(file));
+      } on FormatException {
+        return false;
+      }
+      rows.removeWhere((row) => row['id'] == storyId);
+      if (doc != null) rows.add(AutoStoryHeader(doc).toJson());
+      rows.sort(
+        (a, b) => DateTime.parse(
+          b['updatedAt'] as String,
+        ).compareTo(DateTime.parse(a['updatedAt'] as String)),
+      );
+      await storage.jsonStore.writeNow(index, rows);
+      if (_headers != null && _headersEpoch == epoch) {
+        final peers = _headers!.where((h) => h.id != storyId).toList();
+        final cachedPeers = {for (final header in peers) header.id: header};
+        final diskPeers = rows.where((row) => row['id'] != storyId).toList();
+        if (cachedPeers.length != diskPeers.length ||
+            diskPeers.any(
+              (row) =>
+                  cachedPeers[row['id']] == null ||
+                  jsonEncode(cachedPeers[row['id']]!.toJson()) !=
+                      jsonEncode(row),
+            )) {
+          // Another store changed the index; listStories must rescan.
+          _headers = null;
+        } else {
+          if (doc != null) peers.add(AutoStoryHeader(doc));
+          peers.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+          _headers = List.unmodifiable(peers);
+        }
+      }
+      indexNeedsRepair = false;
+      return true;
+    });
+  }, expectedEpoch: epoch);
+
+  Future<void> _refreshIndexBestEffort({String? storyId}) async {
+    final epoch = datasetEpoch;
     try {
-      await repairIndex();
+      if (storyId == null ||
+          _headers == null ||
+          _headersEpoch != epoch ||
+          indexNeedsRepair ||
+          !await _updateIndex(storyId, epoch)) {
+        await repairIndex();
+      }
     } on FileSystemException {
       indexNeedsRepair = true;
     } on StoryStorageException {
       indexNeedsRepair = true;
+    } on StateError {
+      if (epoch == datasetEpoch) rethrow;
     }
   }
 
