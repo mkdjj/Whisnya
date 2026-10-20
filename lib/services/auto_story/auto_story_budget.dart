@@ -7,7 +7,8 @@ class AutoStoryBudget {
     for (final checkpoint in story.directorCheckpoints) {
       if (checkpoint.planVersion == story.config.planVersion &&
           !checkpoint.checkKey.contains(':batch:')) {
-        byRound[(checkpoint.coveredThroughOrdinal + 1) ~/ 2] = checkpoint;
+        byRound[(checkpoint.coveredThroughOrdinal + 1) ~/ story.actorCount] =
+            checkpoint;
       }
     }
     final ordered = byRound.values.toList()
@@ -27,12 +28,10 @@ class AutoStoryBudget {
     return stalled >= 3;
   }
 
-  static int defaultMaxRequests(int rounds) =>
-      2 * rounds + 2 * ((rounds + 4) ~/ 5) + 10;
   static String checkKey(AutoStoryDocument story) =>
       '${story.config.planVersion}:${story.completedRounds}:${storyTurnsHash(story.turns)}';
   static bool shouldReview(AutoStoryDocument story) {
-    if (story.turns.isEmpty || story.turns.length.isOdd || story.plan.isEmpty) {
+    if (story.turns.isEmpty || !story.isRoundComplete || story.plan.isEmpty) {
       return false;
     }
     final key = checkKey(story);

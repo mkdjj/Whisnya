@@ -9,7 +9,6 @@ import '../models/app_settings.dart';
 import '../models/chat_session.dart';
 import '../services/ai_service.dart';
 import '../services/local_storage_service.dart';
-import '../services/qq/qq_integration_runtime.dart';
 import '../utils/app_i18n.dart';
 import '../utils/character_import_flow.dart';
 import '../utils/page_layout.dart';
@@ -32,7 +31,7 @@ class HomeScreen extends StatefulWidget {
     required this.aiService,
     required this.settings,
     required this.onSettingsChanged,
-    this.qqRuntime,
+
     super.key,
   });
 
@@ -40,7 +39,6 @@ class HomeScreen extends StatefulWidget {
   final AiService aiService;
   final AppSettings settings;
   final Future<void> Function() onSettingsChanged;
-  final QqIntegrationRuntime? qqRuntime;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -184,16 +182,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     ChatSession session;
     try {
-      session = widget.storage.usesSessionStorage
-          ? await widget.storage.getOrCreateRecentChatSession(opened.id)
-          : ChatSession(
-              id: 'legacy_runtime_${opened.id}',
-              characterId: opened.id,
-              title: '默认对话',
-              createdAt: DateTime.now(),
-              updatedAt: DateTime.now(),
-              lastUsedAt: DateTime.now(),
-            );
+      session = await widget.storage.getOrCreateRecentChatSession(opened.id);
     } catch (error) {
       if (mounted) context.showSnack(error.toString());
       return;
@@ -549,7 +538,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ? SettingsScreen(
                         storage: widget.storage,
                         aiService: widget.aiService,
-                        qqRuntime: widget.qqRuntime,
+
                         settings: widget.settings,
                         embedded: true,
                         onSettingsChanged: _settingsChanged,

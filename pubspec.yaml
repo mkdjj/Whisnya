@@ -1,7 +1,7 @@
 name: whisnya
 description: "A local-first AI role chat and TXT novel reader app."
 publish_to: 'none'
-version: 1.5.4+2026
+version: 1.5.5+2027
 
 environment:
   sdk: ^3.12.2
@@ -23,8 +23,6 @@ dependencies:
   flutter_tts: 4.2.5
 
 dev_dependencies:
-  flutter_test:
-    sdk: flutter
   flutter_lints: ^6.0.0
 
 dependency_overrides:

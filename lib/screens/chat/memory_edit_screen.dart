@@ -85,7 +85,7 @@ class _MemoryEditScreenState extends State<MemoryEditScreen> {
         sessionId: _scope == MemoryScope.session ? widget.session.id : null,
         title: title,
         content: content,
-        keywords: const [],
+
         priority: _priority,
         enabled: _enabled,
         createdAt: widget.entry?.createdAt ?? now,

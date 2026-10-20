@@ -29,7 +29,7 @@ class ChatSessionService {
     await recoverPendingClears();
     var sessions = await _readSessions();
     if (!sessions.any((session) => session.characterId == characterId)) {
-      await _migrateOrCreateDefault(characterId);
+      await _createDefault(characterId);
       sessions = await _readSessions();
     }
     return sessions
@@ -331,90 +331,17 @@ class ChatSessionService {
   Future<List<ChatMessage>> loadChatBySession(ChatSession session) async {
     _validateSession(session);
     final file = _paths.chatBySession(session.id);
-    // Normal reads retain the store's recovery/admission/instrumentation path.
-    // Only legacy identity migration needs a locked re-read before patching.
-    final snapshot = await _store.read(file, <String, dynamic>{
-      'sessionId': session.id,
-      'characterId': session.characterId,
-      'messages': <dynamic>[],
-    });
-    if (snapshot is! Map<String, dynamic> || snapshot['messages'] is! List) {
-      throw const FormatException('Invalid session messages');
-    }
-    final rows = snapshot['messages'] as List<dynamic>;
-    bool stableIds(List<dynamic> values) {
-      final seen = <String>{};
-      for (final row in values.whereType<Map<String, dynamic>>()) {
-        final id = row['id'];
-        if (id is! String || id.isEmpty || !seen.add(id)) return false;
-      }
-      return true;
-    }
-
-    if (stableIds(rows) &&
-        rows.whereType<Map<String, dynamic>>().every((row) {
-          final variants = row['variants'];
-          return variants is! List<dynamic> || stableIds(variants);
-        })) {
-      return rows
-          .whereType<Map<String, dynamic>>()
-          .map(ChatMessage.fromJson)
-          .toList();
-    }
-    return _store.synchronized(file, () async {
-      if (await _store.recoveryNeeded(file)) await _store.recover(file);
-      final decoded = await file.exists()
-          ? jsonDecode(await file.readAsString())
-          : {
+    final snapshot =
+        await _store.read(file, <String, dynamic>{
               'sessionId': session.id,
               'characterId': session.characterId,
               'messages': <dynamic>[],
-            };
-      if (decoded is! Map<String, dynamic>) {
-        throw const FormatException('Invalid session chat file');
-      }
-      final messages = decoded['messages'];
-      if (messages is! List) {
-        throw const FormatException('Invalid session messages');
-      }
-      // Patch raw rows rather than round-tripping models: unknown and damaged
-      // candidate fields remain available for recovery and future versions.
-      var changed = false;
-      final ids = <String>{};
-      for (final row in messages.whereType<Map<String, dynamic>>()) {
-        final existing = row['id'];
-        if (existing is! String || existing.isEmpty || !ids.add(existing)) {
-          var id = newStoryId();
-          while (!ids.add(id)) {
-            id = newStoryId();
-          }
-          row['id'] = id;
-          changed = true;
-        }
-        final candidates = row['variants'];
-        if (candidates is! List) continue;
-        final variantIds = <String>{};
-        for (final variant in candidates.whereType<Map<String, dynamic>>()) {
-          final existingVariant = variant['id'];
-          if (existingVariant is String &&
-              existingVariant.isNotEmpty &&
-              variantIds.add(existingVariant)) {
-            continue;
-          }
-          var id = newStoryId();
-          while (!variantIds.add(id)) {
-            id = newStoryId();
-          }
-          variant['id'] = id;
-          changed = true;
-        }
-      }
-      if (changed) await _store.writeNow(file, decoded, compact: true);
-      return messages
-          .whereType<Map<String, dynamic>>()
-          .map(ChatMessage.fromJson)
-          .toList();
-    });
+            })
+            as Map<String, dynamic>;
+    return (snapshot['messages'] as List)
+        .cast<Map<String, dynamic>>()
+        .map(ChatMessage.fromJson)
+        .toList();
   }
 
   Future<void> saveChatBySession(
@@ -799,78 +726,29 @@ class ChatSessionService {
     await _deleteIfExists(_paths.summary(characterId));
   }
 
-  Future<void> _migrateOrCreateDefault(String characterId) async {
-    await _store.synchronized(_paths.chatSessions, () async {
+  Future<void> _createDefault(String characterId) => _store.synchronized(
+    _paths.chatSessions,
+    () async {
       final sessions = await _readSessionsNow();
       if (sessions.any((session) => session.characterId == characterId)) return;
-
-      final legacyChat = _paths.chat(characterId);
-      final legacySummary = _paths.summary(characterId);
-      final hasLegacyChat = await legacyChat.exists();
-      final hasLegacySummary = await legacySummary.exists();
       final now = DateTime.now();
-      final decodedChat = hasLegacyChat
-          ? await _store.read(legacyChat, <String, dynamic>{})
-          : <String, dynamic>{'messages': <dynamic>[]};
-      final isBareLegacyList = decodedChat is List;
-      final chatJson = isBareLegacyList
-          ? <String, dynamic>{'messages': decodedChat}
-          : decodedChat;
-      if (chatJson is! Map<String, dynamic> || chatJson['messages'] is! List) {
-        throw const FormatException('Invalid legacy chat file');
-      }
-      final legacyMessages = chatJson['messages'] as List<dynamic>;
       final session = ChatSession(
-        id: hasLegacyChat || hasLegacySummary
-            ? 'legacy_session_${_safeLegacyId(characterId)}'
-            : _newSessionId(),
+        id: _newSessionId(),
         characterId: characterId,
         title: '默认对话',
         createdAt: now,
         updatedAt: now,
         lastUsedAt: now,
-        openingMessageInitialized: legacyMessages.isNotEmpty,
-        messageCount: legacyMessages.length,
+        messageCount: 0,
       );
-
-      final summaryJson = hasLegacySummary
-          ? await _readObject(legacySummary)
-          : ChatSummary.empty(characterId, session.id).toJson();
-      await _store.write(_paths.chatBySession(session.id), {
-        ...chatJson,
-        'sessionId': session.id,
-        'characterId': characterId,
-        'messages': legacyMessages,
-      }, compact: true);
-      final migratedSummary = ChatSummary.fromJson(summaryJson);
-      await _store.write(_paths.summaryBySession(session.id), {
-        ...migratedSummary.toJson(),
-        'characterId': characterId,
-        'sessionId': session.id,
-      });
+      await _writeEmptySessionData(session);
       sessions.add(session);
       await _store.writeNow(
         _paths.chatSessions,
         sessions.map((item) => item.toJson()).toList(),
       );
-
-      if (hasLegacyChat) {
-        if (isBareLegacyList) {
-          // Retain original evidence for this recovered legacy representation.
-          final stamp = DateTime.now().microsecondsSinceEpoch;
-          var suffix = 0;
-          var evidence = File('${legacyChat.path}.migrated.$stamp');
-          while (await evidence.exists()) {
-            evidence = File('${legacyChat.path}.migrated.$stamp.${++suffix}');
-          }
-          await legacyChat.rename(evidence.path);
-        } else {
-          await legacyChat.delete();
-        }
-      }
-      if (hasLegacySummary) await legacySummary.delete();
-    });
-  }
+    },
+  );
 
   Future<List<ChatSession>> _readSessions() async {
     final decoded = await _store.read(_paths.chatSessions, <dynamic>[]);
@@ -1193,14 +1071,6 @@ class ChatSessionService {
     await Future.wait([worker(), worker()]);
   }
 
-  Future<Map<String, dynamic>> _readObject(File file) async {
-    final decoded = await _store.read(file, <String, dynamic>{});
-    if (decoded is! Map<String, dynamic>) {
-      throw const FormatException('Invalid legacy file');
-    }
-    return decoded;
-  }
-
   Future<List<CharacterMemoryEntry>> _readMemoriesNow(
     File file,
     String characterId,
@@ -1234,12 +1104,6 @@ class ChatSessionService {
     if (micros <= _lastIdMicros) micros = _lastIdMicros + 1;
     _lastIdMicros = micros;
     return 'chat_session_$micros';
-  }
-
-  static String _safeLegacyId(String id) {
-    return RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(id)
-        ? id
-        : base64Url.encode(utf8.encode(id)).replaceAll('=', '');
   }
 
   static bool _isSafeId(String id) =>

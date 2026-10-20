@@ -1,8 +1,9 @@
+import 'chat_appearance.dart';
 import 'chat_bubble_theme.dart';
 import 'image_crop_region.dart';
 import 'character_voice_profile.dart';
 
-class AppCharacter {
+class AppCharacter implements ChatAppearance<AppCharacter> {
   const AppCharacter({
     required this.id,
     required this.name,
@@ -50,14 +51,20 @@ class AppCharacter {
   final String avatar;
   final String backgroundImage;
   final ImageCropRegion backgroundImageRegion;
+  @override
   final double backgroundImageOpacity;
+  @override
   final double backgroundBlur;
   final ChatBubbleTheme bubbleTheme;
+  @override
   final String roleBubblePresetId;
+  @override
   final String userBubblePresetId;
   final double? roleBubbleOpacity;
   final double? userBubbleOpacity;
+  @override
   final double inputOpacity;
+  @override
   final double topBarOpacity;
   final String description;
   final String personality;
@@ -81,6 +88,7 @@ class AppCharacter {
   final DateTime updatedAt;
   final DateTime lastUsedAt;
 
+  @override
   AppCharacter copyWith({
     String? id,
     String? name,

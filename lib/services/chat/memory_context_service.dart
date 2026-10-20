@@ -4,14 +4,11 @@ import '../../models/world_book.dart';
 
 class MemoryContextResult {
   const MemoryContextResult({
-    required this.activeEntries,
     required this.activeMemoryEntries,
     required this.activeWorldBookEntries,
     required this.memoryPrompt,
   });
 
-  // Kept as an alias for callers from the pre-world-book implementation.
-  final List<CharacterMemoryEntry> activeEntries;
   final List<CharacterMemoryEntry> activeMemoryEntries;
   final List<WorldBookEntry> activeWorldBookEntries;
   final String memoryPrompt;
@@ -27,9 +24,9 @@ class MemoryContextService {
     required List<ChatMessage> messages,
     required int maxCharacters,
     bool allowSharedCharacterMemories = true,
-    Iterable<WorldBook>? worldBooks,
-    Iterable<WorldBookEntry>? worldBookEntries,
-    Iterable<String>? worldBookIds,
+    Iterable<WorldBook> worldBooks = const [],
+    Iterable<WorldBookEntry> worldBookEntries = const [],
+    Iterable<String> worldBookIds = const [],
   }) {
     if (!allowSharedCharacterMemories) {
       entries = entries.where(
@@ -50,56 +47,13 @@ class MemoryContextService {
       if (entry.scope == MemoryScope.session && entry.sessionId != sessionId) {
         return false;
       }
-      return entry.title.trim().isNotEmpty &&
-          entry.content.trim().isNotEmpty &&
-          entry.keywords.isEmpty;
+      return entry.title.trim().isNotEmpty && entry.content.trim().isNotEmpty;
     }).toList();
 
-    final useWorldBookContext =
-        worldBooks != null || worldBookEntries != null || worldBookIds != null;
-    if (!useWorldBookContext) {
-      // Old callers and old tests can still render legacy keyword entries until
-      // their storage is migrated. Production requests always pass the new
-      // world-book arguments and therefore never use this branch.
-      final legacyEntries = entries.where((entry) {
-        if (!entry.enabled || entry.characterId != characterId) {
-          return false;
-        }
-        if (entry.scope == MemoryScope.session &&
-            entry.sessionId != sessionId) {
-          return false;
-        }
-        return entry.title.trim().isNotEmpty &&
-            entry.content.trim().isNotEmpty &&
-            (entry.keywords.isEmpty ||
-                entry.keywords.any(
-                  (keyword) => recentText.contains(keyword.toLowerCase()),
-                ));
-      }).toList();
-      legacyEntries.sort(_compareMemoryEntries);
-      final seenContent = <String>{};
-      final uniqueLegacyEntries = legacyEntries
-          .where((entry) => seenContent.add(entry.content))
-          .toList();
-      final selected = _selectMemoryEntries(uniqueLegacyEntries, maxCharacters);
-      return MemoryContextResult(
-        activeEntries: List.unmodifiable(
-          selected.map((item) => item.item.memory!),
-        ),
-        activeMemoryEntries: List.unmodifiable(
-          selected.map((item) => item.item.memory!),
-        ),
-        activeWorldBookEntries: const [],
-        memoryPrompt: selected.isEmpty ? '' : _formatLegacy(selected),
-      );
-    }
-
-    final booksById = {
-      for (final book in worldBooks ?? const <WorldBook>[]) book.id: book,
-    };
-    final referencedIds = (worldBookIds ?? const <String>[]).toSet();
+    final booksById = {for (final book in worldBooks) book.id: book};
+    final referencedIds = worldBookIds.toSet();
     final activeWorldEntries =
-        (worldBookEntries ?? const <WorldBookEntry>[]).where((entry) {
+        worldBookEntries.where((entry) {
           final book = booksById[entry.worldBookId];
           return book != null &&
               referencedIds.contains(entry.worldBookId) &&
@@ -148,7 +102,6 @@ class MemoryContextService {
         .map((item) => item.item.worldBookEntry!)
         .toList();
     return MemoryContextResult(
-      activeEntries: List.unmodifiable(activeMemories),
       activeMemoryEntries: List.unmodifiable(activeMemories),
       activeWorldBookEntries: List.unmodifiable(selectedWorldEntries),
       memoryPrompt: selected.isEmpty ? '' : _format(selected),
@@ -181,13 +134,6 @@ class _PromptEntry {
   final _ContextItem item;
   final String content;
 }
-
-List<_PromptEntry> _selectMemoryEntries(
-  List<CharacterMemoryEntry> entries,
-  int maxCharacters,
-) => _selectContextItems([
-  for (final entry in entries) _ContextItem.memory(entry),
-], maxCharacters);
 
 List<_PromptEntry> _selectContextItems(
   List<_ContextItem> candidates,
@@ -250,42 +196,6 @@ List<_PromptEntry> _selectContextItems(
 int _compareMemoryEntries(CharacterMemoryEntry a, CharacterMemoryEntry b) {
   final priority = b.priority.compareTo(a.priority);
   return priority == 0 ? a.id.compareTo(b.id) : priority;
-}
-
-String _formatLegacy(List<_PromptEntry> items) {
-  final sections = <String>[];
-  final worldItems = items.where(
-    (item) => item.item.memory!.keywords.isNotEmpty,
-  );
-  final longTerm = items.where(
-    (item) =>
-        item.item.memory!.keywords.isEmpty &&
-        item.item.memory!.scope == MemoryScope.character,
-  );
-  final session = items.where(
-    (item) =>
-        item.item.memory!.keywords.isEmpty &&
-        item.item.memory!.scope == MemoryScope.session,
-  );
-  if (worldItems.isNotEmpty) {
-    sections.add(
-      '【关键词触发世界书】\n${worldItems.map((item) {
-        final entry = item.item.memory!;
-        return '- ${entry.title}（触发词：${entry.keywords.join('、')}）：${item.content}';
-      }).join('\n')}',
-    );
-  }
-  if (longTerm.isNotEmpty) {
-    sections.add(
-      '【长期记忆】\n${longTerm.map((item) => '- ${item.item.title}：${item.content}').join('\n')}',
-    );
-  }
-  if (session.isNotEmpty) {
-    sections.add(
-      '【当前对话记忆】\n${session.map((item) => '- ${item.item.title}：${item.content}').join('\n')}',
-    );
-  }
-  return [...sections, _rules].join('\n\n');
 }
 
 String _format(List<_PromptEntry> items) {

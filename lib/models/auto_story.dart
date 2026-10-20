@@ -2,6 +2,12 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:crypto/crypto.dart';
 
+const maxStoryActors = 26;
+const maxStoryTurns = 300 * maxStoryActors;
+String storyActorId(int index) => String.fromCharCode(65 + index);
+int storyRequestBudget(int rounds, int actors) =>
+    actors * rounds + 2 * ((rounds + 4) ~/ 5) + 10;
+
 enum StoryStatus { draft, ready, running, paused, completed }
 
 enum StoryPauseReason {
@@ -21,7 +27,16 @@ enum StoryPauseReason {
 
 enum StoryTurnSource { ai, manual }
 
-enum RequestPurpose { plan, actorA, actorB, review, repair, replan, regenerate }
+enum RequestPurpose {
+  plan,
+  actorA,
+  actorB,
+  actor,
+  review,
+  repair,
+  replan,
+  regenerate,
+}
 
 enum CommitResult { applied, alreadyCommitted, stale, missing }
 
@@ -106,10 +121,9 @@ T _enum<T extends Enum>(List<T> values, dynamic value, T fallback) {
 
 DateTime _date(Map<String, dynamic> j, String key) {
   final v = j[key];
-  if (v is! String || DateTime.tryParse(v) == null) {
-    throw FormatException('Invalid $key');
-  }
-  return DateTime.parse(v);
+  final date = v is String ? DateTime.tryParse(v) : null;
+  if (date == null) throw FormatException('Invalid $key');
+  return date;
 }
 
 String _safeId(String id) {
@@ -156,8 +170,8 @@ class StoryActorSnapshot extends _JsonModel {
          'lockedSource': lockedSource,
        });
   StoryActorSnapshot.fromJson(super.j) {
-    if (actorId != 'A' && actorId != 'B') {
-      throw const FormatException('Actor must be A or B');
+    if (!RegExp(r'^[A-Z]$').hasMatch(actorId)) {
+      throw const FormatException('Invalid actor identifier');
     }
     name;
     persona;
@@ -178,7 +192,7 @@ class StoryActorSnapshot extends _JsonModel {
   String? get avatarRelativePath => _json['avatarRelativePath'] == null
       ? null
       : _text(_json, 'avatarRelativePath', max: 500);
-  String get persona => _text(_json, 'persona', max: 20000);
+  late final String persona = _text(_json, 'persona', max: 20000);
   String get publicProfile => _text(_json, 'publicProfile');
   String get endpointId => _text(_json, 'endpointId', max: 200);
   String get model => _text(_json, 'model', max: 200);
@@ -192,7 +206,7 @@ class StoryActorSnapshot extends _JsonModel {
     bool? lockedSource,
     String? avatarRelativePath,
   }) => StoryActorSnapshot.fromJson({
-    ...toJson(),
+    ..._json,
     'name': ?name,
     'persona': ?persona,
     'publicProfile': ?publicProfile,
@@ -275,7 +289,7 @@ class StoryConfig extends _JsonModel {
     bool clearTokenLimit = false,
     int? planVersion,
   }) => StoryConfig.fromJson({
-    ...toJson(),
+    ..._json,
     'title': ?title,
     'opening': ?opening,
     'targetEnding': ?targetEnding,
@@ -324,12 +338,21 @@ class StoryStage extends _JsonModel {
   String get objective => _text(_json, 'objective', required: true);
   int get minRounds => _int(_json, 'minRounds', min: 1, max: 300);
   int get targetRounds => _int(_json, 'targetRounds', min: 1, max: 300);
-  List<String> get acceptanceCriteria =>
-      _texts(_json, 'acceptanceCriteria', max: 3);
-  List<String> get permittedDevelopments =>
-      _texts(_json, 'permittedDevelopments', max: 20);
-  List<String> get prematureDevelopments =>
-      _texts(_json, 'prematureDevelopments', max: 20);
+  late final List<String> acceptanceCriteria = _texts(
+    _json,
+    'acceptanceCriteria',
+    max: 3,
+  );
+  late final List<String> permittedDevelopments = _texts(
+    _json,
+    'permittedDevelopments',
+    max: 20,
+  );
+  late final List<String> prematureDevelopments = _texts(
+    _json,
+    'prematureDevelopments',
+    max: 20,
+  );
   StoryStage copyWith({
     String? title,
     String? objective,
@@ -337,7 +360,7 @@ class StoryStage extends _JsonModel {
     int? targetRounds,
     List<String>? acceptanceCriteria,
   }) => StoryStage.fromJson({
-    ...toJson(),
+    ..._json,
     'title': ?title,
     'objective': ?objective,
     'minRounds': ?minRounds,
@@ -350,6 +373,7 @@ class StoryTurn extends _JsonModel {
   StoryTurn({
     required String turnId,
     required int ordinal,
+    int? roundNumber,
     required String speakerId,
     required String content,
     String reasoningContent = '',
@@ -362,7 +386,7 @@ class StoryTurn extends _JsonModel {
   }) : this.fromJson({
          'turnId': turnId,
          'ordinal': ordinal,
-         'roundNumber': ordinal ~/ 2 + 1,
+         'roundNumber': roundNumber ?? ordinal ~/ 2 + 1,
          'speakerId': speakerId,
          'content': content,
          'reasoningContent': reasoningContent,
@@ -376,10 +400,8 @@ class StoryTurn extends _JsonModel {
   StoryTurn.fromJson(super.j) {
     _safeId(turnId);
     ordinal;
-    if (speakerId != (ordinal.isEven ? 'A' : 'B') ||
-        roundNumber != ordinal ~/ 2 + 1) {
-      throw const FormatException('Invalid turn identity');
-    }
+    _safeId(speakerId);
+    roundNumber;
     content;
     reasoningContent;
     source;
@@ -390,12 +412,16 @@ class StoryTurn extends _JsonModel {
     replacesTurnId;
   }
   String get turnId => _text(_json, 'turnId', required: true, max: 128);
-  int get ordinal => _int(_json, 'ordinal', max: 599);
+  int get ordinal => _int(_json, 'ordinal', max: maxStoryTurns - 1);
   int get roundNumber =>
       _int(_json, 'roundNumber', fallback: ordinal ~/ 2 + 1, min: 1, max: 300);
   String get speakerId => _text(_json, 'speakerId', required: true, max: 1);
-  String get content => _text(_json, 'content', required: true);
-  String get reasoningContent => _text(_json, 'reasoningContent', max: 100000);
+  late final String content = _text(_json, 'content', required: true);
+  late final String reasoningContent = _text(
+    _json,
+    'reasoningContent',
+    max: 100000,
+  );
   StoryTurnSource get source =>
       _enum(StoryTurnSource.values, _json['source'], StoryTurnSource.ai);
   String get endpointId => _text(_json, 'endpointId', max: 200);
@@ -403,7 +429,7 @@ class StoryTurn extends _JsonModel {
   String? get requestId => _json['requestId'] == null
       ? null
       : _text(_json, 'requestId', required: true, max: 128);
-  DateTime get createdAt => _date(_json, 'createdAt');
+  late final DateTime createdAt = _date(_json, 'createdAt');
   String? get replacesTurnId => _json['replacesTurnId'] == null
       ? null
       : _text(_json, 'replacesTurnId', required: true, max: 128);
@@ -413,7 +439,7 @@ class StoryTurn extends _JsonModel {
     String? requestId,
     String? replacesTurnId,
   }) => StoryTurn.fromJson({
-    ...toJson(),
+    ..._json,
     'turnId': ?turnId,
     'content': ?content,
     'requestId': ?requestId,
@@ -450,9 +476,12 @@ class StoryFact extends _JsonModel {
     }
   }
   String get text => _text(_json, 'text', required: true);
-  List<String> get evidenceTurnIds =>
-      _texts(_json, 'evidenceTurnIds', max: 600);
-  List<StoryEvidence> get evidence => List.unmodifiable(
+  late final List<String> evidenceTurnIds = _texts(
+    _json,
+    'evidenceTurnIds',
+    max: maxStoryTurns,
+  );
+  late final List<StoryEvidence> evidence = List.unmodifiable(
     _list(
       _json,
       'evidence',
@@ -515,11 +544,11 @@ class DirectorCheckpoint extends _JsonModel {
   String get checkpointId =>
       _text(_json, 'checkpointId', required: true, max: 128);
   int get coveredThroughOrdinal =>
-      _int(_json, 'coveredThroughOrdinal', min: -1, max: 599);
+      _int(_json, 'coveredThroughOrdinal', min: -1, max: maxStoryTurns - 1);
   String get coveredTurnIdsHash => _text(_json, 'coveredTurnIdsHash', max: 128);
   int get planVersion => _int(_json, 'planVersion', min: 1);
-  String get summary => _text(_json, 'summary');
-  List<StoryFact> get confirmedFacts => List.unmodifiable(
+  late final String summary = _text(_json, 'summary');
+  late final List<StoryFact> confirmedFacts = List.unmodifiable(
     _list(
       _json,
       'confirmedFacts',
@@ -527,14 +556,14 @@ class DirectorCheckpoint extends _JsonModel {
     ).map((v) => StoryFact.fromJson(_map(v))),
   );
   int get stageIndex => _int(_json, 'stageIndex', max: 7);
-  List<StoryEvidence> get criterionEvidence => List.unmodifiable(
+  late final List<StoryEvidence> criterionEvidence = List.unmodifiable(
     _list(
       _json,
       'criterionEvidence',
       max: 60,
     ).map((v) => StoryEvidence.fromJson(_map(v))),
   );
-  List<StoryEvidence> get goalEvidence => List.unmodifiable(
+  late final List<StoryEvidence> goalEvidence = List.unmodifiable(
     _list(
       _json,
       'goalEvidence',
@@ -546,7 +575,7 @@ class DirectorCheckpoint extends _JsonModel {
   String get checkKey => _text(_json, 'checkKey', max: 300);
   bool get stageSatisfied => _bool(_json, 'stageSatisfied');
   int get stageStartedRound => _int(_json, 'stageStartedRound', max: 300);
-  DateTime get createdAt => _date(_json, 'createdAt');
+  late final DateTime createdAt = _date(_json, 'createdAt');
 }
 
 class StoryEvent extends _JsonModel {
@@ -589,14 +618,19 @@ class StoryEvent extends _JsonModel {
   String get eventId => _text(_json, 'eventId', required: true, max: 128);
   String get kind => _text(_json, 'kind', required: true, max: 100);
   int get effectiveAfterOrdinal =>
-      _int(_json, 'effectiveAfterOrdinal', min: -1, max: 599);
-  String get content => _text(_json, 'content', required: true, max: 2000);
+      _int(_json, 'effectiveAfterOrdinal', min: -1, max: maxStoryTurns - 1);
+  late final String content = _text(
+    _json,
+    'content',
+    required: true,
+    max: 2000,
+  );
   String? get sourceCheckpointId => _json['sourceCheckpointId'] == null
       ? null
       : _text(_json, 'sourceCheckpointId', max: 128);
   String get status => _text(_json, 'status', fallback: 'pending', max: 30);
   String get scope => _text(_json, 'scope', fallback: 'checkpoint', max: 100);
-  DateTime get createdAt => _date(_json, 'createdAt');
+  late final DateTime createdAt = _date(_json, 'createdAt');
 }
 
 class StoryRequestRecord extends _JsonModel {
@@ -656,7 +690,7 @@ class StoryRequestRecord extends _JsonModel {
   RequestPurpose get purpose =>
       _enum(RequestPurpose.values, _json['purpose'], RequestPurpose.review);
   String get status => _text(_json, 'status', fallback: 'pending', max: 30);
-  DateTime get createdAt => _date(_json, 'createdAt');
+  late final DateTime createdAt = _date(_json, 'createdAt');
   int? get inputTokens =>
       _json['inputTokens'] == null ? null : _int(_json, 'inputTokens');
   int? get outputTokens =>
@@ -666,7 +700,8 @@ class StoryRequestRecord extends _JsonModel {
   String? get errorCode =>
       _json['errorCode'] == null ? null : _text(_json, 'errorCode', max: 100);
   int get runGeneration => _int(_json, 'runGeneration');
-  int get expectedNextOrdinal => _int(_json, 'expectedNextOrdinal', max: 600);
+  int get expectedNextOrdinal =>
+      _int(_json, 'expectedNextOrdinal', max: maxStoryTurns);
   String get expectedSpeaker =>
       _text(_json, 'expectedSpeaker', fallback: 'A', max: 1);
   int get planVersion => _int(_json, 'planVersion', fallback: 1, min: 1);
@@ -678,7 +713,7 @@ class StoryRequestRecord extends _JsonModel {
     int? totalTokens,
     String? errorCode,
   }) => StoryRequestRecord.fromJson({
-    ...toJson(),
+    ..._json,
     'status': ?status,
     'inputTokens': ?inputTokens,
     'outputTokens': ?outputTokens,
@@ -756,8 +791,8 @@ class AutoStoryDocument extends _JsonModel {
              .toList(),
          'lockedFacts': lockedFacts.map((f) => f.toJson()).toList(),
          'currentCheckpointId': currentCheckpointId,
-         'nextActor': turns.length.isEven ? 'A' : 'B',
-         'completedRounds': turns.length ~/ 2,
+         'nextActor': actors[turns.length % actors.length].actorId,
+         'completedRounds': turns.length ~/ actors.length,
          'goalStatus': goalStatus,
          'worldBookSnapshots': worldBookSnapshots,
          'importedMemorySnapshots': importedMemorySnapshots,
@@ -788,7 +823,7 @@ class AutoStoryDocument extends _JsonModel {
     _list(
       _json,
       'actors',
-      max: 2,
+      max: maxStoryActors,
     ).map((a) => StoryActorSnapshot.fromJson(_map(a))),
   );
   late final StoryConfig config = StoryConfig.fromJson(_map(_json['config']));
@@ -796,7 +831,11 @@ class AutoStoryDocument extends _JsonModel {
     _list(_json, 'plan', max: 8).map((a) => StoryStage.fromJson(_map(a))),
   );
   late final List<StoryTurn> turns = List.unmodifiable(
-    _list(_json, 'turns', max: 600).map((a) => StoryTurn.fromJson(_map(a))),
+    _list(
+      _json,
+      'turns',
+      max: maxStoryTurns,
+    ).map((a) => StoryTurn.fromJson(_map(a))),
   );
   late final List<StoryEvent> events = List.unmodifiable(
     _list(_json, 'events', max: 10000).map((a) => StoryEvent.fromJson(_map(a))),
@@ -826,8 +865,15 @@ class AutoStoryDocument extends _JsonModel {
       currentCheckpoint?.stageIndex ?? (plan.isEmpty ? 0 : replanStageIndex);
   int get replanStageIndex =>
       _int(_json, 'replanStageIndex', max: plan.isEmpty ? 7 : plan.length - 1);
-  String get nextActor => turns.length.isEven ? 'A' : 'B';
-  int get completedRounds => turns.length ~/ 2;
+  String? get userActorId =>
+      actors.where((a) => a.sourceId == 'userProfile').firstOrNull?.actorId;
+  int get actorCount => actors.length;
+  String actorForOrdinal(int ordinal) => actors[ordinal % actorCount].actorId;
+  int roundForOrdinal(int ordinal) => ordinal ~/ actorCount + 1;
+  int get startedRounds => (turns.length + actorCount - 1) ~/ actorCount;
+  bool get isRoundComplete => turns.length % actorCount == 0;
+  String get nextActor => actorForOrdinal(turns.length);
+  int get completedRounds => turns.length ~/ actorCount;
   int get nextOrdinal => turns.length;
   int get currentRound => completedRounds + 1;
   String get replanSummary => replanSummaryOr('');
@@ -841,8 +887,8 @@ class AutoStoryDocument extends _JsonModel {
     max: turns.length - 1,
   );
   int get replanStartRound =>
-      _int(_json, 'replanStartRound', max: (turns.length + 1) ~/ 2);
-  List<StoryFact> get lockedFacts => List.unmodifiable(
+      _int(_json, 'replanStartRound', max: startedRounds);
+  late final List<StoryFact> lockedFacts = List.unmodifiable(
     _list(
       _json,
       'lockedFacts',
@@ -853,24 +899,33 @@ class AutoStoryDocument extends _JsonModel {
       _text(_json, 'goalStatus', fallback: 'pending', max: 30);
   bool get privacyRequired =>
       _bool(_json, 'privacyRequired') || actors.any((a) => a.lockedSource);
-  List<Map<String, dynamic>> get worldBookSnapshots => List.unmodifiable(
+  late final List<Map<String, dynamic>> worldBookSnapshots = List.unmodifiable(
     _list(
       _json,
       'worldBookSnapshots',
       max: 500,
     ).map((v) => Map<String, dynamic>.unmodifiable(_map(v))),
   );
-  List<Map<String, dynamic>> get importedMemorySnapshots => List.unmodifiable(
-    _list(
-      _json,
-      'importedMemorySnapshots',
-      max: 500,
-    ).map((v) => Map<String, dynamic>.unmodifiable(_map(v))),
-  );
+  late final List<Map<String, dynamic>> importedMemorySnapshots =
+      List.unmodifiable(
+        _list(
+          _json,
+          'importedMemorySnapshots',
+          max: 500,
+        ).map((v) => Map<String, dynamic>.unmodifiable(_map(v))),
+      );
   late final StoryUsageTotals usageTotals = StoryUsageTotals(requestLedger);
-  DateTime get createdAt => _date(_json, 'createdAt');
-  DateTime get updatedAt => _date(_json, 'updatedAt');
+  late final DateTime createdAt = _date(_json, 'createdAt');
+  late final DateTime updatedAt = _date(_json, 'updatedAt');
   void validate() {
+    if (actors.isEmpty ||
+        actors.length > maxStoryActors ||
+        List.generate(
+          actors.length,
+          (i) => actors[i].actorId != storyActorId(i),
+        ).any((v) => v)) {
+      throw const FormatException('Invalid ordered story cast');
+    }
     schemaVersion;
     id;
     revision;
@@ -897,11 +952,6 @@ class AutoStoryDocument extends _JsonModel {
         throw const FormatException('Snapshot exceeds bounded context');
       }
     }
-    if (actors.length != 2 ||
-        actors[0].actorId != 'A' ||
-        actors[1].actorId != 'B') {
-      throw const FormatException('Exactly two ordered fixed actors required');
-    }
     if (actors.any(
       (a) =>
           a.avatarRelativePath != null &&
@@ -909,7 +959,7 @@ class AutoStoryDocument extends _JsonModel {
     )) {
       throw const FormatException('Story media must belong to this story');
     }
-    if (turns.length > config.plannedRounds * 2 ||
+    if (turns.length > config.plannedRounds * actorCount ||
         _text(_json, 'nextActor', fallback: nextActor) != nextActor ||
         _int(_json, 'completedRounds', fallback: completedRounds) !=
             completedRounds) {
@@ -920,6 +970,8 @@ class AutoStoryDocument extends _JsonModel {
     for (var i = 0; i < turns.length; i++) {
       final t = turns[i];
       if (t.ordinal != i ||
+          t.speakerId != actorForOrdinal(i) ||
+          t.roundNumber != roundForOrdinal(i) ||
           !ids.add(t.turnId) ||
           (t.requestId != null && !requestIds.add(t.requestId!))) {
         throw const FormatException('Noncontinuous or duplicate turns');
@@ -1006,7 +1058,7 @@ class AutoStoryDocument extends _JsonModel {
       throw const FormatException('Duplicate ledger request');
     }
     if (status == StoryStatus.completed &&
-        (turns.length.isOdd ||
+        (!isRoundComplete ||
             goalStatus != 'reached' ||
             currentCheckpoint == null ||
             currentCheckpoint!.goalEvidence.isEmpty ||
@@ -1043,8 +1095,9 @@ class AutoStoryDocument extends _JsonModel {
     DateTime? updatedAt,
   }) {
     final nextTurns = turns ?? this.turns;
+    final nextActors = actors ?? this.actors;
     return AutoStoryDocument.fromJson({
-      ...toJson(),
+      ..._json,
       'revision': ?revision,
       'runGeneration': ?runGeneration,
       if (status != null) 'status': status.name,
@@ -1055,8 +1108,8 @@ class AutoStoryDocument extends _JsonModel {
       if (config != null) 'config': config.toJson(),
       if (plan != null) 'plan': plan.map((v) => v.toJson()).toList(),
       if (turns != null) 'turns': turns.map((v) => v.toJson()).toList(),
-      'nextActor': nextTurns.length.isEven ? 'A' : 'B',
-      'completedRounds': nextTurns.length ~/ 2,
+      'nextActor': nextActors[nextTurns.length % nextActors.length].actorId,
+      'completedRounds': nextTurns.length ~/ nextActors.length,
       if (events != null) 'events': events.map((v) => v.toJson()).toList(),
       if (directorCheckpoints != null)
         'directorCheckpoints': directorCheckpoints

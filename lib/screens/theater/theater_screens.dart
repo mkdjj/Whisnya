@@ -33,6 +33,7 @@ import '../../utils/stream_text_buffer.dart';
 import '../../utils/role_message_segments.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/chat_bubble.dart';
+import '../../widgets/chat_appearance_settings.dart';
 import '../../widgets/chat_bubble_preset_picker.dart';
 import '../../widgets/chat_input_composer.dart';
 import '../../widgets/endpoint_picker.dart';

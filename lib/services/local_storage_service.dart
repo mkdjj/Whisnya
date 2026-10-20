@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 
 import 'package:archive/archive.dart';
 import 'package:flutter/foundation.dart';
@@ -13,14 +12,10 @@ import '../models/ai_usage.dart';
 import '../models/app_character.dart';
 import '../models/app_settings.dart';
 import '../models/chat_message.dart';
-import '../models/message_anchor.dart';
 import '../models/chat_session.dart';
 import '../models/chat_summary.dart';
 import '../models/character_memory_entry.dart';
 import '../models/novel_book.dart';
-import '../models/qq_contact_binding.dart';
-import '../models/qq_diagnostic_event.dart';
-import '../models/qq_integration_settings.dart';
 import '../models/theater.dart';
 import '../models/world_book.dart';
 import '../utils/password_lock.dart';
@@ -31,7 +26,6 @@ import 'storage/backup_files.dart';
 import 'storage/session_operation_coordinator.dart';
 import 'storage/character_recovery_service.dart';
 import 'chat/chat_session_service.dart';
-import 'qq/qq_exceptions.dart';
 import 'storage/media_store.dart' as media_store;
 import 'storage/storage_paths.dart';
 import 'story/story_checkpoint_service.dart';
@@ -100,7 +94,12 @@ Map<String, dynamic> redactApiKeysForExport(Map<String, dynamic> json) {
 bool isBackupExportPath(String path) {
   final normalized = path.replaceAll('\\', '/');
   final name = normalized.split('/').last;
-  return !normalized.startsWith('media/temp/') &&
+  return !const {
+        'config/qq_integration.json',
+        'config/qq_contact_bindings.json',
+        'logs/qq_diagnostics.json',
+      }.contains(normalized) &&
+      !normalized.startsWith('media/temp/') &&
       normalized != 'story/transactions.json' &&
       normalized != 'story/checkpoint_transactions.json' &&
       !normalized.startsWith('transactions/') &&
@@ -127,50 +126,6 @@ Future<void> validateBackupDirectory(Directory directory) async {
     await validateAutoStoryBackup(directory);
   } on FormatException catch (error) {
     throw StorageException('备份校验失败：${error.message}');
-  }
-  final separator = Platform.pathSeparator;
-  final manifest = File('${directory.path}${separator}backup_manifest.json');
-  if (!await manifest.exists()) {
-    throw StorageException('备份文件缺少 backup_manifest.json');
-  }
-  final manifestJson = await _readBackupJson(manifest);
-  if (manifestJson is! Map<String, dynamic> || manifestJson['format'] != 1) {
-    throw StorageException('备份清单格式异常');
-  }
-
-  Future<void> optionalJson(String name, bool Function(dynamic) isValid) async {
-    final file = File('${directory.path}$separator$name');
-    if (!await file.exists()) return;
-    final decoded = await _readBackupJson(file);
-    if (!isValid(decoded)) {
-      throw StorageException('备份文件 $name 格式异常');
-    }
-  }
-
-  await optionalJson('settings.json', (value) => value is Map<String, dynamic>);
-  await optionalJson(
-    'api_config.json',
-    (value) => value is Map<String, dynamic>,
-  );
-  await optionalJson('characters.json', (value) => value is List);
-  await optionalJson('chat_sessions.json', (value) => value is List);
-  await optionalJson('novels.json', (value) => value is List);
-  await optionalJson('theater_sessions.json', (value) => value is List);
-  await optionalJson(
-    'config${separator}qq_integration.json',
-    (value) => value is Map<String, dynamic>,
-  );
-  await optionalJson(
-    'config${separator}qq_contact_bindings.json',
-    (value) => value is List,
-  );
-}
-
-Future<dynamic> _readBackupJson(File file) async {
-  try {
-    return jsonDecode(await file.readAsString());
-  } on FormatException {
-    throw StorageException('备份文件 JSON 异常：${file.path}');
   } on FileSystemException catch (error) {
     throw StorageException('读取备份文件失败：${error.message}');
   }
@@ -188,7 +143,6 @@ class LocalStorageService {
 
   static const _secureApiKeyIndexKey = 'whisnya_api_endpoint_ids';
   static const _secureApiKeyPrefix = 'whisnya_api_key_';
-  static const _secureLocalBridgeTokenKey = 'whisnya.qq.local_bridge_token';
 
   final FlutterSecureStorage _secureStorage;
   final JsonFileStore jsonStore;
@@ -198,18 +152,12 @@ class LocalStorageService {
       jsonStore.datasetEpochNotifier;
   final ValueNotifier<String> backupStage = ValueNotifier('');
   final List<String> backupWarnings = [];
-  @visibleForTesting
-  Future<void> Function(String stage)? backupFailureHook;
   Directory? _appDataDirectory;
   Future<Directory>? _appDataDirectoryFuture;
   Future<ChatSessionService>? _chatSessionServiceFuture;
   final _recoveryMessages = <String>[];
   bool _characterRecoveryAttempted = false;
   Future<void> _characterLifecycleTail = Future<void>.value();
-
-  // Test and embedder subclasses from pre-session releases can continue to
-  // provide loadChat/saveChat without being forced to implement session files.
-  bool get usesSessionStorage => runtimeType == LocalStorageService;
 
   List<String> takeRecoveryMessages() {
     final messages = List<String>.from(_recoveryMessages);
@@ -285,131 +233,6 @@ class LocalStorageService {
 
   Future<void> saveSettings(AppSettings settings) async {
     await _writeJson((await _paths).settings, settings.toJson());
-  }
-
-  Future<QqIntegrationSettings> loadQqIntegrationSettings() async {
-    final file = (await _paths).qqIntegration;
-    final decoded = await _readJson(
-      file,
-      const QqIntegrationSettings().toJson(),
-      recoverOnInvalid: true,
-    );
-    if (decoded is! Map<String, dynamic>) {
-      throw StorageException('QQ 接入设置文件异常');
-    }
-    return QqIntegrationSettings.fromJson(decoded);
-  }
-
-  Future<void> saveQqIntegrationSettings(QqIntegrationSettings value) async {
-    await _writeJson((await _paths).qqIntegration, value.toJson());
-  }
-
-  Future<List<QqContactBinding>> loadQqContactBindings() async {
-    final file = (await _paths).qqContactBindings;
-    final decoded = await _readJson(file, <dynamic>[], recoverOnInvalid: true);
-    return _parseQqContactBindings(decoded);
-  }
-
-  Future<void> saveQqContactBinding(QqContactBinding value) async {
-    final file = (await _paths).qqContactBindings;
-    await _enqueueWrite(file, () async {
-      final decoded = await _readJsonNow(
-        file,
-        <dynamic>[],
-        recoverOnInvalid: true,
-      );
-      final bindings = _parseQqContactBindings(decoded);
-      if (bindings.any(
-        (binding) =>
-            binding.id != value.id && binding.sessionId == value.sessionId,
-      )) {
-        throw const QqBindingException('每位 QQ 联系人必须使用独立对话。');
-      }
-      _upsert(bindings, value, (binding) => binding.id);
-      await _writeJsonNow(
-        file,
-        bindings.map((binding) => binding.toJson()).toList(),
-      );
-    });
-  }
-
-  Future<void> deleteQqContactBinding(String id) async {
-    final file = (await _paths).qqContactBindings;
-    await _enqueueWrite(file, () async {
-      final decoded = await _readJsonNow(
-        file,
-        <dynamic>[],
-        recoverOnInvalid: true,
-      );
-      final bindings = _parseQqContactBindings(decoded)
-        ..removeWhere((binding) => binding.id == id);
-      await _writeJsonNow(
-        file,
-        bindings.map((binding) => binding.toJson()).toList(),
-      );
-    });
-  }
-
-  Future<String> loadOrCreateLocalBridgeToken() async {
-    final existing =
-        (await _secureStorage.read(key: _secureLocalBridgeTokenKey))?.trim() ??
-        '';
-    if (existing.isNotEmpty) return existing;
-    final random = Random.secure();
-    final token = base64UrlEncode(
-      Uint8List.fromList(List<int>.generate(32, (_) => random.nextInt(256))),
-    ).replaceAll('=', '');
-    await _secureStorage.write(key: _secureLocalBridgeTokenKey, value: token);
-    return token;
-  }
-
-  Future<List<QqDiagnosticEvent>> loadQqDiagnostics() async {
-    final file = (await _paths).qqDiagnostics;
-    final decoded = await _readJson(file, <dynamic>[], recoverOnInvalid: true);
-    if (decoded is! List) return const [];
-    return decoded
-        .whereType<Map<String, dynamic>>()
-        .map(QqDiagnosticEvent.fromJson)
-        .toList();
-  }
-
-  Future<void> appendQqDiagnosticEvent(QqDiagnosticEvent event) async {
-    final file = (await _paths).qqDiagnostics;
-    await _enqueueWrite(file, () async {
-      final decoded = await _readJsonNow(
-        file,
-        <dynamic>[],
-        recoverOnInvalid: true,
-      );
-      final events = decoded is List
-          ? decoded
-                .whereType<Map<String, dynamic>>()
-                .map(QqDiagnosticEvent.fromJson)
-                .toList()
-          : <QqDiagnosticEvent>[];
-      events.add(event);
-      final kept = events.length <= 200
-          ? events
-          : events.sublist(events.length - 200);
-      await _writeJsonNow(file, kept.map((item) => item.toJson()).toList());
-    });
-  }
-
-  Future<void> clearQqDiagnostics() async {
-    await _writeJson((await _paths).qqDiagnostics, <dynamic>[]);
-  }
-
-  List<QqContactBinding> _parseQqContactBindings(dynamic decoded) {
-    if (decoded is! List) throw StorageException('QQ 联系人绑定文件异常');
-    final result = <QqContactBinding>[];
-    for (final value in decoded.whereType<Map<String, dynamic>>()) {
-      try {
-        result.add(QqContactBinding.fromJson(value));
-      } on Object {
-        // A single corrupt binding must not erase the other bindings.
-      }
-    }
-    return result;
   }
 
   Future<AppSettings?> upgradePrivacyPasswordHashIfNeeded(
@@ -824,71 +647,7 @@ class LocalStorageService {
 
   Future<List<CharacterMemoryEntry>> loadCharacterMemories(
     String characterId,
-  ) async {
-    final service = await _chatSessions;
-    final memories = await service.loadCharacterMemories(characterId);
-    final legacy = memories
-        .where((memory) => memory.keywords.isNotEmpty)
-        .toList();
-    if (legacy.isEmpty) return memories;
-
-    final character = (await loadCharacters())
-        .where((item) => item.id == characterId)
-        .firstOrNull;
-    if (character == null) return memories;
-
-    final worldBookId = 'legacy_worldbook_${_safeWorldBookPart(characterId)}';
-    final books = await service.loadWorldBooks();
-    var worldBook = books.where((book) => book.id == worldBookId).firstOrNull;
-    final now = DateTime.now();
-    if (worldBook == null) {
-      worldBook = WorldBook(
-        id: worldBookId,
-        name:
-            '${character.name.trim().isEmpty ? characterId : character.name.trim()} - 旧关键词世界书',
-        description: '从旧版关键词记忆迁移',
-        createdAt: now,
-        updatedAt: now,
-      );
-      await service.saveWorldBook(worldBook);
-    }
-
-    final existing = await service.loadWorldBookEntries(worldBookId);
-    final existingIds = existing.map((entry) => entry.id).toSet();
-    for (final memory in legacy) {
-      final entryId = 'legacy_worldbook_entry_${_safeWorldBookPart(memory.id)}';
-      if (existingIds.contains(entryId)) continue;
-      await service.saveWorldBookEntry(
-        WorldBookEntry(
-          id: entryId,
-          worldBookId: worldBookId,
-          title: memory.title,
-          content: memory.content,
-          keywords: memory.keywords,
-          priority: memory.priority,
-          enabled: memory.enabled,
-          createdAt: memory.createdAt,
-          updatedAt: memory.updatedAt,
-        ),
-      );
-    }
-
-    if (!character.worldBookIds.contains(worldBookId)) {
-      await updateCharacterWorldBookReferences(characterId, [
-        ...character.worldBookIds,
-        worldBookId,
-      ]);
-    }
-    for (final memory in legacy) {
-      await service.deleteCharacterMemory(characterId, memory.id);
-    }
-    return service.loadCharacterMemories(characterId);
-  }
-
-  static String _safeWorldBookPart(String value) {
-    final cleaned = value.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
-    return cleaned.isEmpty ? 'legacy' : cleaned;
-  }
+  ) async => (await _chatSessions).loadCharacterMemories(characterId);
 
   Future<List<WorldBook>> loadWorldBooks() async =>
       (await _chatSessions).loadWorldBooks();
@@ -962,31 +721,6 @@ class LocalStorageService {
     sourceSessionId,
     targetSessionId,
   );
-
-  Future<List<ChatMessage>> loadChat(String characterId) async {
-    final file = (await _paths).chat(characterId);
-    final decoded = await _readJson(file, const {'messages': <dynamic>[]});
-    if (decoded is! Map<String, dynamic>) {
-      throw StorageException('聊天记录文件异常：${file.path}');
-    }
-    final messages = decoded['messages'];
-    return messages is List
-        ? messages
-              .whereType<Map<String, dynamic>>()
-              .map(ChatMessage.fromJson)
-              .toList()
-        : const [];
-  }
-
-  Future<void> saveChat(String characterId, List<ChatMessage> messages) async {
-    messages = assignMessageIds(messages);
-    await _writeJson((await _paths).chat(characterId), {
-      'characterId': characterId,
-      'messages': messages.map((message) => message.toJson()).toList(),
-    });
-  }
-
-  Future<void> clearChat(String characterId) => saveChat(characterId, const []);
 
   Future<List<NovelBook>> loadNovels() async {
     final file = (await _paths).novels;
@@ -1250,15 +984,6 @@ class LocalStorageService {
     return character;
   }
 
-  Future<Uint8List> exportAllData({bool includeApiKeys = false}) async {
-    final file = await exportAllDataToFile(includeApiKeys: includeApiKeys);
-    try {
-      return await file.readAsBytes();
-    } finally {
-      await file.parent.delete(recursive: true);
-    }
-  }
-
   Future<File> exportAllDataToFile({bool includeApiKeys = false}) async {
     final root = await appDataDirectory;
     final exports = await Directory(
@@ -1287,22 +1012,19 @@ class LocalStorageService {
           }
           final destination = File('${snapshot.path}/$name');
           await destination.parent.create(recursive: true);
-          if (name == 'api_config.json' ||
-              name == 'config/qq_integration.json') {
+          if (name == 'api_config.json') {
             final decoded = jsonDecode(await entity.readAsString());
             if (decoded is! Map<String, dynamic>) {
               throw StorageException('配置损坏，无法安全脱敏');
             }
-            if (name == 'api_config.json') {
-              final endpoints = decoded['endpoints'];
-              if (endpoints != null &&
-                  (endpoints is! List ||
-                      endpoints.any((e) => e is! Map<String, dynamic>))) {
-                throw StorageException('API 配置损坏，无法安全脱敏');
-              }
-              ApiConfig.fromJson(decoded);
+            final endpoints = decoded['endpoints'];
+            if (endpoints != null &&
+                (endpoints is! List ||
+                    endpoints.any((e) => e is! Map<String, dynamic>))) {
+              throw StorageException('API 配置损坏，无法安全脱敏');
             }
-            final data = includeApiKeys && name == 'api_config.json'
+            ApiConfig.fromJson(decoded);
+            final data = includeApiKeys
                 ? (await _withSecureApiKeys(
                     ApiConfig.fromJson(decoded),
                   )).toJson()
@@ -1344,18 +1066,6 @@ class LocalStorageService {
       rethrow;
     } finally {
       backupStage.value = '';
-    }
-  }
-
-  Future<void> importAllData(Uint8List bytes) async {
-    final root = await appDataDirectory;
-    final work = await root.parent.createTemp('backup_input_');
-    try {
-      final file = File('${work.path}/input.zip');
-      await file.writeAsBytes(bytes, flush: true);
-      await importAllDataFromFile(file);
-    } finally {
-      await work.delete(recursive: true);
     }
   }
 
@@ -1408,7 +1118,6 @@ class LocalStorageService {
   Future<Map<String, String>> _credentialSnapshot() async {
     final keys = {
       _secureApiKeyIndexKey,
-      _secureLocalBridgeTokenKey,
       for (final id in await _readSecureApiKeyIds()) _secureApiKeyKey(id),
     };
     final snapshot = <String, String>{};
@@ -1517,26 +1226,22 @@ class LocalStorageService {
         'touchedIds': touchedIds,
       });
       try {
-        await backupFailureHook?.call('prepared');
         await root.rename(rollback.path);
         await jsonStore.writeNow(journal, {
           'phase': 'oldMoved',
           'rollback': name,
           'touchedIds': touchedIds,
         });
-        await backupFailureHook?.call('oldMoved');
         await staging.rename(root.path);
         await jsonStore.writeNow(journal, {
           'phase': 'newActive',
           'rollback': name,
           'touchedIds': touchedIds,
         });
-        await backupFailureHook?.call('newActive');
         await _ensureAppDataDirectories(root);
         await _repairRestoredAppDataPaths(root);
         await autoStories.recoverInterruptedStories();
         final configFile = File('${root.path}/api_config.json');
-        await backupFailureHook?.call('credentials');
         if (restoreCredentialsFrom != null) {
           await _restoreCredentialSnapshot(restoreCredentialsFrom);
         } else if (await configFile.exists()) {
@@ -1577,7 +1282,6 @@ class LocalStorageService {
           }
           await jsonStore.writeNow(configFile, redactApiKeysForExport(decoded));
         }
-        await backupFailureHook?.call('afterCredentials');
         _chatSessionServiceFuture = null;
         _characterRecoveryAttempted = false;
         await jsonStore.writeNow(journal, {
@@ -1650,25 +1354,6 @@ class LocalStorageService {
 
   Future<void> _repairRestoredAppDataPaths(Directory directory) async {
     String fixPath(String path) => restoreAppDataPath(path, directory.path);
-    // Legacy schema backups may contain bare message arrays. Validate first,
-    // then add only the envelope; retain every original message/unknown field.
-    if (!await File('${directory.path}/chat_sessions.json').exists()) {
-      final chats = Directory('${directory.path}/chats');
-      if (await chats.exists()) {
-        await for (final file in chats.list(followLinks: false)) {
-          if (file is! File || !file.path.endsWith('.json')) continue;
-          final decoded = await readBackupJson(file);
-          if (decoded is List) {
-            final id = file.uri.pathSegments.last.replaceFirst(
-              RegExp(r'\.json$'),
-              '',
-            );
-            await _writeJsonNow(file, {'characterId': id, 'messages': decoded});
-          }
-        }
-      }
-    }
-
     Future<void> updateJson(
       String name,
       void Function(dynamic decoded) update,

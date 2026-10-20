@@ -35,7 +35,8 @@ Future<List<String>> validateAutoStoryBackup(Directory root) async {
           !_safeId(data['id']) ||
           relative != '${data['id']}.json' ||
           data['actors'] is! List ||
-          (data['actors'] as List).length != 2) {
+          ((data['actors'] as List).isEmpty ||
+              (data['actors'] as List).length > maxStoryActors)) {
         throw const FormatException('Invalid automatic story schema');
       }
       AutoStoryDocument.fromJson(data);

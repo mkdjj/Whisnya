@@ -1,5 +1,14 @@
 # Whisnya
 
+## 1.5.5+2027
+
+- Redesigned story creation: actor A defaults to your user profile, with optional actors B, C and more; compact actor cards open a dedicated editor.
+- API settings open directly with one tap; refined chat input, keyboard behavior and compact bubble actions.
+- Simplified shared AI, appearance and summary code; removed obsolete migration paths and the old automated test suite.
+- Android ARM64 versionCode is 2027 (previous release: 2026), using the existing signing certificate.
+
+- Removed QQ integration, its Android background service and the local Bridge. The settings category is now simply API.
+
 ## 1.5.4+2026
 
 - Improve TXT chapter recognition with selectable rules, preview before applying, reader-scoped caching and background parsing for large books.
@@ -53,9 +62,8 @@
 
 Whisnya is a local-first Android and Windows AI role chat and TXT novel reader app built with Flutter.
 
-The QQ integration references the MIT-licensed
-[openclaw-onebot](https://github.com/LSTM-Kirigaya/openclaw-onebot) project.
-See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for license details.
+Historical third-party license notices are retained in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Download
 
@@ -94,7 +102,6 @@ git clone https://github.com/mkdjj/Whisnya.git
 cd Whisnya
 flutter pub get
 flutter analyze
-flutter test
 flutter build apk --release
 ```
 
@@ -104,7 +111,7 @@ The APK will be generated at:
 build/app/outputs/flutter-apk/app-release.apk
 ```
 
-Current source version is `1.5.4+2026`. Keep both `versionName` and the actual APK `versionCode` increasing for every public release, including historical ABI offsets. The Android package name is
+Current source version is `1.5.5+2027`. Keep both `versionName` and the actual APK `versionCode` increasing for every public release, including historical ABI offsets. The Android package name is
 `com.mkdjj.whisnya`.
 
 For public distribution, configure your own Android signing key first:
@@ -120,7 +127,7 @@ Then edit `android/key.properties` with your real passwords. Both
 Recommended release asset name:
 
 ```text
-Whisnya-android-v1.5.4-arm64-v8a-release.apk
+Whisnya-android-v1.5.5-arm64-v8a-release.apk
 ```
 
 ## Other Platforms
@@ -165,11 +172,6 @@ app_data/
   settings.json
   characters.json
   novels.json
-  config/
-    qq_integration.json
-    qq_contact_bindings.json
-  logs/
-    qq_diagnostics.json
   chats/
     {characterId}.json
   summaries/
@@ -190,8 +192,6 @@ app_data/
 The in-app full-data export creates a zip backup with relative files under `app_data/`.
 API keys are excluded by default and are only included when you explicitly enable
 that option before exporting.
-The local Bridge token stays in platform secure storage and is never included in
-a full backup. QQ settings and contact bindings are included in regular backups.
 Import repairs saved paths for the current platform, so backups can be moved between
 Android, Windows, macOS, and iOS builds of Whisnya.
 
@@ -200,10 +200,6 @@ Android, Windows, macOS, and iOS builds of Whisnya.
 Whisnya is local-first. Chat records, novel text, character data, images, settings,
 and API configuration are stored locally by default. After you configure a third-party
 API endpoint, request content is sent to that model provider when you chat or summarize.
-
-The Termux Bridge accepts only explicitly bound QQ contacts. Their content is saved
-to local chat history and sent to the model API configured for the bound character.
-Diagnostic logs do not store message or reply text.
 
 Do not publicly share backups that contain API keys, chat records, novel text, or
 other private data.

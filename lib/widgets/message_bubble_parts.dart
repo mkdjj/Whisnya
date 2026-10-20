@@ -11,22 +11,32 @@ List<Widget> messageBubbleActions(
   VoidCallback? onAddMemory,
   VoidCallback? onStoryActions,
   VoidCallback? onSpeak,
+  VoidCallback? onRegenerate,
+  bool canRegenerate = true,
   bool isSpeaking = false,
   double scale = 1,
 }) {
   Widget action(String label, IconData icon, VoidCallback? callback) =>
       IconButton(
         tooltip: context.t(label),
+        style: IconButton.styleFrom(
+          fixedSize: Size.square(32 * scale),
+          minimumSize: Size.square(32 * scale),
+          maximumSize: Size.square(32 * scale),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
         visualDensity: VisualDensity.standard,
         constraints: BoxConstraints.tightFor(
-          width: 40 * scale,
-          height: 40 * scale,
+          width: 32 * scale,
+          height: 32 * scale,
         ),
-        padding: EdgeInsets.all(8 * scale),
+        padding: EdgeInsets.all(6 * scale),
         onPressed: callback,
-        icon: Icon(icon, size: 16 * scale),
+        icon: Icon(icon, size: 14 * scale),
       );
   return [
+    if (onRegenerate != null)
+      action('重新生成', Icons.refresh, canRegenerate ? onRegenerate : null),
     action('复制消息', Icons.copy, onCopy),
     action('删除消息', Icons.delete_outline, onDelete),
     action('加入记忆', Icons.bookmark_add_outlined, onAddMemory),

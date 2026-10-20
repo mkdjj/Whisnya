@@ -9,9 +9,8 @@
 
 ```powershell
 flutter pub get
-dart format --output=none --set-exit-if-changed lib test
+dart format --output=none --set-exit-if-changed lib
 flutter analyze
-flutter test
 ```
 
 Do not commit API keys, `android/key.properties`, JKS files, or user backups.

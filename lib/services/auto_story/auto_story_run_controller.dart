@@ -13,15 +13,7 @@ import 'auto_story_prompt_builder.dart';
 import 'auto_story_store.dart';
 import 'auto_story_validator.dart';
 
-enum AutoStoryRunPhase {
-  idle,
-  planning,
-  actorA,
-  actorB,
-  director,
-  saving,
-  pausing,
-}
+enum AutoStoryRunPhase { idle, planning, actor, director, saving, pausing }
 
 class AutoStoryDraft {
   const AutoStoryDraft({
@@ -242,7 +234,8 @@ class AutoStoryRunController extends ChangeNotifier {
         await _reload(session);
         if (session.pause || story!.status != StoryStatus.running) break;
       }
-      if (story!.turns.length >= story!.config.plannedRounds * 2) {
+      if (story!.turns.length >=
+          story!.config.plannedRounds * story!.actorCount) {
         await _store.stopImmediately(storyId, StoryPauseReason.lengthLimit);
         await _reload(session);
         break;
@@ -256,7 +249,8 @@ class AutoStoryRunController extends ChangeNotifier {
       if (session.pause || story!.status != StoryStatus.running) break;
       final atBoundary =
           (stopAt != null && story!.completedRounds >= stopAt) ||
-          story!.turns.length >= story!.config.plannedRounds * 2 ||
+          story!.turns.length >=
+              story!.config.plannedRounds * story!.actorCount ||
           AutoStoryBudget.shouldReview(story!);
       if (!atBoundary && story!.config.interTurnDelayMs > 0) {
         session.delayDone = Completer<void>();
@@ -363,7 +357,7 @@ class AutoStoryRunController extends ChangeNotifier {
     if (token.runGeneration == snapshot.runGeneration &&
         token.planVersion == snapshot.config.planVersion &&
         token.expectedNextOrdinal == ordinal &&
-        token.expectedSpeaker == (ordinal.isEven ? 'A' : 'B')) {
+        token.expectedSpeaker == snapshot.actorForOrdinal(ordinal)) {
       return;
     }
     await _store.finishFailedAttempt(token, errorCode: 'staleRequestContext');
@@ -395,15 +389,15 @@ class AutoStoryRunController extends ChangeNotifier {
           remaining.length;
       final start = (raw['replanStartRound'] as int? ?? 0).clamp(
         0,
-        (remaining.length + 1) ~/ 2,
+        (remaining.length + original.actorCount - 1) ~/ original.actorCount,
       );
       // This is only the request view. The authoritative old turn remains intact
       // until commitTurn atomically replaces it and invalidates dependents.
       context = AutoStoryDocument.fromJson({
         ...raw,
         'turns': remaining.map((t) => t.toJson()).toList(),
-        'nextActor': remaining.length.isEven ? 'A' : 'B',
-        'completedRounds': remaining.length ~/ 2,
+        'nextActor': original.actorForOrdinal(remaining.length),
+        'completedRounds': remaining.length ~/ original.actorCount,
         'directorCheckpoints': kept.map((c) => c.toJson()).toList(),
         'currentCheckpointId': current?.checkpointId,
         'events': original.events
@@ -433,7 +427,7 @@ class AutoStoryRunController extends ChangeNotifier {
       });
     }
     final actor = context.actors.singleWhere((a) => a.actorId == actorId);
-    final other = context.actors.singleWhere((a) => a.actorId != actorId);
+    final others = context.actors.where((a) => a.actorId != actorId);
     for (var attempt = 0; attempt < 2; attempt++) {
       _check(session);
       if (session.pause) return;
@@ -443,9 +437,7 @@ class AutoStoryRunController extends ChangeNotifier {
           ? RequestPurpose.repair
           : replaceLast
           ? RequestPurpose.regenerate
-          : actorId == 'A'
-          ? RequestPurpose.actorA
-          : RequestPurpose.actorB;
+          : RequestPurpose.actor;
       final token = await _store.reserveRequest(
         storyId,
         purpose,
@@ -473,9 +465,7 @@ class AutoStoryRunController extends ChangeNotifier {
         await _reload(session);
         return;
       }
-      phase = actorId == 'A'
-          ? AutoStoryRunPhase.actorA
-          : AutoStoryRunPhase.actorB;
+      phase = AutoStoryRunPhase.actor;
       _notify();
       final cancel = AiCancelToken();
       session.token = cancel;
@@ -488,7 +478,13 @@ class AutoStoryRunController extends ChangeNotifier {
             endpoint: endpoint,
             messages: messages,
             actorName: actor.name,
-            otherActorName: other.name,
+            otherActorNames: [
+              for (final other in others) ...[
+                other.name,
+                other.actorId,
+                '演员 ${other.actorId}',
+              ],
+            ],
             actorId: actorId,
             cancelToken: cancel,
             includeReasoning: showReasoning,
@@ -520,11 +516,7 @@ class AutoStoryRunController extends ChangeNotifier {
           usage,
           endpoint,
           messages,
-          attempt > 0
-              ? 'autoStoryRepair'
-              : actorId == 'A'
-              ? 'autoStoryActorA'
-              : 'autoStoryActorB',
+          attempt > 0 ? 'autoStoryRepair' : 'autoStoryActor$actorId',
         );
       }
       _check(session);
@@ -538,6 +530,7 @@ class AutoStoryRunController extends ChangeNotifier {
       final turn = StoryTurn(
         turnId: newStoryId(),
         ordinal: token.expectedNextOrdinal,
+        roundNumber: context.roundForOrdinal(token.expectedNextOrdinal),
         speakerId: actorId,
         content: result.content,
         reasoningContent: result.reasoningContent,
@@ -569,8 +562,7 @@ class AutoStoryRunController extends ChangeNotifier {
           plannedRounds: story!.config.plannedRounds,
           idPrefix: 'plan_${story!.config.planVersion}',
         );
-        final remaining =
-            story!.config.plannedRounds - (story!.turns.length + 1) ~/ 2;
+        final remaining = story!.config.plannedRounds - story!.startedRounds;
         if (plan.fold<int>(0, (sum, stage) => sum + stage.minRounds) >
             remaining) {
           throw const FormatException('剩余完整轮数不足以满足新大纲的最少轮数，请增加篇幅或修订大纲。');
@@ -750,13 +742,19 @@ class AutoStoryRunController extends ChangeNotifier {
     }
     await _actorTurn(session, replaceLast: true);
   });
-  Future<void> takeoverB(String text) => _launch((session) async {
-    final actor = story!.actors[1];
+  Future<void> takeoverUser(String text) => _launch((session) async {
+    final actor = story!.actors.singleWhere(
+      (a) => a.actorId == story!.userActorId,
+    );
     final content = AutoStoryValidator.actorContent(
       text,
       actorName: actor.name,
-      otherActorName: story!.actors[0].name,
-      actorId: 'B',
+      otherActorNames: [
+        for (final other in story!.actors.where(
+          (a) => a.actorId != actor.actorId,
+        )) ...[other.name, other.actorId, '演员 ${other.actorId}'],
+      ],
+      actorId: actor.actorId,
     );
     story = await _store.addManualTurn(storyId, content);
     _check(session);

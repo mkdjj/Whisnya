@@ -42,7 +42,9 @@ String formatAutoStoryText(
   String speaker(String id) {
     final actor = actors.where((a) => a['actorId'] == id).firstOrNull;
     final name = actor?['name'] ?? id;
-    return id == 'B' ? '$name${tr('（AI代演）', ' (AI portrayal)')}' : '$name';
+    return actor?['sourceId'] == 'userProfile'
+        ? '$name${tr('（AI代演）', ' (AI portrayal)')}'
+        : '$name';
   }
 
   final parts = <String>[
@@ -51,7 +53,7 @@ String formatAutoStoryText(
       '${tr('演员', 'Actor')} ${actor['actorId']}：${speaker(actor['actorId'] as String)}',
     '${tr('状态', 'Status')}：${statusLabel(document['status'] as String?)}'
         '${document['pauseReason'] == null ? '' : ' / ${statusLabel(document['pauseReason'] as String?)}'}',
-    '${tr('已完成轮数', 'Completed rounds')}：${turns.length ~/ 2} / ${config['plannedRounds']}',
+    '${tr('已完成轮数', 'Completed rounds')}：${turns.length ~/ actors.length} / ${config['plannedRounds']}',
   ];
   void scenesAfter(int ordinal) {
     for (final event in events) {
@@ -70,7 +72,7 @@ String formatAutoStoryText(
         ? '${speaker(turn['speakerId'] as String)} · ${tr('本人接管', 'Manual takeover')}'
         : speaker(turn['speakerId'] as String);
     parts.add(
-      '[${tr('第', 'Round ')}${ordinal ~/ 2 + 1}${tr('轮', '')} · $name]\n${turn['content']}',
+      '[${tr('第', 'Round ')}${ordinal ~/ actors.length + 1}${tr('轮', '')} · $name]\n${turn['content']}',
     );
     scenesAfter(ordinal);
   }

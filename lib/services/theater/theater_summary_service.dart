@@ -4,6 +4,7 @@ import '../../models/theater.dart';
 import '../../prompts/prompt_builder.dart';
 import '../ai/ai_conversation_runner.dart';
 import '../ai/ai_gateway.dart';
+import '../chat/summary_request.dart';
 import 'theater_reply_engine.dart';
 
 ({String summary, int summarizedMessageCount})
@@ -51,34 +52,22 @@ summarizeTheater(
       .toList();
   if (chunk.isEmpty) return null;
 
-  final request = [
-    {'role': 'system', 'content': '你负责总结群聊记录，并只输出总结内容。'},
-    {
-      'role': 'user',
-      'content': PromptBuilder.buildTheaterSummaryPrompt(
-        previousSummary: session.theaterSummary,
-        messages: chunk,
-        useCustomItems: useCustomItems,
-        customItems: customItems,
-      ),
-    },
-  ];
-  var usage = const AiUsage();
-  final summary = await gateway.sendMessage(
-    apiKey: endpoint.apiKey,
-    baseUrl: endpoint.baseUrl,
-    model: endpoint.model,
-    messages: request,
-    temperature: 0.2,
+  final result = await requestSummary(
+    gateway,
+    endpoint: endpoint,
+    theater: true,
+    prompt: PromptBuilder.buildTheaterSummaryPrompt(
+      previousSummary: session.theaterSummary,
+      messages: chunk,
+      useCustomItems: useCustomItems,
+      customItems: customItems,
+    ),
     cancelToken: cancelToken,
-    onUsage: (value) {
-      usage = value;
-      onUsage?.call(value, request);
-    },
+    onUsage: onUsage,
   );
   return (
-    summary: PromptBuilder.limitSummary(summary, 1500),
+    summary: result.summary,
     summarizedMessageCount: end,
-    usage: usage,
+    usage: result.usage,
   );
 }

@@ -1,8 +1,6 @@
 package com.mkdjj.whisnya
 
-import android.content.Context
 import android.content.Intent
-import com.mkdjj.whisnya.qq.QqFlutterEngineHolder
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 
@@ -18,8 +16,4 @@ class MainActivity : FlutterActivity() {
         if (backupBridge?.onActivityResult(requestCode, resultCode, data) == true) return
         super.onActivityResult(requestCode, resultCode, data)
     }
-    override fun provideFlutterEngine(context: Context): FlutterEngine =
-        QqFlutterEngineHolder.getOrCreate()
-
-    override fun shouldDestroyEngineWithHost(): Boolean = false
 }

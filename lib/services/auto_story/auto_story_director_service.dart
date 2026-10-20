@@ -27,30 +27,12 @@ class AutoStoryDirectorService {
     final token = cancelToken ?? AiCancelToken();
     if (token.isCancelled) throw AiException('请求已取消。');
     Future<String> perform() async {
-      if (gateway is StructuredAiGateway) {
-        final response = await (gateway as StructuredAiGateway).sendResponse(
-          AiRequest(
-            apiKey: endpoint.apiKey,
-            baseUrl: endpoint.baseUrl,
-            model: endpoint.model,
-            messages: messages,
-            temperature: 0.3,
-          ),
-          cancelToken: token,
-        );
-        // Existing structured adapters encode unavailable usage as all zeroes.
-        if (response.usage.totalTokens > 0) onUsage?.call(response.usage);
-        return response.content;
-      }
-      return gateway.sendMessage(
-        apiKey: endpoint.apiKey,
-        baseUrl: endpoint.baseUrl,
-        model: endpoint.model,
-        messages: messages,
-        temperature: 0.3,
+      final response = await gateway.sendResponse(
+        AiRequest(endpoint: endpoint, messages: messages, temperature: 0.3),
         cancelToken: token,
-        onUsage: onUsage,
       );
+      if (response.usage.totalTokens > 0) onUsage?.call(response.usage);
+      return response.content;
     }
 
     final text = await perform().timeout(
@@ -152,9 +134,9 @@ class AutoStoryDirectorService {
     final previous = story.currentCheckpoint;
     if (story.plan.isEmpty ||
         json['coveredThroughOrdinal'] is! int ||
-        story.turns.length.isOdd ||
+        !story.isRoundComplete ||
         coveredThroughOrdinal < 0 ||
-        coveredThroughOrdinal.isEven ||
+        (coveredThroughOrdinal + 1) % story.actorCount != 0 ||
         coveredThroughOrdinal >= story.turns.length ||
         coveredThroughOrdinal < (previous?.coveredThroughOrdinal ?? -1) ||
         json['coveredThroughOrdinal'] != coveredThroughOrdinal) {

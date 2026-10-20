@@ -34,13 +34,13 @@ MementoEntry autoStoryMementoEntry(
     throw StateError('Story turn changed');
   }
   final actor = story.actors.firstWhere((a) => a.actorId == current.speakerId);
-  final label = current.speakerId == 'B'
+  final label = actor.sourceId == 'userProfile'
       ? '${actor.name} (${current.source == auto_story.StoryTurnSource.ai ? 'AI' : 'Manual'})'
       : actor.name;
   return MementoEntry(
     sourceMessageId: current.turnId,
     sourcePrefixDigest: _autoStoryPrefix(story, current.ordinal),
-    role: current.speakerId == 'B' ? 'user' : 'assistant',
+    role: actor.sourceId == 'userProfile' ? 'user' : 'assistant',
     speakerNameSnapshot: label,
     time: current.createdAt,
     contentSnapshot: current.content,

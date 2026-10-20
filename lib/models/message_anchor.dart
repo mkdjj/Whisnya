@@ -95,8 +95,11 @@ class MessageAnchor {
 }
 
 /// Called only at mutation boundaries, never by serialization or UI getters.
-List<ChatMessage> assignMessageIds(List<ChatMessage> messages) {
-  final used = <String>{};
+List<ChatMessage> assignMessageIds(
+  List<ChatMessage> messages, {
+  Set<String>? usedMessageIds,
+}) {
+  final used = usedMessageIds ?? <String>{};
   String unique(Set<String> ids) {
     var id = newStoryId();
     while (!ids.add(id)) {
@@ -109,18 +112,16 @@ List<ChatMessage> assignMessageIds(List<ChatMessage> messages) {
     final id = message.id.isNotEmpty && used.add(message.id)
         ? message.id
         : unique(used);
-    final variants = <String>{};
-    return message.copyWith(
-      id: id,
-      variants: message.variants
-          .map(
-            (v) => v.copyWith(
-              id: v.id.isNotEmpty && variants.add(v.id)
-                  ? v.id
-                  : unique(variants),
-            ),
-          )
-          .toList(),
-    );
+    final usedVariants = <String>{};
+    var changed = id != message.id;
+    final variants = message.variants.map((variant) {
+      final variantId = variant.id.isNotEmpty && usedVariants.add(variant.id)
+          ? variant.id
+          : unique(usedVariants);
+      if (variantId == variant.id) return variant;
+      changed = true;
+      return variant.copyWith(id: variantId);
+    }).toList();
+    return changed ? message.copyWith(id: id, variants: variants) : message;
   }).toList();
 }

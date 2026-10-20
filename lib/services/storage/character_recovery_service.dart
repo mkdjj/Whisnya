@@ -21,7 +21,6 @@ class CharacterRecoveryService {
     final warnings = <String>[];
     final mapping = <String, String>{};
     final conflicts = <String>{};
-    final legacy = <String>{};
     final explicitSessions = <String>{};
     bool validId(Object? value) =>
         value is String && RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(value);
@@ -93,21 +92,11 @@ class CharacterRecoveryService {
           }
         }
         if (mapping.containsKey(fileId)) continue;
-        final oldShape =
-            data is List ||
-            (data is Map &&
-                ((folder == 'summaries' && data['summary'] is String) ||
-                    (folder == 'chats' && data['messages'] is List)));
-        if (oldShape && RegExp(r'^character_\d+$').hasMatch(fileId)) {
-          legacy.add(fileId);
-        } else {
-          warnings.add('$folder/$name 无法关联角色，原文件已保留');
-        }
+        warnings.add('$folder/$name 无法关联角色，原文件已保留');
       }
     }
     return CharacterRecoveryResult(
       {
-        ...legacy,
         for (final entry in mapping.entries)
           if (!conflicts.contains(entry.key)) entry.value,
       },

@@ -310,8 +310,7 @@ class _MemoryManagerScreenState extends State<MemoryManagerScreen>
             (entry) =>
                 entry.scope == scope &&
                 (scope != MemoryScope.session ||
-                    entry.sessionId == widget.session.id) &&
-                entry.keywords.isEmpty,
+                    entry.sessionId == widget.session.id),
           )
           .toList()
         ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));

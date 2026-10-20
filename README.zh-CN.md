@@ -1,5 +1,14 @@
 # Whisnya
 
+## 1.5.5+2027
+
+- 重做新建故事：演员 A 默认使用用户设定作为主角，可自行添加 B、C 等演员；紧凑演员卡片点击后单独编辑。
+- API 设置一点直达，调整聊天输入、键盘交互和气泡下方的紧凑操作按钮。
+- 精简共用 AI、外观和总结代码，移除过时的数据迁移与旧自动测试代码。
+- ARM64 内部版本码为 2027（上个发布版为 2026），保留原签名用于覆盖更新。
+
+- 移除 QQ 接入、Android 后台服务及本地 Bridge，设置分类改名为“API”。
+
 ## 1.5.4+2026
 
 - 改进 TXT 目录识别，支持选择规则、预览后应用、大文本后台解析和当前书籍缓存。
@@ -54,9 +63,7 @@
 
 Whisnya 是一个本地优先的 Android / Windows AI 角色聊天和 TXT 小说阅读 App，使用 Flutter 开发。
 
-QQ 接入部分参考 MIT 开源项目
-[openclaw-onebot](https://github.com/LSTM-Kirigaya/openclaw-onebot)。
-许可证详情见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+历史第三方许可证声明保留在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 ## 下载
 
@@ -94,7 +101,6 @@ git clone https://github.com/mkdjj/Whisnya.git
 cd Whisnya
 flutter pub get
 flutter analyze
-flutter test
 flutter build apk --release
 ```
 
@@ -104,7 +110,7 @@ APK 会生成在：
 build/app/outputs/flutter-apk/app-release.apk
 ```
 
-当前源码版本是 `1.5.4+2026`。每次公开发版都要比较历史 APK 的实际版本码（包括分架构偏移），并同时递增 `versionName`
+当前源码版本是 `1.5.5+2027`。每次公开发版都要比较历史 APK 的实际版本码（包括分架构偏移），并同时递增 `versionName`
 和 `versionCode`。Android 包名是 `com.mkdjj.whisnya`。
 
 如果要公开分发，请先配置自己的 Android 签名文件：
@@ -120,7 +126,7 @@ Copy-Item android/key.properties.example android/key.properties
 推荐发布文件名：
 
 ```text
-Whisnya-android-v1.5.4-arm64-v8a-release.apk
+Whisnya-android-v1.5.5-arm64-v8a-release.apk
 ```
 
 ## 其他平台
@@ -165,11 +171,6 @@ app_data/
   settings.json
   characters.json
   novels.json
-  config/
-    qq_integration.json
-    qq_contact_bindings.json
-  logs/
-    qq_diagnostics.json
   chats/
     {characterId}.json
   summaries/
@@ -189,13 +190,10 @@ app_data/
 
 App 内的“导出全部数据”会生成 zip 备份，里面使用 `app_data/` 下的相对文件结构。
 API Key 默认不会导出，只有在导出前明确勾选“包含 API Key”时才会写入备份。
-本地 Bridge Token 使用系统安全存储，不会写入全量备份；QQ 设置和联系人绑定会随普通备份导出。
 导入时会自动修复当前平台的数据路径，所以备份可以在 Whisnya 的 Android、Windows、macOS 和 iOS 版本之间迁移。
 
 ## 隐私说明
 
 Whisnya 是本地优先应用。聊天记录、小说原文、角色数据、图片、设置和 API 配置默认保存在本地。配置第三方 API 后，聊天或总结时的请求内容会发送给对应模型服务商。
-
-Termux Bridge 只处理明确绑定的 QQ 联系人；消息会写入本地聊天记录，并发送给对应角色配置的模型 API。诊断日志不保存消息或回复原文。
 
 不要公开分享包含 API Key、聊天记录、小说原文或其他隐私内容的备份文件。

@@ -13,8 +13,6 @@ import '../../models/novel_book.dart';
 import '../../models/theater.dart';
 import '../../models/character_memory_entry.dart';
 import '../../models/world_book.dart';
-import '../../models/qq_integration_settings.dart';
-import '../../models/qq_contact_binding.dart';
 
 String backupPath(String name) {
   final normalized = name.replaceAll('\\', '/');
@@ -322,6 +320,23 @@ Future<void> validateBackupFiles(Directory directory) async {
       }
     }
   }
+  final objectModels = <String, void Function(Map<String, dynamic>)>{
+    'settings.json': AppSettings.fromJson,
+    'api_config.json': ApiConfig.fromJson,
+  };
+  final listModels = <String, void Function(Map<String, dynamic>)>{
+    'characters.json': AppCharacter.fromJson,
+    'chat_sessions.json': ChatSession.fromJson,
+    'novels.json': NovelBook.fromJson,
+    'theater_sessions.json': TheaterSession.fromJson,
+    'worldbooks.json': WorldBook.fromJson,
+  };
+  final folderModels = <String, void Function(Map<String, dynamic>)>{
+    'chats': ChatMessage.fromJson,
+    'memories': CharacterMemoryEntry.fromJson,
+    'worldbook_entries': WorldBookEntry.fromJson,
+    'theater_messages': TheaterMessage.fromJson,
+  };
   final characters = <String>{};
   final sessions = <String, String>{};
   final books = <String>{};
@@ -384,86 +399,25 @@ Future<void> validateBackupFiles(Directory directory) async {
     final name = file.path
         .substring(directory.path.length + 1)
         .replaceAll('\\', '/');
-    final decoded = await readBackupJson(file);
-    final value =
-        name.startsWith('chats/') &&
-            decoded is List &&
-            sessions.isEmpty &&
-            !await File('${directory.path}/chat_sessions.json').exists()
-        ? <String, dynamic>{'messages': decoded}
-        : decoded;
+    final value = await readBackupJson(file);
     try {
-      if (name == 'config/qq_integration.json') {
-        QqIntegrationSettings.fromJson(value as Map<String, dynamic>);
-      }
-      if (name == 'config/qq_contact_bindings.json') {
-        for (final item in value as List) {
-          QqContactBinding.fromJson(item as Map<String, dynamic>);
+      final objectModel = objectModels[name];
+      if (objectModel != null) objectModel(value as Map<String, dynamic>);
+      final folder = name.split('/').first;
+      final listModel = listModels[name] ?? folderModels[folder];
+      if (listModel != null) {
+        final rows = folder == 'chats' ? (value as Map)['messages'] : value;
+        for (final item in rows as List) {
+          listModel(item as Map<String, dynamic>);
         }
       }
-      if (name == 'settings.json') {
-        AppSettings.fromJson(value as Map<String, dynamic>);
-      }
-      if (name == 'api_config.json') {
-        ApiConfig.fromJson(value as Map<String, dynamic>);
-      }
-      if (name == 'characters.json') {
-        for (final item in value as List) {
-          AppCharacter.fromJson(item as Map<String, dynamic>);
-        }
-      }
-      if (name == 'chat_sessions.json') {
-        for (final item in value as List) {
-          ChatSession.fromJson(item as Map<String, dynamic>);
-        }
-      }
-      if (name == 'novels.json') {
-        for (final item in value as List) {
-          NovelBook.fromJson(item as Map<String, dynamic>);
-        }
-      }
-      if (name == 'theater_sessions.json') {
-        for (final item in value as List) {
-          TheaterSession.fromJson(item as Map<String, dynamic>);
-        }
-      }
-      if (name == 'worldbooks.json') {
-        for (final item in value as List) {
-          WorldBook.fromJson(item as Map<String, dynamic>);
-        }
-      }
-      if (name.startsWith('summaries/')) {
+      if (folder == 'summaries') {
         ChatSummary.fromJson(value as Map<String, dynamic>);
-      }
-      if (name.startsWith('chats/')) {
-        for (final item in (value as Map)['messages'] as List) {
-          ChatMessage.fromJson(item as Map<String, dynamic>);
-        }
-      }
-      if (name.startsWith('memories/')) {
-        for (final item in value as List) {
-          CharacterMemoryEntry.fromJson(item as Map<String, dynamic>);
-        }
-      }
-      if (name.startsWith('worldbook_entries/')) {
-        for (final item in value as List) {
-          WorldBookEntry.fromJson(item as Map<String, dynamic>);
-        }
-      }
-      if (name.startsWith('theater_messages/')) {
-        for (final item in value as List) {
-          TheaterMessage.fromJson(item as Map<String, dynamic>);
-        }
       }
     } catch (_) {
       throw FormatException('$name 字段类型异常');
     }
-    if ([
-          'settings.json',
-          'api_config.json',
-          'config/qq_integration.json',
-        ].contains(name) &&
-        value is! Map) {
+    if (['settings.json', 'api_config.json'].contains(name) && value is! Map) {
       throw FormatException('$name 格式异常');
     }
     if (name == 'api_config.json' &&

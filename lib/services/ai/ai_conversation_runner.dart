@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../models/ai_usage.dart';
+import '../../models/api_config.dart';
 import '../../models/ai_response.dart';
 
 class AiException implements Exception {
@@ -41,18 +42,14 @@ class AiCancelToken {
 
 class AiRequest {
   const AiRequest({
-    required this.apiKey,
-    required this.baseUrl,
-    required this.model,
+    required this.endpoint,
     required this.messages,
     this.stream = false,
     this.includeReasoning = false,
     this.temperature = 0.8,
   });
 
-  final String apiKey;
-  final String baseUrl;
-  final String model;
+  final AiEndpointConfig endpoint;
   final List<Map<String, String>> messages;
   final bool stream;
   final bool includeReasoning;
@@ -76,7 +73,10 @@ class OpenAiCompatibleAdapter {
   }
 
   Uri buildUri(AiRequest request) {
-    final normalized = request.baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    final normalized = request.endpoint.baseUrl.trim().replaceAll(
+      RegExp(r'/+$'),
+      '',
+    );
     final url = normalized.toLowerCase().endsWith('/chat/completions')
         ? normalized
         : '$normalized/chat/completions';
@@ -88,12 +88,12 @@ class OpenAiCompatibleAdapter {
   }
 
   Map<String, String> buildHeaders(AiRequest request) => {
-    'Authorization': 'Bearer ${request.apiKey.trim()}',
+    'Authorization': 'Bearer ${request.endpoint.apiKey.trim()}',
     'Content-Type': 'application/json',
   };
 
   Map<String, dynamic> buildBody(AiRequest request) => {
-    'model': request.model.trim(),
+    'model': request.endpoint.model.trim(),
     'messages': request.messages,
     'temperature': request.temperature,
     if (request.stream) 'stream': true,
@@ -110,20 +110,6 @@ class OpenAiCompatibleAdapter {
             seen.add((item['id'] as String).trim()))
           (item['id'] as String).trim(),
     ];
-  }
-
-  ({String? text, AiUsage? usage})? parseStream(
-    String line, {
-    required bool includeReasoning,
-  }) {
-    final event = parseResponseDelta(line);
-    if (event == null || (event.contentDelta.isEmpty && event.usage == null)) {
-      return null;
-    }
-    return (
-      text: event.contentDelta.isEmpty ? null : event.contentDelta,
-      usage: event.usage,
-    );
   }
 
   AiResponseDelta? parseResponseDelta(String line) {
@@ -177,11 +163,6 @@ class OpenAiCompatibleAdapter {
     } on FormatException {
       return null;
     }
-  }
-
-  ({String text, AiUsage usage}) parseResponse(dynamic json) {
-    final response = parseStructuredResponse(json);
-    return (text: response.content, usage: response.usage);
   }
 
   AiResponse parseStructuredResponse(dynamic json) {
@@ -278,14 +259,6 @@ class AiConversationRunner {
     }
   }
 
-  Future<({String text, AiUsage usage})> send(
-    AiRequest request, {
-    AiCancelToken? cancelToken,
-  }) async {
-    final response = await sendResponse(request, cancelToken: cancelToken);
-    return (text: response.content, usage: response.usage);
-  }
-
   Future<AiResponse> sendResponse(
     AiRequest request, {
     AiCancelToken? cancelToken,
@@ -316,23 +289,6 @@ class AiConversationRunner {
     } finally {
       cancelToken?._detach(client);
       if (cancelToken != null) client.close();
-    }
-  }
-
-  Stream<({String? text, AiUsage? usage})> run(
-    AiRequest request, {
-    AiCancelToken? cancelToken,
-  }) async* {
-    await for (final event in streamResponse(
-      request,
-      cancelToken: cancelToken,
-    )) {
-      if (event.contentDelta.isNotEmpty || event.usage != null) {
-        yield (
-          text: event.contentDelta.isEmpty ? null : event.contentDelta,
-          usage: event.usage,
-        );
-      }
     }
   }
 
@@ -372,13 +328,13 @@ class AiConversationRunner {
   }
 
   void _validate(AiRequest request) {
-    if (request.apiKey.trim().isEmpty) {
+    if (request.endpoint.apiKey.trim().isEmpty) {
       throw AiException('API Key 为空，请先配置。');
     }
-    if (request.baseUrl.trim().isEmpty) {
+    if (request.endpoint.baseUrl.trim().isEmpty) {
       throw AiException('Base URL 为空，请先配置。');
     }
-    if (request.model.trim().isEmpty) {
+    if (request.endpoint.model.trim().isEmpty) {
       throw AiException('Model 为空，请先配置。');
     }
   }

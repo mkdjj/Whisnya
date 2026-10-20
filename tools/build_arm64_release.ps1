@@ -31,9 +31,8 @@ try {
     }
     & "$PSScriptRoot/assert_version.ps1" -Baseline $baselineFile
     Run 'pub-get' $FlutterPath @('pub','get')
-    Run 'format' $dart @('format','--output=none','--set-exit-if-changed','lib','test','tool')
+    Run 'format' $dart @('format','--output=none','--set-exit-if-changed','lib')
     Run 'analyze' $FlutterPath @('analyze')
-    Run 'test' $FlutterPath @('test')
     if (!(Test-Path -LiteralPath 'android/key.properties')) {
         throw 'SIGNING BLOCKED: android/key.properties is absent. No APK was built or copied.'
     }

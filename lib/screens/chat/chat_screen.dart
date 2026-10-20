@@ -38,6 +38,7 @@ import '../../services/chat/character_inner_voice_service.dart';
 import '../../services/chat/reply_inspiration_service.dart';
 import '../../widgets/chat/reply_inspiration_sheet.dart';
 import '../../services/chat/chat_summary_service.dart';
+import '../../services/chat/summary_request.dart';
 import '../../services/chat/memory_context_service.dart';
 import '../../services/local_storage_service.dart';
 import '../../services/storage/session_operation_coordinator.dart';
@@ -52,7 +53,7 @@ import '../../utils/stream_text_buffer.dart';
 import '../../utils/role_message_segments.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/chat_bubble.dart';
-import '../../widgets/chat_bubble_preset_picker.dart';
+import '../../widgets/chat_appearance_settings.dart';
 import '../../widgets/chat_input_composer.dart';
 import '../../widgets/chat_header_panel.dart';
 import '../../widgets/chat/character_inner_voice_dialog.dart';
@@ -329,9 +330,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Future<void> _reloadState() async {
     final session = _session;
-    if (session == null ||
-        !widget.settings.showCharacterStateCard ||
-        !widget.storage.usesSessionStorage) {
+    if (session == null || !widget.settings.showCharacterStateCard) {
       return;
     }
     final epoch = widget.storage.datasetEpoch;
@@ -385,9 +384,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               {'role': 'user', 'content': user},
             ];
             return widget.aiService.sendMessage(
-              apiKey: selectedEndpoint.apiKey,
-              baseUrl: selectedEndpoint.baseUrl,
-              model: selectedEndpoint.model,
+              endpoint: selectedEndpoint,
               messages: request,
               cancelToken: token,
               onUsage: (usage) {
@@ -655,9 +652,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               mode: mode,
             );
             final raw = await widget.aiService.sendMessage(
-              apiKey: endpoint!.apiKey,
-              baseUrl: endpoint.baseUrl,
-              model: endpoint.model,
+              endpoint: endpoint!,
               messages: messages,
               cancelToken: token,
               onUsage: (usage) {
@@ -867,85 +862,61 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     try {
       final apiConfig = await widget.storage.loadApiConfig();
       if (!current()) return;
-      if (widget.storage.usesSessionStorage) {
-        final characters = await widget.storage.loadCharacters();
-        if (!current()) return;
-        final refreshed = characters
-            .where((item) => item.id == _character.id)
-            .firstOrNull;
-        if (refreshed == null) throw StateError('当前数据集中没有此角色，请返回角色列表');
-        _character = refreshed;
-      }
+      final characters = await widget.storage.loadCharacters();
+      if (!current()) return;
+      final refreshed = characters
+          .where((item) => item.id == _character.id)
+          .firstOrNull;
+      if (refreshed == null) throw StateError('当前数据集中没有此角色，请返回角色列表');
+      _character = refreshed;
       var activeSession =
           _session ??
           widget.session ??
-          (widget.storage.usesSessionStorage
-              ? await widget.storage.getOrCreateRecentChatSession(_character.id)
-              : _compatibilitySession());
-      if (widget.storage.usesSessionStorage) {
-        final storedSessions = await widget.storage.loadChatSessions(
-          activeSession.characterId,
+          await widget.storage.getOrCreateRecentChatSession(_character.id);
+      final storedSessions = await widget.storage.loadChatSessions(
+        activeSession.characterId,
+      );
+      if (!current()) return;
+      if (!storedSessions.any((item) => item.id == activeSession.id)) {
+        activeSession = await widget.storage.getOrCreateRecentChatSession(
+          _character.id,
         );
-        if (!current()) return;
-        if (!storedSessions.any((item) => item.id == activeSession.id)) {
-          activeSession = await widget.storage.getOrCreateRecentChatSession(
-            _character.id,
-          );
-        }
-        for (final storedSession in storedSessions) {
-          if (storedSession.id == activeSession.id) {
-            activeSession = storedSession;
-            break;
-          }
+      }
+      for (final storedSession in storedSessions) {
+        if (storedSession.id == activeSession.id) {
+          activeSession = storedSession;
+          break;
         }
       }
-      final summary = widget.storage.usesSessionStorage
-          ? await widget.storage.loadSummaryBySession(activeSession)
-          : await widget.storage.loadSummary(_character.id);
-      final chat = widget.storage.usesSessionStorage
-          ? await widget.storage.loadChatBySession(activeSession)
-          : await widget.storage.loadChat(_character.id);
+      final summary = await widget.storage.loadSummaryBySession(activeSession);
+      final chat = await widget.storage.loadChatBySession(activeSession);
       final selectedEndpointId =
           apiConfig.effectiveEndpoint(_character.defaultEndpointId)?.id ?? '';
       var messages = [...chat];
       if (!current()) return;
 
-      if (widget.storage.usesSessionStorage) {
-        if (!activeSession.openingMessageInitialized) {
-          if (messages.isEmpty && _character.openingMessage.trim().isNotEmpty) {
-            messages = [
-              ChatMessage(
-                role: 'assistant',
-                content: _character.openingMessage.trim(),
-                time: DateTime.now(),
-                endpointId: selectedEndpointId,
-                endpointName: apiConfig.endpointById(selectedEndpointId)?.name,
-              ),
-            ];
-            final saved = await widget.storage.saveChatBySessionIfExists(
-              activeSession,
-              messages,
-              token: await widget.storage.captureSessionToken(activeSession),
-            );
-            if (!saved || !current()) return;
-          }
-          activeSession = await widget.storage.markOpeningMessageInitialized(
-            sessionId: activeSession.id,
-            characterId: activeSession.characterId,
+      if (!activeSession.openingMessageInitialized) {
+        if (messages.isEmpty && _character.openingMessage.trim().isNotEmpty) {
+          messages = [
+            ChatMessage(
+              role: 'assistant',
+              content: _character.openingMessage.trim(),
+              time: DateTime.now(),
+              endpointId: selectedEndpointId,
+              endpointName: apiConfig.endpointById(selectedEndpointId)?.name,
+            ),
+          ];
+          final saved = await widget.storage.saveChatBySessionIfExists(
+            activeSession,
+            messages,
+            token: await widget.storage.captureSessionToken(activeSession),
           );
+          if (!saved || !current()) return;
         }
-      } else if (messages.isEmpty &&
-          _character.openingMessage.trim().isNotEmpty) {
-        messages = [
-          ChatMessage(
-            role: 'assistant',
-            content: _character.openingMessage.trim(),
-            time: DateTime.now(),
-            endpointId: selectedEndpointId,
-            endpointName: apiConfig.endpointById(selectedEndpointId)?.name,
-          ),
-        ];
-        await widget.storage.saveChat(_character.id, messages);
+        activeSession = await widget.storage.markOpeningMessageInitialized(
+          sessionId: activeSession.id,
+          characterId: activeSession.characterId,
+        );
       }
 
       if (!current()) return;
@@ -966,29 +937,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
-  ChatSession _compatibilitySession() {
-    final now = DateTime.now();
-    return ChatSession(
-      id: 'legacy_runtime_${_character.id}',
-      characterId: _character.id,
-      title: '默认对话',
-      createdAt: now,
-      updatedAt: now,
-      lastUsedAt: now,
-    );
-  }
-
   Future<void> _saveCurrentChat() async {
     final session = _currentSession;
     final messages = List<ChatMessage>.of(_messages);
     final epoch = widget.storage.datasetEpoch;
     await _enqueueChatSave(() async {
       if (epoch != widget.storage.datasetEpoch) throw StateError('数据集已更新');
-      if (widget.storage.usesSessionStorage) {
-        await widget.storage.saveChatBySession(session, messages);
-      } else {
-        await widget.storage.saveChat(_character.id, messages);
-      }
+      await widget.storage.saveChatBySession(session, messages);
     });
     if (_isCurrentConversation(epoch, session.id) && _hasUnsavedReply) {
       setState(() => _hasUnsavedReply = false);
@@ -1004,15 +959,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final epoch = widget.storage.datasetEpoch;
     final saved = await _enqueueChatSave(() async {
       if (epoch != widget.storage.datasetEpoch) return false;
-      if (widget.storage.usesSessionStorage) {
-        return widget.storage.saveChatBySessionIfExists(
-          session,
-          messages,
-          token: token,
-        );
-      }
-      await widget.storage.saveChat(_character.id, messages);
-      return true;
+      return widget.storage.saveChatBySessionIfExists(
+        session,
+        messages,
+        token: token,
+      );
     });
     if (saved &&
         _isCurrentConversation(epoch, session.id) &&
@@ -1047,11 +998,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     ChatSummary summary, {
     SessionOperationToken? token,
   }) async {
-    if (widget.storage.usesSessionStorage) {
-      await widget.storage.saveSummaryBySession(summary, token: token);
-    } else {
-      await widget.storage.saveSummary(summary);
-    }
+    await widget.storage.saveSummaryBySession(summary, token: token);
   }
 
   Future<void> _recordUsage({
@@ -1214,9 +1161,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
     _finalizeDraft = finalize;
     try {
-      if (widget.storage.usesSessionStorage) {
-        storageToken = await widget.storage.captureSessionToken(session);
-      }
+      storageToken = await widget.storage.captureSessionToken(session);
       if (!_isCurrentGeneration(generationId, sessionId)) return;
       _generationStorageToken = storageToken;
       final summaryUpdated = variantAt == null
@@ -1229,20 +1174,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       final contextMessages = variantAt == null
           ? List<ChatMessage>.of(_messages)
           : _messages.take(variantAt).toList();
-      final memories = widget.storage.usesSessionStorage
-          ? await widget.storage.loadCharacterMemories(_character.id)
-          : const <CharacterMemoryEntry>[];
-      if (widget.storage.usesSessionStorage) {
-        final refreshedCharacter = (await widget.storage.loadCharacters())
-            .where((character) => character.id == _character.id)
-            .firstOrNull;
-        if (refreshedCharacter != null) {
-          _character = refreshedCharacter;
-        }
+      final memories = await widget.storage.loadCharacterMemories(
+        _character.id,
+      );
+      final refreshedCharacter = (await widget.storage.loadCharacters())
+          .where((character) => character.id == _character.id)
+          .firstOrNull;
+      if (refreshedCharacter != null) {
+        _character = refreshedCharacter;
       }
-      final allWorldBooks = widget.storage.usesSessionStorage
-          ? await widget.storage.loadWorldBooks()
-          : const <WorldBook>[];
+      final allWorldBooks = await widget.storage.loadWorldBooks();
       final referencedIds = _character.worldBookIds.toSet();
       final worldBooks = allWorldBooks
           .where((worldBook) => referencedIds.contains(worldBook.id))
@@ -1278,8 +1219,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         messages: contextMessages,
       );
       if (chatSettings.showCharacterStateCard &&
-          chatSettings.useCharacterStateInPrompt &&
-          widget.storage.usesSessionStorage) {
+          chatSettings.useCharacterStateInPrompt) {
         final state = await _stateService.loadCurrentState(
           session.id,
           _character.id,
@@ -1327,9 +1267,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       );
       _streamBuffer = requestBuffer;
       final request = AiRequest(
-        apiKey: endpoint.apiKey,
-        baseUrl: endpoint.baseUrl,
-        model: endpoint.model,
+        endpoint: endpoint,
         messages: requestMessages,
         stream: streamResponses,
         includeReasoning: true,
@@ -1512,11 +1450,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         revision: revision,
         epoch: epoch,
       );
-      if (widget.storage.usesSessionStorage) {
-        activeOperation.storageToken = await widget.storage.captureSessionToken(
-          session,
-        );
-      }
+      activeOperation.storageToken = await widget.storage.captureSessionToken(
+        session,
+      );
       if (!mounted ||
           revision != _conversationRevision ||
           epoch != widget.storage.datasetEpoch) {
@@ -1537,9 +1473,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         chatSummary: chatSummary,
       );
       final raw = await widget.aiService.sendMessage(
-        apiKey: endpoint.apiKey,
-        baseUrl: endpoint.baseUrl,
-        model: endpoint.model,
+        endpoint: endpoint,
         messages: requestMessages,
         cancelToken: activeOperation.cancelToken,
         onUsage: (usage) => unawaited(
@@ -1563,14 +1497,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           !currentSettings.showCharacterInnerVoice) {
         return;
       }
-      if (widget.storage.usesSessionStorage) {
-        final sessions = await widget.storage.loadChatSessions(
-          session.characterId,
-        );
-        if (!_isCurrentInnerVoiceOperation(activeOperation) ||
-            !sessions.any((item) => item.id == session.id)) {
-          return;
-        }
+      final sessions = await widget.storage.loadChatSessions(
+        session.characterId,
+      );
+      if (!_isCurrentInnerVoiceOperation(activeOperation) ||
+          !sessions.any((item) => item.id == session.id)) {
+        return;
       }
 
       var updated = false;
@@ -1786,41 +1718,19 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     AiRequest request,
     AiCancelToken token,
   ) async* {
-    final gateway = widget.aiService;
-    if (gateway is StructuredAiGateway) {
-      if (request.stream) {
-        await for (final delta
-            in (gateway as StructuredAiGateway).streamResponse(
-              request,
-              cancelToken: token,
-            )) {
-          yield delta;
-        }
-      } else {
-        final response = await (gateway as StructuredAiGateway).sendResponse(
-          request,
-          cancelToken: token,
-        );
-        yield AiResponseDelta(
-          contentDelta: response.content,
-          reasoningDelta: response.reasoningContent,
-          usage: response.usage,
-        );
-      }
-      return;
+    if (request.stream) {
+      yield* widget.aiService.streamResponse(request, cancelToken: token);
+    } else {
+      final response = await widget.aiService.sendResponse(
+        request,
+        cancelToken: token,
+      );
+      yield AiResponseDelta(
+        contentDelta: response.content,
+        reasoningDelta: response.reasoningContent,
+        usage: response.usage,
+      );
     }
-    AiUsage? usage;
-    await for (final text in gateway.streamMessage(
-      apiKey: request.apiKey,
-      baseUrl: request.baseUrl,
-      model: request.model,
-      messages: request.messages,
-      cancelToken: token,
-      onUsage: (value) => usage = value,
-    )) {
-      yield AiResponseDelta(contentDelta: text);
-    }
-    if (usage != null) yield AiResponseDelta(usage: usage);
   }
 
   Future<void> _retryReplySave() async {
@@ -2277,33 +2187,23 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
 
     try {
-      final storageToken = widget.storage.usesSessionStorage
-          ? await widget.storage.captureSessionToken(session)
-          : null;
+      final storageToken = await widget.storage.captureSessionToken(session);
       final prompt = PromptBuilder.buildSummaryPrompt(
         messages,
         useCustomItems: widget.settings.useCustomChatSummaryItems,
         customItems: widget.settings.customChatSummaryItems,
       );
-      final summaryText = await widget.aiService.sendMessage(
-        apiKey: endpoint.apiKey,
-        baseUrl: endpoint.baseUrl,
-        model: endpoint.model,
-        messages: [
-          {'role': 'system', 'content': '你负责总结聊天记录，并只输出总结内容。'},
-          {'role': 'user', 'content': prompt},
-        ],
-        temperature: 0.2,
+      final result = await requestSummary(
+        widget.aiService,
+        endpoint: endpoint,
+        prompt: prompt,
         cancelToken: cancelToken,
-        onUsage: (usage) => unawaited(
+        onUsage: (usage, request) => unawaited(
           _recordUsage(
             requestType: 'characterSummary',
             model: endpoint.model,
             usage: usage,
-            messages: [
-              {'role': 'system', 'content': '你负责总结聊天记录，并只输出总结内容。'},
-              {'role': 'user', 'content': prompt},
-            ],
+            messages: request,
             summaryUpdated: true,
           ),
         ),
@@ -2313,7 +2213,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       final nextSummary = ChatSummary(
         characterId: _character.id,
         sessionId: sessionId,
-        summary: PromptBuilder.limitSummary(summaryText, 1500),
+        summary: result.summary,
         updatedAt: DateTime.now(),
         summarizedMessageCount: messages.length,
       );
@@ -2364,13 +2264,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     try {
       next = await _enqueueChatSave(() async {
         if (epoch != widget.storage.datasetEpoch) throw StateError('数据集已更新');
-        if (widget.storage.usesSessionStorage) {
-          return widget.storage.clearChatPreservingSummary(session);
-        }
-        final summary = summaryAfterChatClear(_summary, DateTime.now());
-        await widget.storage.saveSummary(summary);
-        await widget.storage.clearChat(_character.id);
-        return summary;
+        return widget.storage.clearChatPreservingSummary(session);
       });
     } catch (error) {
       if (mounted) context.showSnack('清空保存失败：$error');
@@ -2478,9 +2372,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
     setState(() => _isSummarizing = true);
     try {
-      final storageToken = widget.storage.usesSessionStorage
-          ? await widget.storage.captureSessionToken(_currentSession)
-          : null;
+      final storageToken = await widget.storage.captureSessionToken(
+        _currentSession,
+      );
       final nextSummary = await updateChatSummary(
         widget.aiService,
         characterId: _character.id,
@@ -2795,100 +2689,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   ),
                 ],
                 const Divider(),
-                SettingSlider.opacity(
-                  key: const ValueKey('chat-background-transparency-setting'),
-                  label: '背景图透明度',
-                  opacity: draft.backgroundImageOpacity,
-                  onChanged: (opacity) {
-                    preview(draft.copyWith(backgroundImageOpacity: opacity));
-                  },
-                  onChangeEnd: (opacity) {
-                    apply(draft.copyWith(backgroundImageOpacity: opacity));
-                  },
-                ),
-                SettingSlider(
-                  label: '背景图模糊度',
-                  value: draft.backgroundBlur,
-                  min: 0,
-                  max: 12,
-                  divisions: 12,
-                  display: draft.backgroundBlur.toStringAsFixed(0),
-                  onChanged: (value) {
-                    preview(draft.copyWith(backgroundBlur: value));
-                  },
-                  onChangeEnd: (value) {
-                    apply(draft.copyWith(backgroundBlur: value));
-                  },
-                ),
-                SettingSlider.transparency(
-                  key: const ValueKey('chat-top-bar-transparency-setting'),
-                  label: '顶部状态栏透明度',
-                  opacity: draft.topBarOpacity,
-                  onChanged: (opacity) {
-                    preview(draft.copyWith(topBarOpacity: opacity));
-                  },
-                  onChangeEnd: (opacity) {
-                    apply(draft.copyWith(topBarOpacity: opacity));
-                  },
-                ),
-                SettingSlider.transparency(
-                  key: const ValueKey('chat-input-opacity-setting'),
-                  label: '输入框透明度',
-                  opacity: draft.inputOpacity,
-                  onChanged: (opacity) {
-                    preview(draft.copyWith(inputOpacity: opacity));
-                  },
-                  onChangeEnd: (opacity) {
-                    apply(draft.copyWith(inputOpacity: opacity));
-                  },
-                ),
-                ChatBubblePresetSelectionTile(
-                  key: const ValueKey('chat-role-bubble-preset-setting'),
-                  title: '角色气泡',
-                  presetId: draft.roleBubblePresetId,
-                  isUser: false,
-                  onChanged: (value) {
-                    final next = draft.copyWith(
-                      roleBubblePresetId: value,
-                      clearRoleBubbleOpacity: true,
-                    );
-                    apply(next);
-                  },
-                ),
-                SettingSlider.transparency(
-                  key: const ValueKey('chat-role-bubble-transparency-setting'),
-                  label: '角色气泡透明度',
-                  opacity: _roleBubbleAppearance.opacity,
-                  onChanged: (opacity) {
-                    preview(draft.copyWith(roleBubbleOpacity: opacity));
-                  },
-                  onChangeEnd: (opacity) {
-                    apply(draft.copyWith(roleBubbleOpacity: opacity));
-                  },
-                ),
-                ChatBubblePresetSelectionTile(
-                  key: const ValueKey('chat-user-bubble-preset-setting'),
-                  title: '我的气泡',
-                  presetId: draft.userBubblePresetId,
-                  isUser: true,
-                  onChanged: (value) {
-                    final next = draft.copyWith(
-                      userBubblePresetId: value,
-                      clearUserBubbleOpacity: true,
-                    );
-                    apply(next);
-                  },
-                ),
-                SettingSlider.transparency(
-                  key: const ValueKey('chat-user-bubble-transparency-setting'),
-                  label: '我的气泡透明度',
-                  opacity: _userBubbleAppearance.opacity,
-                  onChanged: (opacity) {
-                    preview(draft.copyWith(userBubbleOpacity: opacity));
-                  },
-                  onChangeEnd: (opacity) {
-                    apply(draft.copyWith(userBubbleOpacity: opacity));
-                  },
+                ...chatAppearanceSettings(
+                  draft: draft,
+                  preview: preview,
+                  apply: apply,
+                  roleOpacity: _roleBubbleAppearance.opacity,
+                  userOpacity: _userBubbleAppearance.opacity,
                 ),
                 const Divider(),
                 ListTile(
@@ -3194,6 +3000,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       opacity: _character.backgroundImageOpacity,
       blur: _character.backgroundBlur,
       overlayOpacity: 0.18,
+      keyboardInset:
+          (MediaQuery.viewInsetsOf(context).bottom -
+                  MediaQuery.viewPaddingOf(context).bottom)
+              .clamp(0, double.infinity)
+              .toDouble(),
       child: LayoutBuilder(
         builder: (context, constraints) => Padding(
           padding: EdgeInsets.only(top: _topInset(context)),
@@ -3278,6 +3089,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 onStop: _stopGeneration,
                 onRetry: _messages.isNotEmpty && _messages.last.isUser
                     ? _retryLastUserMessage
+                    : _messages.isNotEmpty &&
+                          _messages.last.isAssistant &&
+                          _messages.last.effectiveContent.trim().isNotEmpty
+                    ? () => _regenerateAssistantVariant(_messages.length - 1)
                     : null,
                 onEditResend: _conversation.lastUserMessageIndex == -1
                     ? null
@@ -3407,7 +3222,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   double _topInset(BuildContext context) {
-    return MediaQuery.paddingOf(context).top + kToolbarHeight;
+    // Scaffold already includes its app bar in the body's top padding.
+    return MediaQuery.paddingOf(context).top;
   }
 }
 
@@ -3676,13 +3492,14 @@ class _MessageBubble extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: messageBubbleActions(
                       context,
+                      onRegenerate: controls.isAssistant ? onRegenerate : null,
+                      canRegenerate: !isBusy,
                       onCopy: onCopy,
                       onDelete: onDelete,
                       onAddMemory: onAddMemory,
                       onStoryActions: onStoryActions,
                       onSpeak: onSpeak,
                       isSpeaking: isSpeaking,
-                      scale: 1.2,
                     ),
                   ),
                 ),
@@ -3702,7 +3519,6 @@ class _MessageBubble extends StatelessWidget {
                           controls.selectedVariantIndex + 1,
                         )
                       : null,
-                  onRegenerate: onRegenerate,
                 ),
             ],
           );

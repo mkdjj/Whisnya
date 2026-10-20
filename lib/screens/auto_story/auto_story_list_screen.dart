@@ -254,6 +254,7 @@ class AutoStoryListScreenState extends State<AutoStoryListScreen> {
                               : Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: story.actors
+                                      .take(2)
                                       .map(
                                         (a) => Padding(
                                           padding: const EdgeInsets.only(
@@ -286,16 +287,32 @@ class AutoStoryListScreenState extends State<AutoStoryListScreen> {
                           ),
                           subtitle: locked
                               ? Text(context.t('解锁后查看'))
-                              : Text(
-                                  '${story.actors.map((a) => a.name).join(' / ')}\n'
-                                  '${context.t(switch (story.status) {
-                                    StoryStatus.draft => '草稿',
-                                    StoryStatus.ready => '准备就绪',
-                                    StoryStatus.running => '演绎中',
-                                    StoryStatus.paused => '已暂停',
-                                    StoryStatus.completed => '已完成',
-                                  })} · ${story.completedRounds}/${story.plannedRounds} ${context.t('轮')} · ${context.t('阶段')} ${story.stageIndex + 1}\n'
-                                  '${story.updatedAt.toLocal().toString().substring(0, 16)}',
+                              : Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      story.actors
+                                          .map((a) => a.name)
+                                          .join(' / '),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    Text(
+                                      '${context.t(switch (story.status) {
+                                        StoryStatus.draft => '草稿',
+                                        StoryStatus.ready => '准备就绪',
+                                        StoryStatus.running => '演绎中',
+                                        StoryStatus.paused => '已暂停',
+                                        StoryStatus.completed => '已完成',
+                                      })} · ${story.completedRounds}/${story.plannedRounds} ${context.t('轮')} · ${context.t('阶段')} ${story.stageIndex + 1}',
+                                    ),
+                                    Text(
+                                      story.updatedAt
+                                          .toLocal()
+                                          .toString()
+                                          .substring(0, 16),
+                                    ),
+                                  ],
                                 ),
                           onTap: () => _open(story),
                           trailing: PopupMenuButton<String>(

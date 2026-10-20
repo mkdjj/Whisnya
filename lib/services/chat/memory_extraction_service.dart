@@ -59,9 +59,7 @@ class MemoryExtractionService {
       },
     ];
     final raw = await _gateway.sendMessage(
-      apiKey: endpoint.apiKey,
-      baseUrl: endpoint.baseUrl,
-      model: endpoint.model,
+      endpoint: endpoint,
       messages: request,
       temperature: 0.2,
       cancelToken: cancelToken,
@@ -119,7 +117,7 @@ List<CharacterMemoryEntry> _parse(
         sessionId: scope == MemoryScope.session ? sessionId : null,
         title: title,
         content: content,
-        keywords: const [],
+
         priority: value['priority'] is num
             ? (value['priority'] as num).toInt()
             : 50,

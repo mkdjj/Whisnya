@@ -23,32 +23,12 @@ class TheaterGenerationService {
     AiCancelToken? cancelToken,
     void Function(AiUsage)? onUsage,
   }) async* {
-    final gateway = _gateway;
-    if (gateway is StructuredAiGateway) {
-      await for (final event in (gateway as StructuredAiGateway).streamResponse(
-        AiRequest(
-          apiKey: endpoint.apiKey,
-          baseUrl: endpoint.baseUrl,
-          model: endpoint.model,
-          messages: messages,
-          stream: true,
-        ),
-        cancelToken: cancelToken,
-      )) {
-        if (event.usage != null) onUsage?.call(event.usage!);
-        yield event;
-      }
-    } else {
-      await for (final text in gateway.streamMessage(
-        apiKey: endpoint.apiKey,
-        baseUrl: endpoint.baseUrl,
-        model: endpoint.model,
-        messages: messages,
-        cancelToken: cancelToken,
-        onUsage: onUsage,
-      )) {
-        yield AiResponseDelta(contentDelta: text);
-      }
+    await for (final event in _gateway.streamResponse(
+      AiRequest(endpoint: endpoint, messages: messages, stream: true),
+      cancelToken: cancelToken,
+    )) {
+      if (event.usage != null) onUsage?.call(event.usage!);
+      yield event;
     }
   }
 

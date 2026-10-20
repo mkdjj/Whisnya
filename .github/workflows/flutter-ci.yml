@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  analyze:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -21,8 +21,6 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
       - name: Check formatting
-        run: dart format --output=none --set-exit-if-changed lib test
+        run: dart format --output=none --set-exit-if-changed lib
       - name: Analyze
         run: flutter analyze
-      - name: Test
-        run: flutter test

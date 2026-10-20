@@ -1,8 +1,8 @@
 # Third-Party Notices
 
-Whisnya's QQ integration references and adapts ideas from the following
-MIT-licensed projects. The full notices are retained here as required by their
-licenses.
+Whisnya's former QQ integration referenced and adapted ideas from the following
+MIT-licensed projects. That integration has been removed; the historical license
+notices are retained here.
 
 ## openclaw-onebot
 

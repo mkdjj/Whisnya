@@ -93,9 +93,7 @@ class _ApiSettingsScreenState extends State<ApiSettingsScreen> {
     setState(() => _testingEndpointId = endpoint.id);
     try {
       final reply = await widget.aiService.sendMessage(
-        apiKey: endpoint.apiKey,
-        baseUrl: endpoint.baseUrl,
-        model: endpoint.model,
+        endpoint: endpoint,
         messages: const [
           {'role': 'system', 'content': '你是 API 连接测试助手。'},
           {'role': 'user', 'content': '请只回复 OK。'},

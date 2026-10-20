@@ -21,18 +21,18 @@ class AutoStoryTurnCard extends StatelessWidget {
   final VoidCallback? onSpeak, onEdit;
   @override
   Widget build(BuildContext context) {
-    final b = turn.speakerId == 'B';
+    final isUser = actor.sourceId == 'userProfile';
     final name =
-        '${actor.name}${b ? (english ? ' · AI portrayal' : ' · AI代演') : ''}${turn.source == StoryTurnSource.manual ? (english ? ' · Manual takeover' : ' · 本人接管') : ''}';
+        '${actor.name}${isUser ? (english ? ' · AI portrayal' : ' · AI代演') : ''}${turn.source == StoryTurnSource.manual ? (english ? ' · Manual takeover' : ' · 本人接管') : ''}';
     final colors = Theme.of(context).colorScheme;
     return Align(
-      alignment: b ? Alignment.centerRight : Alignment.centerLeft,
+      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 620),
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Column(
-            crossAxisAlignment: b
+            crossAxisAlignment: isUser
                 ? CrossAxisAlignment.end
                 : CrossAxisAlignment.start,
             children: [
@@ -48,7 +48,7 @@ class AutoStoryTurnCard extends StatelessWidget {
                   margin: const EdgeInsets.only(top: 5),
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: b
+                    color: isUser
                         ? colors.primaryContainer
                         : colors.surfaceContainerHigh,
                     borderRadius: BorderRadius.circular(16),
@@ -57,7 +57,9 @@ class AutoStoryTurnCard extends StatelessWidget {
                     part,
                     scrollPhysics: const NeverScrollableScrollPhysics(),
                     style: TextStyle(
-                      color: b ? colors.onPrimaryContainer : colors.onSurface,
+                      color: isUser
+                          ? colors.onPrimaryContainer
+                          : colors.onSurface,
                     ),
                   ),
                 ),

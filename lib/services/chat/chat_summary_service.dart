@@ -6,6 +6,7 @@ import '../../models/chat_summary.dart';
 import '../../prompts/prompt_builder.dart';
 import '../ai/ai_conversation_runner.dart';
 import '../ai/ai_gateway.dart';
+import 'summary_request.dart';
 
 typedef ChatSummaryUsageCallback =
     void Function(AiUsage usage, List<Map<String, String>> messages);
@@ -64,31 +65,22 @@ Future<ChatSummary?> updateChatSummary(
   final start = current.summarizedMessageCount.clamp(0, end).toInt();
   if (start >= end) return null;
 
-  final request = <Map<String, String>>[
-    {'role': 'system', 'content': '你负责总结聊天记录，并只输出总结内容。'},
-    {
-      'role': 'user',
-      'content': PromptBuilder.buildRollingSummaryPrompt(
-        previousSummary: current.summary,
-        newMessages: chatMessages.sublist(start, end),
-        useCustomItems: settings.useCustomChatSummaryItems,
-        customItems: settings.customChatSummaryItems,
-      ),
-    },
-  ];
-  final text = await gateway.sendMessage(
-    apiKey: endpoint.apiKey,
-    baseUrl: endpoint.baseUrl,
-    model: endpoint.model,
-    messages: request,
-    temperature: 0.2,
+  final result = await requestSummary(
+    gateway,
+    endpoint: endpoint,
+    prompt: PromptBuilder.buildRollingSummaryPrompt(
+      previousSummary: current.summary,
+      newMessages: chatMessages.sublist(start, end),
+      useCustomItems: settings.useCustomChatSummaryItems,
+      customItems: settings.customChatSummaryItems,
+    ),
     cancelToken: cancelToken,
-    onUsage: onUsage == null ? null : (usage) => onUsage(usage, request),
+    onUsage: onUsage,
   );
   return ChatSummary(
     characterId: characterId,
     sessionId: current.sessionId,
-    summary: PromptBuilder.limitSummary(text, 1500),
+    summary: result.summary,
     updatedAt: DateTime.now(),
     summarizedMessageCount: end,
   );

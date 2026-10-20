@@ -10,16 +10,14 @@ export '../models/ai_response.dart' show AiResponse, AiResponseDelta;
 export 'ai/ai_conversation_runner.dart'
     show AiCancelToken, AiException, AiRequest, selectAutomaticModel;
 
-class AiService implements AiGateway, StructuredAiGateway {
+class AiService extends AiGateway {
   AiService({http.Client? client})
     : _runner = AiConversationRunner(client: client);
 
   final AiConversationRunner _runner;
 
   AiRequest _withStream(AiRequest request, bool stream) => AiRequest(
-    apiKey: request.apiKey,
-    baseUrl: request.baseUrl,
-    model: request.model,
+    endpoint: request.endpoint,
     messages: request.messages,
     temperature: request.temperature,
     stream: stream,
@@ -62,60 +60,5 @@ class AiService implements AiGateway, StructuredAiGateway {
     required String baseUrl,
   }) {
     return _runner.listModels(apiKey: apiKey, baseUrl: baseUrl);
-  }
-
-  @override
-  Future<String> sendMessage({
-    required String apiKey,
-    required String baseUrl,
-    required String model,
-    required List<Map<String, String>> messages,
-    double temperature = 0.8,
-    AiCancelToken? cancelToken,
-    void Function(AiUsage usage)? onUsage,
-  }) async {
-    final result = await sendResponse(
-      AiRequest(
-        apiKey: apiKey,
-        baseUrl: baseUrl,
-        model: model,
-        messages: messages,
-        temperature: temperature,
-      ),
-      cancelToken: cancelToken,
-    );
-    onUsage?.call(result.usage);
-    return result.content;
-  }
-
-  @override
-  Stream<String> streamMessage({
-    required String apiKey,
-    required String baseUrl,
-    required String model,
-    required List<Map<String, String>> messages,
-    double temperature = 0.8,
-    AiCancelToken? cancelToken,
-    bool includeReasoning = false,
-    void Function(AiUsage usage)? onUsage,
-  }) async* {
-    await for (final event in streamResponse(
-      AiRequest(
-        apiKey: apiKey,
-        baseUrl: baseUrl,
-        model: model,
-        messages: messages,
-        temperature: temperature,
-        stream: true,
-        includeReasoning: includeReasoning,
-      ),
-      cancelToken: cancelToken,
-    )) {
-      final usage = event.usage;
-      if (usage != null) {
-        onUsage?.call(usage);
-      }
-      if (event.contentDelta.isNotEmpty) yield event.contentDelta;
-    }
   }
 }

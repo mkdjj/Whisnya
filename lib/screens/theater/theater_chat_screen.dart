@@ -982,111 +982,14 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
                     ],
                   ),
                   const SizedBox(height: 14),
-                  SettingSlider.opacity(
-                    key: const ValueKey(
-                      'theater-chat-background-transparency-setting',
-                    ),
-                    label: '背景图透明度',
-                    opacity: draft.backgroundImageOpacity,
-                    onChanged: (opacity) => preview(
-                      draft.copyWith(backgroundImageOpacity: opacity),
-                    ),
-                    onChangeEnd: (opacity) =>
-                        apply(draft.copyWith(backgroundImageOpacity: opacity)),
-                    height: 26,
-                    displayWidth: 52,
-                  ),
-                  SettingSlider(
-                    label: '背景图模糊度',
-                    value: draft.backgroundBlur,
-                    min: 0,
-                    max: 12,
-                    divisions: 12,
-                    display: draft.backgroundBlur.toStringAsFixed(0),
-                    onChanged: (value) =>
-                        preview(draft.copyWith(backgroundBlur: value)),
-                    onChangeEnd: (value) =>
-                        apply(draft.copyWith(backgroundBlur: value)),
-                    height: 26,
-                    displayWidth: 52,
-                  ),
-                  SettingSlider.transparency(
-                    key: const ValueKey(
-                      'theater-chat-top-bar-transparency-setting',
-                    ),
-                    label: '顶部状态栏透明度',
-                    opacity: draft.topBarOpacity,
-                    onChanged: (opacity) =>
-                        preview(draft.copyWith(topBarOpacity: opacity)),
-                    onChangeEnd: (opacity) =>
-                        apply(draft.copyWith(topBarOpacity: opacity)),
-                    height: 26,
-                    displayWidth: 52,
-                  ),
-                  SettingSlider.transparency(
-                    key: const ValueKey('theater-chat-input-opacity-setting'),
-                    label: '输入框透明度',
-                    opacity: draft.inputOpacity,
-                    onChanged: (opacity) =>
-                        preview(draft.copyWith(inputOpacity: opacity)),
-                    onChangeEnd: (opacity) =>
-                        apply(draft.copyWith(inputOpacity: opacity)),
-                    height: 26,
-                    displayWidth: 52,
-                  ),
-                  ChatBubblePresetSelectionTile(
-                    key: const ValueKey(
-                      'theater-chat-role-bubble-preset-setting',
-                    ),
-                    title: 'AI 共用气泡',
-                    presetId: draft.roleBubblePresetId,
-                    isUser: false,
-                    onChanged: (value) {
-                      final next = draft.copyWith(
-                        roleBubblePresetId: value,
-                        clearRoleBubbleOpacity: true,
-                      );
-                      apply(next);
-                    },
-                  ),
-                  SettingSlider.transparency(
-                    key: const ValueKey(
-                      'theater-chat-role-bubble-transparency-setting',
-                    ),
-                    label: '角色气泡透明度',
-                    opacity: _roleBubbleAppearance.opacity,
-                    onChanged: (opacity) =>
-                        preview(draft.copyWith(roleBubbleOpacity: opacity)),
-                    onChangeEnd: (opacity) =>
-                        apply(draft.copyWith(roleBubbleOpacity: opacity)),
-                    height: 26,
-                    displayWidth: 52,
-                  ),
-                  ChatBubblePresetSelectionTile(
-                    key: const ValueKey(
-                      'theater-chat-user-bubble-preset-setting',
-                    ),
-                    title: '我的气泡',
-                    presetId: draft.userBubblePresetId,
-                    isUser: true,
-                    onChanged: (value) {
-                      final next = draft.copyWith(
-                        userBubblePresetId: value,
-                        clearUserBubbleOpacity: true,
-                      );
-                      apply(next);
-                    },
-                  ),
-                  SettingSlider.transparency(
-                    key: const ValueKey(
-                      'theater-chat-user-bubble-transparency-setting',
-                    ),
-                    label: '我的气泡透明度',
-                    opacity: _userBubbleAppearance.opacity,
-                    onChanged: (opacity) =>
-                        preview(draft.copyWith(userBubbleOpacity: opacity)),
-                    onChangeEnd: (opacity) =>
-                        apply(draft.copyWith(userBubbleOpacity: opacity)),
+                  ...chatAppearanceSettings(
+                    draft: draft,
+                    preview: preview,
+                    apply: apply,
+                    roleOpacity: _roleBubbleAppearance.opacity,
+                    userOpacity: _userBubbleAppearance.opacity,
+                    keyPrefix: 'theater-chat',
+                    roleTitle: 'AI 共用气泡',
                     height: 26,
                     displayWidth: 52,
                   ),
@@ -1213,13 +1116,18 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     final hasBackground = _session.backgroundImage.trim().isNotEmpty;
     return ColoredBox(
       key: const ValueKey('theater-chat-background-base'),
-      color: Colors.white,
+      color: Theme.of(context).scaffoldBackgroundColor,
       child: MediaBackground(
         imagePath: _session.backgroundImage,
         region: _session.backgroundImageRegion,
         opacity: _session.backgroundImageOpacity,
         blur: _session.backgroundBlur,
         overlayOpacity: 0.18,
+        keyboardInset:
+            (MediaQuery.viewInsetsOf(context).bottom -
+                    MediaQuery.viewPaddingOf(context).bottom)
+                .clamp(0, double.infinity)
+                .toDouble(),
         child: Scaffold(
           backgroundColor: hasBackground ? Colors.transparent : null,
           appBar: AppBar(

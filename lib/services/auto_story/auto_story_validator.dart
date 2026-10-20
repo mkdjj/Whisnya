@@ -5,7 +5,7 @@ class AutoStoryValidator {
   static String actorContent(
     String raw, {
     required String actorName,
-    required String otherActorName,
+    required Iterable<String> otherActorNames,
     String actorId = 'A',
   }) {
     var text = raw.trim();
@@ -27,11 +27,9 @@ class AutoStoryValidator {
       throw const FormatException('演员回复必须是非空的单人故事正文。');
     }
     final own = <String>{actorName, actorId, '演员 $actorId'};
-    final other = <String>{
-      if (otherActorName != actorName) otherActorName,
-      actorId == 'A' ? 'B' : 'A',
-      actorId == 'A' ? '演员 B' : '演员 A',
-    };
+    final other = otherActorNames
+        .where((name) => name != actorName && name != actorId)
+        .toSet();
     for (final name in other.where((name) => name.isNotEmpty)) {
       if (RegExp(
         '(?:^|\\s|[。！？!?]\\s*)${RegExp.escape(name)}\\s*[:：]',

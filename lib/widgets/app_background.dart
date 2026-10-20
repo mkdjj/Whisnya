@@ -31,6 +31,7 @@ class MediaBackground extends StatelessWidget {
     required this.child,
     this.region = ImageCropRegion.full,
     this.overlayOpacity = 0,
+    this.keyboardInset = 0,
     super.key,
   });
 
@@ -39,35 +40,53 @@ class MediaBackground extends StatelessWidget {
   final double opacity;
   final double blur;
   final double overlayOpacity;
+  // Supplied above Scaffold, which removes viewInsets from its body context.
+  final double keyboardInset;
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
     final path = imagePath.trim();
-    if (path.isEmpty) return child;
+    final baseColor = Theme.of(context).scaffoldBackgroundColor;
+    if (path.isEmpty) return Material(color: baseColor, child: child);
     final alpha = opacity.clamp(0, 1).toDouble();
-    if (alpha == 0) return child;
+    if (alpha == 0) return Material(color: baseColor, child: child);
+    final foreground = Material(type: MaterialType.transparency, child: child);
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Opacity(
-          opacity: alpha,
-          child: ImageFiltered(
-            imageFilter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-            child: croppedFileImage(File(path), region: region),
-          ),
-        ),
-        if (overlayOpacity > 0)
-          DecoratedBox(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: overlayOpacity * alpha),
+    return Material(
+      color: baseColor,
+      child: LayoutBuilder(
+        builder: (context, constraints) => Stack(
+          fit: StackFit.expand,
+          children: [
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: constraints.maxHeight + keyboardInset,
+              child: RepaintBoundary(
+                child: Opacity(
+                  opacity: alpha,
+                  child: ImageFiltered(
+                    enabled: blur > 0,
+                    imageFilter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+                    child: croppedFileImage(File(path), region: region),
+                  ),
+                ),
+              ),
             ),
-            child: child,
-          )
-        else
-          child,
-      ],
+            if (overlayOpacity > 0)
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: overlayOpacity * alpha),
+                ),
+                child: foreground,
+              )
+            else
+              foreground,
+          ],
+        ),
+      ),
     );
   }
 }
@@ -95,6 +114,7 @@ Widget croppedFileImage(
             policy: ResizeImagePolicy.fit,
           ),
           fit: fit,
+          gaplessPlayback: true,
           errorBuilder: (_, _, _) => const SizedBox.shrink(),
         );
       }

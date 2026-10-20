@@ -245,8 +245,8 @@ const _en = {
   '生成剧情大纲': 'Generate outline',
   '本模式会连续调用你配置的 AI 接口，演员和剧情检查均可能计费。':
       'This mode makes repeated AI requests. Actor turns and story reviews may incur charges.',
-  '两方人设与剧情将发送到所选模型服务商；不操作 QQ 或现实工具。':
-      'Personas and story context are sent to selected model providers. No QQ or real-world tools are operated.',
+  '各演员人设与剧情将发送到所选模型服务商；不操作现实工具。':
+      'Actor personas and story context are sent to the selected model providers. No real-world tools are operated.',
   '只重规划未来，已发生的正文保持不变。':
       'Only future events are replanned. Existing story text is preserved.',
   '此项不能为空': 'This field is required',
@@ -278,7 +278,7 @@ const _en = {
   '建议生成失败，请重试。': 'Could not generate suggestions. Please retry.',
   '每次生成会使用当前 API；切换模式后请点击生成。':
       'Each generation uses the current API. Click Generate after changing modes.',
-  'API 与连接': 'API & connections',
+  'API': 'API',
   '聊天与回复': 'Chat & replies',
   '角色状态与语音': 'Character state & speech',
   '记忆与收藏': 'Memory & collections',
@@ -503,6 +503,17 @@ const _en = {
   '跟随系统': 'Follow system',
   '白天': 'Light',
   '黑夜': 'Dark',
+  '白天（白底）': 'Light (light background)',
+  '黑夜（黑底）': 'Dark (dark background)',
+  '添加演员': 'Add actor',
+  '移除演员': 'Remove actor',
+  '演员名称': 'Actor name',
+  '演员人设（仅本故事）': 'Actor persona (this story only)',
+  '公开介绍': 'Public profile',
+  '从已有角色填入人设（可选）': 'Use an existing character (optional)',
+  '选择演员头像': 'Choose actor avatar',
+  '新增演员仅导入人设，不自动引用记忆或世界书。':
+      'New actors only import their persona, not memories or world books.',
   '全局字体大小': 'Global font size',
   '颜色': 'Colors',
   '主界面字体颜色': 'Main text color',
@@ -995,114 +1006,10 @@ const _en = {
   '聊天外观': 'Chat appearance',
   '请先到 API 设置添加配置': 'Add an API configuration in API settings first.',
   '预览': 'Preview',
-  'QQ 私聊自动回复': 'QQ private chat auto-reply',
-  'NapCat / Termux 本地 Bridge': 'NapCat / Termux local Bridge',
-  '当前仅 Android 支持手机后台 QQ 接入':
-      'Background QQ integration is currently available on Android only',
-  '非官方接入风险': 'Unofficial integration risk',
-  'NapCat 可能掉线或失效，请只使用不重要的 QQ 小号。':
-      'NapCat may disconnect or stop working. Use only a non-critical QQ account.',
-  '总开关': 'Master switch',
-  '仍需手动点击“启动”才会运行': 'You must still tap Start to run it',
   '状态': 'Status',
-  '运行中': 'Running',
   '已停止': 'Stopped',
-  '启动': 'Start',
   '暂停': 'Pause',
   '停止': 'Stop',
-  '联系人绑定': 'Contact bindings',
-  '强制白名单；每位联系人绑定一个角色和独立会话':
-      'Strict allowlist; every contact uses one character and a dedicated session',
-  '权限和隐私': 'Permissions and privacy',
-  '电池优化设置': 'Battery optimization settings',
-  'Termux 和 Whisnya 都建议关闭电池优化。':
-      'Disable battery optimization for both Termux and Whisnya',
-  '诊断日志': 'Diagnostic log',
-  '最多 200 条，不记录消息原文、API Key 或 token。':
-      'Up to 200 entries; message text, API keys, and tokens are never logged.',
-  'Termux / NapCat Bridge': 'Termux / NapCat Bridge',
-  '本地 Bridge 服务': 'Local Bridge service',
-  '仅监听 127.0.0.1:17891，由 Termux 中的 qq_bridge 连接 NapCat。':
-      'Listens only on 127.0.0.1:17891; qq_bridge in Termux connects to NapCat.',
   '尚未生成': 'Not generated yet',
-  '已生成并保存在安全存储中，不会写入备份。':
-      'Generated and kept in secure storage; it is not included in backups.',
-  '复制 Bridge Token': 'Copy Bridge Token',
-  'Token 只能粘贴到本机 Termux，不要发送给别人。':
-      'Paste this token only into Termux on this device. Do not send it to anyone.',
-  'Bridge Token 已复制': 'Bridge Token copied',
-  '刷新状态': 'Refresh status',
-  'Termux 帮助': 'Termux help',
-  '应用通知权限': 'App notification permission',
-  '已开启': 'Enabled',
-  '未开启': 'Disabled',
-  '回复设置': 'Reply settings',
-  '连续消息合并窗口': 'Consecutive-message merge window',
-  '回复延迟': 'Reply delay',
-  '最大回复字符': 'Maximum reply characters',
-  'OneBot 分片字符': 'OneBot chunk size',
-  'AI 超时秒数': 'AI timeout in seconds',
-  '保存回复设置': 'Save reply settings',
-  '静默时段': 'Quiet hours',
-  '支持跨午夜；命令仍可使用': 'May cross midnight; commands remain available',
-  '静默开始': 'Quiet hours start',
-  '静默结束': 'Quiet hours end',
-  '开始与结束相同表示全天静默': 'Matching start and end times mean quiet all day',
-  'QQ 诊断日志': 'QQ diagnostic log',
-  '已复制脱敏诊断': 'Redacted diagnostics copied',
-  '暂无诊断记录': 'No diagnostic entries',
-  '删除联系人绑定': 'Delete contact binding',
-  '默认只删除绑定；QQ 对话和聊天记录可以保留。':
-      'Only the binding is deleted by default; the QQ session and chat history can be kept.',
-  '仅删除绑定': 'Delete binding only',
-  '删除绑定和 QQ 会话': 'Delete binding and QQ session',
-  '还没有联系人绑定。陌生联系人会被静默忽略。':
-      'No contact bindings yet. Unknown contacts are silently ignored.',
-  '添加联系人绑定': 'Add contact binding',
-  '编辑联系人绑定': 'Edit contact binding',
-  '请先创建一个角色。': 'Create a character first.',
-  '这个联系人已经绑定。': 'This contact is already bound.',
-  'QQ 号': 'QQ ID',
-  '始终按字符串保存': 'Always stored as a string',
   '显示名': 'Display name',
-  '绑定角色': 'Bound character',
-  '启用这个联系人': 'Enable this contact',
-  '白名单中的 QQ 号才会触发回复。': 'Only allowlisted QQ IDs can trigger replies.',
-  'NapCat / Termux 帮助': 'NapCat / Termux guide',
-  'NapCat 是非官方 QQ 接入，可能掉线、失效或触发账号风险。':
-      'NapCat is an unofficial QQ integration and may disconnect, stop working, or put the account at risk.',
-  '复制安装命令': 'Copy install command',
-  '复制命令': 'Copy command',
-  '安装 Termux。': 'Install Termux.',
-  '安装 Node.js、git、nano 和 curl。': 'Install Node.js, git, nano, and curl.',
-  '安装 NapCat，并登录一个不重要的 QQ 小号。':
-      'Install NapCat and sign in with a non-critical QQ account.',
-  '在 NapCat WebUI 启用 OneBot 11 正向 WebSocket，地址使用 ws://127.0.0.1:3001。':
-      'Enable the OneBot 11 forward WebSocket in NapCat WebUI at ws://127.0.0.1:3001.',
-  'clone Whisnya，进入 qq_bridge 并安装依赖。':
-      'Clone Whisnya, enter qq_bridge, and install dependencies.',
-  '复制 Whisnya 设置页中的 Bridge Token，粘贴到 config.json 的 whisnya.token。':
-      'Copy the Bridge Token from Whisnya settings and paste it into whisnya.token in config.json.',
-  '在 config.json 填写 NapCat OneBot URL 和 access token。':
-      'Set the NapCat OneBot URL and access token in config.json.',
-  '构建并启动 qq_bridge，再回到 Whisnya 查看 Bridge 与 NapCat 状态。':
-      'Build and start qq_bridge, then return to Whisnya to check Bridge and NapCat status.',
-  '在 Whisnya 添加白名单联系人、绑定角色并启动 QQ 自动回复。':
-      'Add allowlisted contacts in Whisnya, bind characters, and start QQ auto-reply.',
-  '安装 Termux 依赖': 'Install Termux dependencies',
-  '安装 NapCat': 'Install NapCat',
-  '安装并启动 QQ Bridge': 'Install and start QQ Bridge',
-  '用下方命令安装 NapCat。': 'Install NapCat with the command below.',
-  '登录一个不重要的 QQ 小号。': 'Sign in with a non-critical QQ account.',
-  '在 WebUI 启用 OneBot 11 正向 WebSocket。':
-      'Enable the OneBot 11 forward WebSocket in the WebUI.',
-  '绑定 127.0.0.1，设置端口和随机 token；不要监听 0.0.0.0。':
-      'Bind to 127.0.0.1, set a port and random token, and do not listen on 0.0.0.0.',
-  '回到 Whisnya 测试连接。': 'Return to Whisnya and test the connection.',
-  '添加白名单联系人并绑定角色。': 'Add allowlisted contacts and bind their characters.',
-  '启动 QQ 自动回复。': 'Start QQ auto-reply.',
-  '为 Termux 和 Whisnya 关闭电池优化。':
-      'Disable battery optimization for Termux and Whisnya.',
-  '手机重启后手动重新启动 Termux 和 Whisnya。':
-      'After a phone restart, manually restart Termux and Whisnya.',
 };

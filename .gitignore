@@ -37,6 +37,8 @@ migrate_working_dir/
 /build/
 /coverage/
 /dist/
+/qq_bridge/node_modules/
+/qq_bridge/dist/
 *.apk
 *.zip
 app_data/

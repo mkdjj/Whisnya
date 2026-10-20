@@ -18,7 +18,6 @@ import '../services/speech/role_speech_controller.dart';
 import '../utils/privacy_password_prompt.dart';
 import 'memento_screen.dart';
 import 'chat/story_checkpoints_screen.dart';
-import '../services/qq/qq_integration_runtime.dart';
 import '../utils/app_i18n.dart';
 import '../utils/character_import_flow.dart';
 import '../utils/confirm_dialog.dart';
@@ -32,7 +31,6 @@ import '../widgets/color_picker_dialog.dart';
 import 'api_settings_screen.dart';
 import 'chat/world_book_screens.dart';
 import 'image_crop_screen.dart';
-import 'settings/qq_integration_screen.dart';
 import 'user_profile_edit_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -41,14 +39,14 @@ class SettingsScreen extends StatefulWidget {
     required this.settings,
     required this.onSettingsChanged,
     this.aiService,
-    this.qqRuntime,
+
     this.embedded = false,
     super.key,
   });
 
   final LocalStorageService storage;
   final AiService? aiService;
-  final QqIntegrationRuntime? qqRuntime;
+
   final AppSettings settings;
   final bool embedded;
   final Future<void> Function() onSettingsChanged;
@@ -172,18 +170,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => WorldBookManagerScreen(storage: widget.storage),
-      ),
-    );
-  }
-
-  Future<void> _openQqIntegration() async {
-    if (!Platform.isAndroid) return;
-    final runtime = widget.qqRuntime;
-    if (runtime == null) return;
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (_) =>
-            QqIntegrationScreen(storage: widget.storage, runtime: runtime),
       ),
     );
   }
@@ -408,8 +394,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: Text(context.t('主题模式')),
         children: [
           _themeOption(context, ThemeMode.system, context.t('跟随系统')),
-          _themeOption(context, ThemeMode.light, context.t('白天')),
-          _themeOption(context, ThemeMode.dark, context.t('黑夜')),
+          _themeOption(context, ThemeMode.light, context.t('白天（白底）')),
+          _themeOption(context, ThemeMode.dark, context.t('黑夜（黑底）')),
         ],
       ),
     );
@@ -559,251 +545,169 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Future<void> _setPassword({bool requireCurrent = false}) async {
-    final currentController = TextEditingController();
-    final passwordController = TextEditingController();
-    final confirmController = TextEditingController();
-    final questionController = TextEditingController(
-      text: _settings.recoveryQuestion,
-    );
-    final answerController = TextEditingController();
-
-    final saved = await showDialog<AppSettings>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(context.t(requireCurrent ? '修改隐私密码' : '设置隐私密码')),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (requireCurrent) ...[
-                TextField(
-                  controller: currentController,
-                  obscureText: true,
-                  decoration: InputDecoration(labelText: context.t('当前密码')),
-                ),
-                const SizedBox(height: 12),
+  Future<void> _passwordDialog({
+    required String title,
+    required List<(String, bool, String)> fields,
+    required AppSettings? Function(String Function(String)) submit,
+    required String success,
+    String confirmLabel = '保存',
+    Widget? header,
+  }) async {
+    final controllers = {
+      for (final (label, _, initial) in fields)
+        label: TextEditingController(text: initial),
+    };
+    AppSettings? saved;
+    try {
+      saved = await showDialog<AppSettings>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(context.t(title)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (header != null) ...[header, const SizedBox(height: 12)],
+                for (var i = 0; i < fields.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 12),
+                  TextField(
+                    controller: controllers[fields[i].$1],
+                    obscureText: fields[i].$2,
+                    decoration: InputDecoration(
+                      labelText: context.t(fields[i].$1),
+                    ),
+                  ),
+                ],
               ],
-              TextField(
-                controller: passwordController,
-                obscureText: true,
-                decoration: InputDecoration(labelText: context.t('新密码')),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: confirmController,
-                obscureText: true,
-                decoration: InputDecoration(labelText: context.t('确认新密码')),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: questionController,
-                decoration: InputDecoration(labelText: context.t('恢复问题')),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: answerController,
-                decoration: InputDecoration(labelText: context.t('恢复答案')),
-              ),
-            ],
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(context.t('取消')),
+            ),
+            FilledButton(
+              onPressed: () {
+                final next = submit((label) => controllers[label]!.text.trim());
+                if (next != null) Navigator.of(context).pop(next);
+              },
+              child: Text(context.t(confirmLabel)),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(context.t('取消')),
-          ),
-          FilledButton(
-            onPressed: () {
-              final current = currentController.text.trim();
-              final password = passwordController.text.trim();
-              final confirm = confirmController.text.trim();
-              final question = questionController.text.trim();
-              final answer = answerController.text.trim();
-              if (requireCurrent &&
-                  !PasswordLock.verify(
-                    current,
-                    _settings.privacyPasswordSalt,
-                    _settings.privacyPasswordHash,
-                  )) {
-                context.showSnack('当前密码不正确');
-                return;
-              }
-              final next = _settingsWithPassword(
-                password: password,
-                confirm: confirm,
-                question: question,
-                answer: answer,
-              );
-              if (next == null) return;
-              Navigator.of(context).pop(next);
-            },
-            child: Text(context.t('保存')),
-          ),
-        ],
-      ),
-    );
-
-    currentController.dispose();
-    passwordController.dispose();
-    confirmController.dispose();
-    questionController.dispose();
-    answerController.dispose();
-
-    if (!mounted) return;
-    if (saved == null) return;
+      );
+    } finally {
+      for (final controller in controllers.values) {
+        controller.dispose();
+      }
+    }
+    if (!mounted || saved == null) return;
     _applySettings(saved);
-    context.showSnack('隐私密码已保存');
+    context.showSnack(success);
   }
+
+  Future<void> _setPassword({bool requireCurrent = false}) => _passwordDialog(
+    title: requireCurrent ? '修改隐私密码' : '设置隐私密码',
+    fields: [
+      if (requireCurrent) ('当前密码', true, ''),
+      ('新密码', true, ''),
+      ('确认新密码', true, ''),
+      ('恢复问题', false, _settings.recoveryQuestion),
+      ('恢复答案', false, ''),
+    ],
+    submit: (read) {
+      if (requireCurrent &&
+          !PasswordLock.verify(
+            read('当前密码'),
+            _settings.privacyPasswordSalt,
+            _settings.privacyPasswordHash,
+          )) {
+        context.showSnack('当前密码不正确');
+        return null;
+      }
+      return _settingsWithPassword(
+        password: read('新密码'),
+        confirm: read('确认新密码'),
+        question: read('恢复问题'),
+        answer: read('恢复答案'),
+      );
+    },
+    success: '隐私密码已保存',
+  );
 
   Future<void> _recoverPassword() async {
     if (!_settings.hasRecoveryAnswer) {
       context.showSnack('没有设置恢复问题，无法找回密码。');
       return;
     }
-
-    final answerController = TextEditingController();
-    final passwordController = TextEditingController();
-    final confirmController = TextEditingController();
-
-    final saved = await showDialog<AppSettings>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(context.t('找回隐私密码')),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text(_settings.recoveryQuestion),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: answerController,
-                decoration: InputDecoration(labelText: context.t('恢复答案')),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: passwordController,
-                obscureText: true,
-                decoration: InputDecoration(labelText: context.t('新密码')),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: confirmController,
-                obscureText: true,
-                decoration: InputDecoration(labelText: context.t('确认新密码')),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(context.t('取消')),
-          ),
-          FilledButton(
-            onPressed: () {
-              final answer = PasswordLock.normalizeAnswer(
-                answerController.text,
-              );
-              if (!PasswordLock.verify(
-                answer,
-                _settings.recoveryAnswerSalt,
-                _settings.recoveryAnswerHash,
-              )) {
-                context.showSnack('恢复答案不正确');
-                return;
-              }
-              final password = passwordController.text.trim();
-              final confirm = confirmController.text.trim();
-              if (password.length < 4) {
-                context.showSnack('密码至少 4 位');
-                return;
-              }
-              if (password != confirm) {
-                context.showSnack('两次输入的密码不一致');
-                return;
-              }
-              final salt = PasswordLock.newSalt();
-              final recoveryAnswerHash =
-                  PasswordLock.needsRehash(_settings.recoveryAnswerHash)
-                  ? PasswordLock.hash(answer, _settings.recoveryAnswerSalt)
-                  : _settings.recoveryAnswerHash;
-              Navigator.of(context).pop(
-                _settings.copyWith(
-                  privacyPasswordSalt: salt,
-                  privacyPasswordHash: PasswordLock.hash(password, salt),
-                  recoveryAnswerHash: recoveryAnswerHash,
-                ),
-              );
-            },
-            child: Text(context.t('重置密码')),
-          ),
-        ],
+    await _passwordDialog(
+      title: '找回隐私密码',
+      confirmLabel: '重置密码',
+      fields: [('恢复答案', false, ''), ('新密码', true, ''), ('确认新密码', true, '')],
+      header: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(_settings.recoveryQuestion),
       ),
+      submit: (read) {
+        final answer = PasswordLock.normalizeAnswer(read('恢复答案'));
+        if (!PasswordLock.verify(
+          answer,
+          _settings.recoveryAnswerSalt,
+          _settings.recoveryAnswerHash,
+        )) {
+          context.showSnack('恢复答案不正确');
+          return null;
+        }
+        final password = read('新密码');
+        if (!_validPassword(password, read('确认新密码'))) return null;
+        final salt = PasswordLock.newSalt();
+        return _settings.copyWith(
+          privacyPasswordSalt: salt,
+          privacyPasswordHash: PasswordLock.hash(password, salt),
+          recoveryAnswerHash:
+              PasswordLock.needsRehash(_settings.recoveryAnswerHash)
+              ? PasswordLock.hash(answer, _settings.recoveryAnswerSalt)
+              : _settings.recoveryAnswerHash,
+        );
+      },
+      success: '隐私密码已重置',
     );
-
-    answerController.dispose();
-    passwordController.dispose();
-    confirmController.dispose();
-
-    if (!mounted) return;
-    if (saved == null) return;
-    _applySettings(saved);
-    context.showSnack('隐私密码已重置');
   }
 
-  Future<void> _deletePassword() async {
-    final passwordController = TextEditingController();
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(context.t('删除隐私密码')),
-        content: TextField(
-          controller: passwordController,
-          obscureText: true,
-          decoration: InputDecoration(labelText: context.t('当前密码')),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(context.t('取消')),
-          ),
-          FilledButton(
-            onPressed: () {
-              if (!PasswordLock.verify(
-                passwordController.text.trim(),
-                _settings.privacyPasswordSalt,
-                _settings.privacyPasswordHash,
-              )) {
-                context.showSnack('当前密码不正确');
-                return;
-              }
-              Navigator.of(context).pop(true);
-            },
-            child: Text(context.t('删除')),
-          ),
-        ],
-      ),
-    );
-
-    passwordController.dispose();
-
-    if (!mounted) return;
-    if (confirmed != true) return;
-    _applySettings(
-      _settings.copyWith(
+  Future<void> _deletePassword() => _passwordDialog(
+    title: '删除隐私密码',
+    confirmLabel: '删除',
+    fields: [('当前密码', true, '')],
+    submit: (read) {
+      if (!PasswordLock.verify(
+        read('当前密码'),
+        _settings.privacyPasswordSalt,
+        _settings.privacyPasswordHash,
+      )) {
+        context.showSnack('当前密码不正确');
+        return null;
+      }
+      return _settings.copyWith(
         privacyPasswordSalt: '',
         privacyPasswordHash: '',
         recoveryQuestion: '',
         recoveryAnswerSalt: '',
         recoveryAnswerHash: '',
-      ),
-    );
-    context.showSnack('隐私密码已删除');
+      );
+    },
+    success: '隐私密码已删除',
+  );
+
+  bool _validPassword(String password, String confirm) {
+    if (password.length < 4) {
+      context.showSnack('密码至少 4 位');
+      return false;
+    }
+    if (password != confirm) {
+      context.showSnack('两次输入的密码不一致');
+      return false;
+    }
+    return true;
   }
 
   AppSettings? _settingsWithPassword({
@@ -812,14 +716,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required String question,
     required String answer,
   }) {
-    if (password.length < 4) {
-      context.showSnack('密码至少 4 位');
-      return null;
-    }
-    if (password != confirm) {
-      context.showSnack('两次输入的密码不一致');
-      return null;
-    }
+    if (!_validPassword(password, confirm)) return null;
     if (question.isEmpty || answer.trim().isEmpty) {
       context.showSnack('请填写恢复问题和答案');
       return null;
@@ -977,60 +874,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
         children: [
           _tile(
             icon: Icons.key,
-            title: context.t('API 与连接'),
-            onTap: () => _openSubSettingsPage(
-              title: 'API 与连接',
-              childrenBuilder: (_) => _connectionSettingsChildren(),
-            ),
+            title: 'API',
+            subtitle: context.t('模型、Base URL、API Key'),
+            onTap: widget.aiService == null ? null : _openApiSettings,
           ),
-          _tile(
-            icon: Icons.chat_bubble_outline,
-            title: context.t('聊天与回复'),
-            onTap: () => _openSubSettingsPage(
-              title: '聊天与回复',
-              childrenBuilder: (_) => _chatSettingsChildren(),
+          for (final (icon, title, buildChildren) in [
+            (Icons.chat_bubble_outline, '聊天与回复', _chatSettingsChildren),
+            (
+              Icons.record_voice_over_outlined,
+              '角色状态与语音',
+              _roleSettingsChildren,
             ),
-          ),
-          _tile(
-            icon: Icons.record_voice_over_outlined,
-            title: context.t('角色状态与语音'),
-            onTap: () => _openSubSettingsPage(
-              title: '角色状态与语音',
-              childrenBuilder: (_) => _roleSettingsChildren(),
+            (
+              Icons.collections_bookmark_outlined,
+              '记忆与收藏',
+              _memorySettingsChildren,
             ),
-          ),
-          _tile(
-            icon: Icons.collections_bookmark_outlined,
-            title: context.t('记忆与收藏'),
-            onTap: () => _openSubSettingsPage(
-              title: '记忆与收藏',
-              childrenBuilder: (_) => _memorySettingsChildren(),
+            (Icons.palette_outlined, '外观与语言', _appearanceSettingsChildren),
+            (Icons.lock_outline, '隐私与安全', _privacySettingsChildren),
+            (Icons.backup_outlined, '数据与备份', _dataSettingsChildren),
+          ])
+            _tile(
+              icon: icon,
+              title: context.t(title),
+              onTap: () => _openSubSettingsPage(
+                title: title,
+                childrenBuilder: buildChildren,
+              ),
             ),
-          ),
-          _tile(
-            icon: Icons.palette_outlined,
-            title: context.t('外观与语言'),
-            onTap: () => _openSubSettingsPage(
-              title: '外观与语言',
-              childrenBuilder: (_) => _appearanceSettingsChildren(),
-            ),
-          ),
-          _tile(
-            icon: Icons.lock_outline,
-            title: context.t('隐私与安全'),
-            onTap: () => _openSubSettingsPage(
-              title: '隐私与安全',
-              childrenBuilder: (_) => _privacySettingsChildren(),
-            ),
-          ),
-          _tile(
-            icon: Icons.backup_outlined,
-            title: context.t('数据与备份'),
-            onTap: () => _openSubSettingsPage(
-              title: '数据与备份',
-              childrenBuilder: (_) => _dataSettingsChildren(),
-            ),
-          ),
           _tile(
             icon: Icons.person_outline,
             title: context.t('用户设定'),
@@ -1045,67 +916,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
         : AppBackground(settings: _settings, child: content);
   }
 
-  List<Widget> _connectionSettingsChildren() => [
-    _tile(
-      icon: Icons.key,
-      title: context.t('API 设置'),
-      subtitle: context.t('模型、Base URL、API Key'),
-      onTap: widget.aiService == null ? null : _openApiSettings,
-    ),
-    KeyedSubtree(
-      key: const ValueKey('qq-integration-settings-tile'),
-      child: _tile(
-        icon: Icons.chat_bubble_outline,
-        title: context.t('QQ 私聊自动回复'),
-        subtitle: Platform.isAndroid
-            ? context.t('NapCat / Termux 本地 Bridge')
-            : context.t('当前仅 Android 支持手机后台 QQ 接入'),
-        onTap: Platform.isAndroid && widget.qqRuntime != null
-            ? _openQqIntegration
-            : null,
-      ),
-    ),
-  ];
+  Widget _switchSetting(
+    String title,
+    String subtitle,
+    bool value,
+    AppSettings Function(bool) update, {
+    IconData? icon,
+    Key? key,
+    bool enabled = true,
+  }) => SwitchListTile(
+    key: key,
+    contentPadding: icon == null
+        ? null
+        : const EdgeInsets.symmetric(horizontal: 20),
+    secondary: icon == null ? null : Icon(icon),
+    title: Text(context.t(title)),
+    subtitle: Text(context.t(subtitle)),
+    value: value,
+    onChanged: enabled ? (value) => _applySettings(update(value)) : null,
+  );
 
   List<Widget> _chatSettingsChildren() => [
-    SwitchListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-      secondary: const Icon(Icons.stream),
-      title: Text(context.t('流式对话')),
-      subtitle: Text(context.t('边返回边显示')),
-      value: _settings.streamResponses,
-      onChanged: (value) =>
-          _applySettings(_settings.copyWith(streamResponses: value)),
+    _switchSetting(
+      '流式对话',
+      '边返回边显示',
+      _settings.streamResponses,
+      (value) => _settings.copyWith(streamResponses: value),
+      icon: Icons.stream,
     ),
-    SwitchListTile(
+    _switchSetting(
+      '显示思考过程',
+      '把 reasoning_content 显示在回复里',
+      _settings.showReasoningContent,
+      (value) => _settings.copyWith(showReasoningContent: value),
+      icon: Icons.psychology_alt_outlined,
       key: const ValueKey('show-reasoning-setting'),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-      secondary: const Icon(Icons.psychology_alt_outlined),
-      title: Text(context.t('显示思考过程')),
-      subtitle: Text(context.t('把 reasoning_content 显示在回复里')),
-      value: _settings.showReasoningContent,
-      onChanged: (value) =>
-          _applySettings(_settings.copyWith(showReasoningContent: value)),
     ),
-    SwitchListTile(
+    _switchSetting(
+      '显示角色心声',
+      '为角色回复生成并显示虚构的内心独白',
+      _settings.showCharacterInnerVoice,
+      (value) => _settings.copyWith(showCharacterInnerVoice: value),
+      icon: Icons.favorite_border,
       key: const ValueKey('show-character-inner-voice-setting'),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-      secondary: const Icon(Icons.favorite_border),
-      title: Text(context.t('显示角色心声')),
-      subtitle: Text(context.t('为角色回复生成并显示虚构的内心独白')),
-      value: _settings.showCharacterInnerVoice,
-      onChanged: (value) =>
-          _applySettings(_settings.copyWith(showCharacterInnerVoice: value)),
     ),
-    SwitchListTile(
+    _switchSetting(
+      '连续气泡输出',
+      '按非空行拆分角色回复',
+      _settings.splitRoleMessages,
+      (value) => _settings.copyWith(splitRoleMessages: value),
+      icon: Icons.format_line_spacing,
       key: const ValueKey('split-role-messages-setting'),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-      secondary: const Icon(Icons.format_line_spacing),
-      title: Text(context.t('连续气泡输出')),
-      subtitle: Text(context.t('按非空行拆分角色回复')),
-      value: _settings.splitRoleMessages,
-      onChanged: (value) =>
-          _applySettings(_settings.copyWith(splitRoleMessages: value)),
     ),
     _tile(
       icon: Icons.summarize_outlined,
@@ -1116,53 +977,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
   ];
 
   List<Widget> _roleSettingsChildren() => [
-    SwitchListTile(
-      title: Text(context.t('显示角色状态卡')),
-      subtitle: Text(context.t('每个对话独立记录；默认不调用 AI')),
-      value: _settings.showCharacterStateCard,
-      onChanged: (value) =>
-          _applySettings(_settings.copyWith(showCharacterStateCard: value)),
+    _switchSetting(
+      '显示角色状态卡',
+      '每个对话独立记录；默认不调用 AI',
+      _settings.showCharacterStateCard,
+      (value) => _settings.copyWith(showCharacterStateCard: value),
     ),
-    SwitchListTile(
-      title: Text(context.t('自动更新角色状态')),
-      subtitle: Text(context.t('正式回复保存后额外调用一次 API，可能产生费用')),
-      value: _settings.autoUpdateCharacterState,
-      onChanged: !_settings.showCharacterStateCard
-          ? null
-          : (value) => _applySettings(
-              _settings.copyWith(autoUpdateCharacterState: value),
-            ),
+    _switchSetting(
+      '自动更新角色状态',
+      '正式回复保存后额外调用一次 API，可能产生费用',
+      _settings.autoUpdateCharacterState,
+      (value) => _settings.copyWith(autoUpdateCharacterState: value),
+      enabled: _settings.showCharacterStateCard,
     ),
-    SwitchListTile(
-      title: Text(context.t('将角色状态加入上下文')),
-      subtitle: Text(context.t('仅状态卡开启时生效')),
-      value: _settings.useCharacterStateInPrompt,
-      onChanged: !_settings.showCharacterStateCard
-          ? null
-          : (value) => _applySettings(
-              _settings.copyWith(useCharacterStateInPrompt: value),
-            ),
+    _switchSetting(
+      '将角色状态加入上下文',
+      '仅状态卡开启时生效',
+      _settings.useCharacterStateInPrompt,
+      (value) => _settings.copyWith(useCharacterStateInPrompt: value),
+      enabled: _settings.showCharacterStateCard,
     ),
-    SwitchListTile(
-      title: Text(context.t('启用角色语音')),
-      subtitle: Text(context.t('使用 Android / Windows 系统语音引擎')),
-      value: _settings.enableCharacterSpeech,
-      onChanged: (value) =>
-          _applySettings(_settings.copyWith(enableCharacterSpeech: value)),
+    _switchSetting(
+      '启用角色语音',
+      '使用 Android / Windows 系统语音引擎',
+      _settings.enableCharacterSpeech,
+      (value) => _settings.copyWith(enableCharacterSpeech: value),
     ),
-    SwitchListTile(
-      title: Text(context.t('自动朗读新回复')),
-      subtitle: Text(context.t('只朗读当前聊天新保存的正式正文')),
-      value: _settings.autoReadAssistantReplies,
-      onChanged: (value) =>
-          _applySettings(_settings.copyWith(autoReadAssistantReplies: value)),
+    _switchSetting(
+      '自动朗读新回复',
+      '只朗读当前聊天新保存的正式正文',
+      _settings.autoReadAssistantReplies,
+      (value) => _settings.copyWith(autoReadAssistantReplies: value),
     ),
-    SwitchListTile(
-      title: Text(context.t('允许需要网络或网络需求未知的音色')),
-      subtitle: Text(context.t('系统引擎可能向其服务商发送正文')),
-      value: _settings.allowNetworkSpeechVoices,
-      onChanged: (value) =>
-          _applySettings(_settings.copyWith(allowNetworkSpeechVoices: value)),
+    _switchSetting(
+      '允许需要网络或网络需求未知的音色',
+      '系统引擎可能向其服务商发送正文',
+      _settings.allowNetworkSpeechVoices,
+      (value) => _settings.copyWith(allowNetworkSpeechVoices: value),
     ),
   ];
 
@@ -1287,67 +1138,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _openSubSettingsPage({
     required String title,
-    required List<Widget> Function(VoidCallback refresh) childrenBuilder,
-  }) {
-    return Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ListenableBuilder(
-          listenable: _subpageChanges,
-          builder: (_, _) => StatefulBuilder(
-            builder: (pageContext, setPageState) {
-              void refresh() {
-                if (pageContext.mounted) setPageState(() {});
-              }
-
-              return ColoredBox(
-                color: Theme.of(pageContext).scaffoldBackgroundColor,
-                child: AppBackground(
-                  settings: _settings,
-                  child: Scaffold(
-                    backgroundColor: Colors.transparent,
-                    appBar: AppBar(
-                      title: Text(pageContext.t(title)),
-                      backgroundColor: Colors.transparent,
-                      elevation: 0,
-                      scrolledUnderElevation: 0,
-                      surfaceTintColor: Colors.transparent,
-                    ),
-                    body: AdaptivePage(
-                      child: ListView(
-                        padding: const EdgeInsets.fromLTRB(0, 12, 0, 80),
-                        children: childrenBuilder(refresh),
-                      ),
-                    ),
-                  ),
+    required List<Widget> Function() childrenBuilder,
+  }) => Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (pageContext) => ListenableBuilder(
+        listenable: _subpageChanges,
+        builder: (_, _) => ColoredBox(
+          color: Theme.of(pageContext).scaffoldBackgroundColor,
+          child: AppBackground(
+            settings: _settings,
+            child: Scaffold(
+              backgroundColor: Colors.transparent,
+              appBar: AppBar(
+                title: Text(pageContext.t(title)),
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                scrolledUnderElevation: 0,
+                surfaceTintColor: Colors.transparent,
+              ),
+              body: AdaptivePage(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(0, 12, 0, 80),
+                  children: childrenBuilder(),
                 ),
-              );
-            },
+              ),
+            ),
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
 
-  List<Widget> _themeSettingsChildren(VoidCallback refresh) {
-    void preview(AppSettings settings) {
-      _previewSettings(settings);
-      refresh();
-    }
-
-    void apply(AppSettings settings) {
-      _applySettings(settings);
-      refresh();
-    }
-
+  List<Widget> _themeSettingsChildren() {
     return [
       _tile(
         icon: Icons.dark_mode_outlined,
         title: context.t('主题模式'),
         subtitle: _themeLabel(_settings.themeMode),
-        onTap: () async {
-          await _pickThemeMode();
-          refresh();
-        },
+        onTap: _pickThemeMode,
       ),
       _tile(
         icon: Icons.format_size,
@@ -1359,10 +1187,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           max: 1.3,
           divisions: 45,
           onChanged: (value) {
-            preview(_settings.copyWith(fontScale: value));
+            _previewSettings(_settings.copyWith(fontScale: value));
           },
           onChangeEnd: (value) {
-            apply(_settings.copyWith(fontScale: value));
+            _applySettings(_settings.copyWith(fontScale: value));
           },
         ),
       ),
@@ -1373,14 +1201,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
           await _pickColor(
             title: context.t('主界面字体颜色'),
             value: _settings.interfaceTextColor,
-            onChanged: (value) => apply(
+            onChanged: (value) => _applySettings(
               _settings.copyWith(
                 interfaceTextColor: value,
                 clearInterfaceTextColor: value == null,
               ),
             ),
           );
-          refresh();
         },
       ),
       _colorTile(
@@ -1390,14 +1217,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
           await _pickColor(
             title: context.t('聊天字体颜色'),
             value: _settings.chatTextColor,
-            onChanged: (value) => apply(
+            onChanged: (value) => _applySettings(
               _settings.copyWith(
                 chatTextColor: value,
                 clearChatTextColor: value == null,
               ),
             ),
           );
-          refresh();
         },
       ),
       _tile(
@@ -1406,20 +1232,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
         subtitle: _settings.globalBackgroundImage.isEmpty
             ? context.t('未设置')
             : context.t('已设置'),
-        onTap: () async {
-          await _pickBackground();
-          refresh();
-        },
+        onTap: _pickBackground,
       ),
       _transparencyTile(
         icon: Icons.opacity,
         title: '界面背景透明度',
         imageOpacity: true,
         opacity: _settings.globalBackgroundOpacity,
-        onChanged: (opacity) =>
-            preview(_settings.copyWith(globalBackgroundOpacity: opacity)),
-        onChangeEnd: (opacity) =>
-            apply(_settings.copyWith(globalBackgroundOpacity: opacity)),
+        onChanged: (opacity) => _previewSettings(
+          _settings.copyWith(globalBackgroundOpacity: opacity),
+        ),
+        onChangeEnd: (opacity) => _applySettings(
+          _settings.copyWith(globalBackgroundOpacity: opacity),
+        ),
       ),
       _tile(
         icon: Icons.blur_on,
@@ -1431,10 +1256,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           max: 12,
           divisions: 12,
           onChanged: (value) {
-            preview(_settings.copyWith(globalBackgroundBlur: value));
+            _previewSettings(_settings.copyWith(globalBackgroundBlur: value));
           },
           onChangeEnd: (value) {
-            apply(_settings.copyWith(globalBackgroundBlur: value));
+            _applySettings(_settings.copyWith(globalBackgroundBlur: value));
           },
         ),
       ),
@@ -1443,18 +1268,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: '底部导航栏透明度',
         opacity: _settings.navigationBarOpacity,
         onChanged: (opacity) =>
-            preview(_settings.copyWith(navigationBarOpacity: opacity)),
+            _previewSettings(_settings.copyWith(navigationBarOpacity: opacity)),
         onChangeEnd: (opacity) =>
-            apply(_settings.copyWith(navigationBarOpacity: opacity)),
+            _applySettings(_settings.copyWith(navigationBarOpacity: opacity)),
       ),
       _transparencyTile(
         icon: Icons.view_agenda_outlined,
         title: '列表卡片透明度',
         opacity: _settings.characterListCardOpacity,
-        onChanged: (opacity) =>
-            preview(_settings.copyWith(characterListCardOpacity: opacity)),
-        onChangeEnd: (opacity) =>
-            apply(_settings.copyWith(characterListCardOpacity: opacity)),
+        onChanged: (opacity) => _previewSettings(
+          _settings.copyWith(characterListCardOpacity: opacity),
+        ),
+        onChangeEnd: (opacity) => _applySettings(
+          _settings.copyWith(characterListCardOpacity: opacity),
+        ),
       ),
       _tile(
         icon: Icons.clear,
@@ -1462,7 +1289,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         subtitle: context.t('只删除背景引用，不影响图片文件'),
         onTap: _settings.globalBackgroundImage.isEmpty
             ? null
-            : () => apply(
+            : () => _applySettings(
                 _settings.copyWith(
                   globalBackgroundImage: '',
                   globalBackgroundRegion: ImageCropRegion.full,
@@ -1472,54 +1299,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ];
   }
 
-  List<Widget> _summarySettingsChildren(VoidCallback refresh) {
-    void refreshLater(Future<void> future) {
-      unawaited(future.then((_) => refresh()));
-    }
-
-    return [
+  List<Widget> _summarySettingsChildren() => [
+    for (final isTheater in [false, true])
       _summaryItemsSection(
-        title: '角色聊天总结',
-        useCustom: _settings.useCustomChatSummaryItems,
-        items: _settings.customChatSummaryItems,
-        onToggle: (value) {
-          _setCustomSummaryEnabled(value, isTheater: false);
-          refresh();
-        },
-        onAdd: () => refreshLater(_addSummaryItem(isTheater: false)),
-        onRestore: () {
-          _restoreSummaryItems(isTheater: false);
-          refresh();
-        },
+        title: isTheater ? '群聊总结' : '角色聊天总结',
+        useCustom: isTheater
+            ? _settings.useCustomTheaterSummaryItems
+            : _settings.useCustomChatSummaryItems,
+        items: _summaryItems(isTheater),
+        onToggle: (value) =>
+            _setCustomSummaryEnabled(value, isTheater: isTheater),
+        onAdd: () => unawaited(_addSummaryItem(isTheater: isTheater)),
+        onRestore: () => _restoreSummaryItems(isTheater: isTheater),
         onEdit: (index) =>
-            refreshLater(_editSummaryItem(index: index, isTheater: false)),
-        onDelete: (index) {
-          _deleteSummaryItem(index: index, isTheater: false);
-          refresh();
-        },
+            unawaited(_editSummaryItem(index: index, isTheater: isTheater)),
+        onDelete: (index) =>
+            _deleteSummaryItem(index: index, isTheater: isTheater),
       ),
-      _summaryItemsSection(
-        title: '群聊总结',
-        useCustom: _settings.useCustomTheaterSummaryItems,
-        items: _settings.customTheaterSummaryItems,
-        onToggle: (value) {
-          _setCustomSummaryEnabled(value, isTheater: true);
-          refresh();
-        },
-        onAdd: () => refreshLater(_addSummaryItem(isTheater: true)),
-        onRestore: () {
-          _restoreSummaryItems(isTheater: true);
-          refresh();
-        },
-        onEdit: (index) =>
-            refreshLater(_editSummaryItem(index: index, isTheater: true)),
-        onDelete: (index) {
-          _deleteSummaryItem(index: index, isTheater: true);
-          refresh();
-        },
-      ),
-    ];
-  }
+  ];
 
   Widget _summaryItemsSection({
     required String title,
@@ -1655,8 +1452,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   String _themeLabel(ThemeMode mode) {
     return switch (mode) {
-      ThemeMode.light => context.t('白天'),
-      ThemeMode.dark => context.t('黑夜'),
+      ThemeMode.light => context.t('白天（白底）'),
+      ThemeMode.dark => context.t('黑夜（黑底）'),
       ThemeMode.system => context.t('跟随系统'),
     };
   }

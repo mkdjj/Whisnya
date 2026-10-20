@@ -35,7 +35,6 @@ void validateStoryMessageIds(List<dynamic> messages) {
       if (row is! Map<String, dynamic>) {
         throw const FormatException('Invalid story message');
       }
-      if (!row.containsKey('id')) continue; // Legacy backups migrate on load.
       final id = row['id'];
       if (id is! String || id.trim().isEmpty || !seen.add(id)) {
         throw const FormatException('Invalid or duplicate message identity');

@@ -159,9 +159,7 @@ class _NovelReaderScreenState extends State<NovelReaderScreen> {
     Future<String> streamText(List<Map<String, String>> messages) async {
       final text = StringBuffer();
       await for (final chunk in widget.aiService.streamMessage(
-        apiKey: endpoint.apiKey,
-        baseUrl: endpoint.baseUrl,
-        model: endpoint.model,
+        endpoint: endpoint,
         messages: messages,
         cancelToken: cancelToken,
         onUsage: (usage) => unawaited(

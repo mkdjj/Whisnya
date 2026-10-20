@@ -1,3 +1,4 @@
+import 'chat_appearance.dart';
 import 'app_character.dart';
 import 'chat_bubble_theme.dart';
 import 'image_crop_region.dart';
@@ -250,7 +251,7 @@ List<TheaterParticipant> reorderTheaterAiParticipants(
   ];
 }
 
-class TheaterSession {
+class TheaterSession implements ChatAppearance<TheaterSession> {
   const TheaterSession({
     required this.id,
     required this.title,
@@ -291,14 +292,20 @@ class TheaterSession {
   final String avatar;
   final String backgroundImage;
   final ImageCropRegion backgroundImageRegion;
+  @override
   final double backgroundImageOpacity;
+  @override
   final double backgroundBlur;
   final ChatBubbleTheme bubbleTheme;
+  @override
   final String roleBubblePresetId;
+  @override
   final String userBubblePresetId;
   final double? roleBubbleOpacity;
   final double? userBubbleOpacity;
+  @override
   final double inputOpacity;
+  @override
   final double topBarOpacity;
   final bool isHidden;
   final bool isLocked;
@@ -341,6 +348,7 @@ class TheaterSession {
 
   int get recentMessageLimit => participantUnitCount * keepRoundCount;
 
+  @override
   TheaterSession copyWith({
     String? id,
     String? title,

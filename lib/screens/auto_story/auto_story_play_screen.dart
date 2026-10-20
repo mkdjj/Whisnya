@@ -453,10 +453,13 @@ class _AutoStoryPlayScreenState extends State<AutoStoryPlayScreen>
   Future<void> _takeover() async {
     if (!await _pauseForEdit() || !mounted) return;
     final input = await _input(
-      title: tr('接管 B 一次', 'Take over B once'),
+      title: tr(
+        '接管 ${_runner.story!.userActorId} 一次',
+        'Take over ${_runner.story!.userActorId} once',
+      ),
       max: 4000,
     );
-    if (input != null && mounted) await _runner.takeoverB(input.text);
+    if (input != null && mounted) await _runner.takeoverUser(input.text);
   }
 
   Future<void> _editManual(StoryTurn turn) async {
@@ -629,6 +632,7 @@ class _AutoStoryPlayScreenState extends State<AutoStoryPlayScreen>
     RequestPurpose.replan => tr('重新规划', 'Replan'),
     RequestPurpose.actorA => tr('演员 A', 'Actor A'),
     RequestPurpose.actorB => tr('演员 B', 'Actor B'),
+    RequestPurpose.actor => tr('演员发言', 'Actor reply'),
     RequestPurpose.review => tr('剧情检查', 'Story review'),
     RequestPurpose.repair => tr('格式纠正', 'Format repair'),
     RequestPurpose.regenerate => tr('重生成', 'Regeneration'),
@@ -989,10 +993,13 @@ class _AutoStoryPlayScreenState extends State<AutoStoryPlayScreen>
                 ),
                 button(
                   'auto-story-takeover',
-                  '接管 B 一次',
-                  'Take over B',
+                  '接管主角一次',
+                  'Take over protagonist',
                   _takeover,
-                  enabled: !blocked && s.nextActor == 'B',
+                  enabled:
+                      !blocked &&
+                      s.userActorId != null &&
+                      s.nextActor == s.userActorId,
                 ),
               ],
               if (busy || s.status == StoryStatus.running) ...[
@@ -1129,17 +1136,18 @@ class _AutoStoryPlayScreenState extends State<AutoStoryPlayScreen>
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Row(
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 4,
                                   children: [
-                                    _avatar(s.actors[0]),
-                                    const SizedBox(width: 6),
-                                    Expanded(
-                                      child: Text(
-                                        '${s.actors[0].name} ↔ ${s.actors[1].name} · ${tr('AI代演', 'AI portrayal')}',
-                                      ),
-                                    ),
-                                    _avatar(s.actors[1]),
+                                    for (final actor in s.actors)
+                                      _avatar(actor),
                                   ],
+                                ),
+                                Text(
+                                  '${s.actors.map((a) => a.name).join(' / ')} · ${tr('AI代演', 'AI portrayal')}',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                                 const SizedBox(height: 6),
                                 Text(
@@ -1151,7 +1159,7 @@ class _AutoStoryPlayScreenState extends State<AutoStoryPlayScreen>
                                 LinearProgressIndicator(
                                   value:
                                       s.turns.length /
-                                      (s.config.plannedRounds * 2),
+                                      (s.config.plannedRounds * s.actorCount),
                                   semanticsLabel: tr(
                                     '篇幅使用（不是目标成功率）',
                                     'Length used (not goal probability)',
@@ -1286,7 +1294,8 @@ class _AutoStoryPlayScreenState extends State<AutoStoryPlayScreen>
                                   builder: (context, draft, _) => draft == null
                                       ? const SizedBox.shrink()
                                       : Align(
-                                          alignment: draft.speakerId == 'B'
+                                          alignment:
+                                              draft.speakerId == s.userActorId
                                               ? Alignment.centerRight
                                               : Alignment.centerLeft,
                                           child: Card(
@@ -1297,7 +1306,7 @@ class _AutoStoryPlayScreenState extends State<AutoStoryPlayScreen>
                                                     CrossAxisAlignment.start,
                                                 children: [
                                                   Text(
-                                                    '${s.actors.firstWhere((a) => a.actorId == draft.speakerId).name}${draft.speakerId == 'B' ? ' · ${tr('AI代演', 'AI portrayal')}' : ''} · ${tr('生成中，尚未保存', 'Generating, not saved')}',
+                                                    '${s.actors.firstWhere((a) => a.actorId == draft.speakerId).name}${draft.speakerId == s.userActorId ? ' · ${tr('AI代演', 'AI portrayal')}' : ''} · ${tr('生成中，尚未保存', 'Generating, not saved')}',
                                                   ),
                                                   Text(draft.content),
                                                   if (widget

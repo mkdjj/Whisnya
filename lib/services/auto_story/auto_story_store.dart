@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import '../../models/auto_story.dart';
 import '../local_storage_service.dart';
 
@@ -120,8 +121,9 @@ class AutoStoryStore {
       }
       var next = mutation(doc);
       if (next.id != doc.id ||
-          next.actors.map((a) => a.actorId).join() !=
-              doc.actors.map((a) => a.actorId).join()) {
+          (doc.turns.isNotEmpty &&
+              next.actors.map((a) => a.actorId).join() !=
+                  doc.actors.map((a) => a.actorId).join())) {
         throw StateError('Actor identity is fixed');
       }
       final changedConfig =
@@ -135,7 +137,7 @@ class AutoStoryStore {
         if (doc.status == StoryStatus.running) {
           throw StateError('Pause before editing');
         }
-        for (var i = 0; i < 2; i++) {
+        for (var i = 0; i < doc.actorCount; i++) {
           if (doc.turns.isNotEmpty &&
               (next.actors[i].sourceId != doc.actors[i].sourceId ||
                   next.actors[i].persona != doc.actors[i].persona)) {
@@ -222,15 +224,20 @@ class AutoStoryStore {
         throw const StoryBudgetException(StoryPauseReason.tokenLimit);
       }
       final actorRequest =
-          purpose == RequestPurpose.actorA || purpose == RequestPurpose.actorB;
+          purpose == RequestPurpose.actorA ||
+          purpose == RequestPurpose.actorB ||
+          purpose == RequestPurpose.actor;
       if (actorRequest && !replaceLast) {
         if (doc.status != StoryStatus.running) {
           throw StateError('Actor request requires running');
         }
-        if (doc.turns.length >= doc.config.plannedRounds * 2) {
+        if (doc.turns.length >= doc.config.plannedRounds * doc.actorCount) {
           throw const StoryBudgetException(StoryPauseReason.lengthLimit);
         }
-        if ((purpose == RequestPurpose.actorA ? 'A' : 'B') != doc.nextActor) {
+        if ((purpose == RequestPurpose.actorA && doc.nextActor != 'A') ||
+            (purpose == RequestPurpose.actorB &&
+                (doc.userActorId == null ||
+                    doc.nextActor != doc.userActorId))) {
           throw StateError('Actor cursor mismatch');
         }
       }
@@ -249,7 +256,7 @@ class AutoStoryStore {
         purpose: purpose,
         runGeneration: doc.runGeneration,
         expectedNextOrdinal: ordinal,
-        expectedSpeaker: ordinal.isEven ? 'A' : 'B',
+        expectedSpeaker: doc.actorForOrdinal(ordinal),
         planVersion: doc.config.planVersion,
         replaceLast: replaceLast,
       );
@@ -299,7 +306,7 @@ class AutoStoryStore {
     }
     final ordinal = token.replaceLast ? doc.turns.length - 1 : doc.turns.length;
     if (ordinal != token.expectedNextOrdinal ||
-        (ordinal.isEven ? 'A' : 'B') != token.expectedSpeaker) {
+        doc.actorForOrdinal(ordinal) != token.expectedSpeaker) {
       return CommitResult.stale;
     }
     return null;
@@ -317,13 +324,11 @@ class AutoStoryStore {
         final current = doc!;
         var next = patch(current);
         next = next.copyWith(
-          requestLedger: next.requestLedger
-              .map(
-                (r) => r.requestId == token.requestId
-                    ? r.copyWith(status: 'committed')
-                    : r,
-              )
-              .toList(),
+          requestLedger: _updateRequest(
+            next.requestLedger,
+            token.requestId,
+            (r) => r.copyWith(status: 'committed'),
+          ),
           revision: current.revision + 1,
           updatedAt: DateTime.now(),
         );
@@ -359,6 +364,7 @@ class AutoStoryStore {
           (r) => r.requestId == token.requestId,
         );
         if (![
+          RequestPurpose.actor,
           RequestPurpose.actorA,
           RequestPurpose.actorB,
           RequestPurpose.regenerate,
@@ -399,7 +405,7 @@ class AutoStoryStore {
     if (cp != null &&
         (cp.planVersion != doc.config.planVersion ||
             cp.stageIndex > doc.stageIndex + 1 ||
-            doc.turns.length.isOdd)) {
+            !doc.isRoundComplete)) {
       throw StateError('Director cannot skip stage or review half round');
     }
     if (cp != null &&
@@ -483,13 +489,11 @@ class AutoStoryStore {
           status: StoryStatus.paused,
           pauseReason: reason,
           pauseAfterCurrent: false,
-          requestLedger: doc.requestLedger
-              .map(
-                (r) => r.requestId == token.requestId
-                    ? r.copyWith(status: 'failed', errorCode: errorCode)
-                    : r,
-              )
-              .toList(),
+          requestLedger: _updateRequest(
+            doc.requestLedger,
+            token.requestId,
+            (r) => r.copyWith(status: 'failed', errorCode: errorCode),
+          ),
           revision: doc.revision + 1,
           updatedAt: DateTime.now(),
         ),
@@ -497,6 +501,18 @@ class AutoStoryStore {
     }, expectedEpoch: token.datasetEpoch);
     await _refreshIndexBestEffort(storyId: token.storyId);
   }
+
+  List<StoryRequestRecord> _updateRequest(
+    List<StoryRequestRecord> records,
+    String id,
+    StoryRequestRecord Function(StoryRequestRecord) update,
+  ) => [
+    for (final record in records)
+      record.requestId == id ? update(record) : record,
+  ];
+
+  int? _cumulativeTokens(int? current, int? incoming) =>
+      incoming == null ? current : math.max(current ?? incoming, incoming);
 
   Future<void> recordUsage(
     StoryOperationToken token, {
@@ -509,36 +525,23 @@ class AutoStoryStore {
     try {
       await _locked(token.storyId, (file, doc) async {
         if (doc == null) return;
-        final records = doc.requestLedger
+        final old = doc.requestLedger
             .where((r) => r.requestId == token.requestId)
-            .toList();
-        if (records.isEmpty) return;
-        final old = records.single;
-        // Usage values are cumulative per request, never added more than once.
+            .firstOrNull;
+        if (old == null) return;
         final next = old.copyWith(
-          totalTokens: totalTokens == null
-              ? null
-              : (old.providerTotalTokens == null ||
-                        totalTokens > old.providerTotalTokens!
-                    ? totalTokens
-                    : old.providerTotalTokens),
-          inputTokens: inputTokens == null
-              ? null
-              : (old.inputTokens == null || inputTokens > old.inputTokens!
-                    ? inputTokens
-                    : old.inputTokens),
-          outputTokens: outputTokens == null
-              ? null
-              : (old.outputTokens == null || outputTokens > old.outputTokens!
-                    ? outputTokens
-                    : old.outputTokens),
+          totalTokens: _cumulativeTokens(old.providerTotalTokens, totalTokens),
+          inputTokens: _cumulativeTokens(old.inputTokens, inputTokens),
+          outputTokens: _cumulativeTokens(old.outputTokens, outputTokens),
         );
         await _writeNow(
           file,
           doc.copyWith(
-            requestLedger: doc.requestLedger
-                .map((r) => r.requestId == token.requestId ? next : r)
-                .toList(),
+            requestLedger: _updateRequest(
+              doc.requestLedger,
+              token.requestId,
+              (_) => next,
+            ),
             revision: doc.revision + 1,
             updatedAt: DateTime.now(),
           ),
@@ -561,13 +564,11 @@ class AutoStoryStore {
   }) => _patchPending(
     token,
     (doc) => doc.copyWith(
-      requestLedger: doc.requestLedger
-          .map(
-            (r) => r.requestId == token.requestId
-                ? r.copyWith(status: 'failed', errorCode: errorCode)
-                : r,
-          )
-          .toList(),
+      requestLedger: _updateRequest(
+        doc.requestLedger,
+        token.requestId,
+        (r) => r.copyWith(status: 'failed', errorCode: errorCode),
+      ),
     ),
   );
 
@@ -606,12 +607,13 @@ class AutoStoryStore {
             doc.nextActor != 'B' ||
             doc.pauseAfterCurrent ||
             doc.requestLedger.any((r) => r.status == 'pending')) {
-          throw StateError('Manual takeover requires paused B cursor');
+          throw StateError('Manual takeover requires paused user cursor');
         }
         final turn = StoryTurn(
           turnId: newStoryId(),
           ordinal: doc.turns.length,
-          speakerId: 'B',
+          roundNumber: doc.roundForOrdinal(doc.turns.length),
+          speakerId: doc.userActorId!,
           content: content,
           source: StoryTurnSource.manual,
         );
@@ -639,17 +641,18 @@ class AutoStoryStore {
             doc.status != StoryStatus.completed) ||
         doc.turns.isEmpty ||
         doc.turns.last.source != StoryTurnSource.manual ||
-        doc.turns.last.speakerId != 'B' ||
+        doc.turns.last.speakerId != doc.userActorId ||
         doc.requestLedger.any((r) => r.status == 'pending')) {
       throw StateError(
-        'Only the final manual B turn can be edited while paused',
+        'Only the final manual user turn can be edited while paused',
       );
     }
     final old = doc.turns.last;
     final turn = StoryTurn(
       turnId: newStoryId(),
       ordinal: old.ordinal,
-      speakerId: 'B',
+      roundNumber: old.roundNumber,
+      speakerId: old.speakerId,
       content: content,
       source: StoryTurnSource.manual,
       replacesTurnId: old.turnId,
@@ -840,11 +843,13 @@ class AutoStoryStore {
             !ids.add(row['id'] as String) ||
             row['title'] is! String ||
             row['actors'] is! List ||
-            (row['actors'] as List).length != 2 ||
+            ((row['actors'] as List).isEmpty ||
+                (row['actors'] as List).length > maxStoryActors) ||
             !(row['actors'] as List).every(
               (actor) =>
                   actor is Map<String, dynamic> &&
-                  (actor['actorId'] == 'A' || actor['actorId'] == 'B') &&
+                  actor['actorId'] is String &&
+                  RegExp(r'^[A-Z]$').hasMatch(actor['actorId'] as String) &&
                   actor['name'] is String &&
                   (actor['sourceId'] == null || actor['sourceId'] is String) &&
                   (actor['avatarRelativePath'] == null ||
