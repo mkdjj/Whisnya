@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
@@ -50,7 +51,7 @@ class AiRequest {
   });
 
   final AiEndpointConfig endpoint;
-  final List<Map<String, String>> messages;
+  final List<Map<String, dynamic>> messages;
   final bool stream;
   final bool includeReasoning;
   final double temperature;
@@ -92,12 +93,46 @@ class OpenAiCompatibleAdapter {
     'Content-Type': 'application/json',
   };
 
-  Map<String, dynamic> buildBody(AiRequest request) => {
+  Future<Map<String, dynamic>> buildBody(AiRequest request) async => {
     'model': request.endpoint.model.trim(),
-    'messages': request.messages,
+    'messages': [
+      for (final message in request.messages) await _message(message),
+    ],
     'temperature': request.temperature,
     if (request.stream) 'stream': true,
   };
+
+  Future<Map<String, dynamic>> _message(Map<String, dynamic> message) async {
+    final paths = (message['imagePaths'] as List<String>?) ?? const [];
+    return {
+      'role': message['role'],
+      'content': paths.isEmpty
+          ? message['content']
+          : [
+              if ((message['content'] as String).isNotEmpty)
+                {'type': 'text', 'text': message['content']},
+              for (final path in paths)
+                {
+                  'type': 'image_url',
+                  'image_url': {'url': await _imageUrl(path)},
+                },
+            ],
+    };
+  }
+
+  Future<String> _imageUrl(String path) async {
+    final normalized = path.replaceAll('\\', '/');
+    if (!normalized.contains('/media/chat_images/') ||
+        normalized.split('/').contains('..') ||
+        !normalized.endsWith('.jpg')) {
+      throw AiException('聊天图片路径无效，请重新选择图片。');
+    }
+    try {
+      return 'data:image/jpeg;base64,${base64Encode(await File(path).readAsBytes())}';
+    } on FileSystemException {
+      throw AiException('聊天图片已丢失或无法读取，请移除该图片或重新选择。');
+    }
+  }
 
   List<String> parseModels(dynamic json) {
     if (json is! Map<String, dynamic> || json['data'] is! List) return const [];
@@ -271,7 +306,7 @@ class AiConversationRunner {
           .post(
             _adapter.buildUri(request),
             headers: _adapter.buildHeaders(request),
-            body: jsonEncode(_adapter.buildBody(request)),
+            body: jsonEncode(await _adapter.buildBody(request)),
           )
           .timeout(timeout);
       if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -302,7 +337,7 @@ class AiConversationRunner {
     try {
       final httpRequest = http.Request('POST', _adapter.buildUri(request))
         ..headers.addAll(_adapter.buildHeaders(request))
-        ..body = jsonEncode(_adapter.buildBody(request));
+        ..body = jsonEncode(await _adapter.buildBody(request));
       final response = await client.send(httpRequest).timeout(timeout);
       if (response.statusCode < 200 || response.statusCode >= 300) {
         final body = await utf8.decoder

@@ -37,7 +37,10 @@ int resolveExtraReplyCount({
 }
 
 bool isValidTheaterContextMessage(TheaterMessage message) {
-  if (message.isError || message.content.trim().isEmpty) return false;
+  if (message.isError ||
+      (message.content.trim().isEmpty && message.imagePaths.isEmpty)) {
+    return false;
+  }
   if (message.speakerType != TheaterSpeakerType.user &&
       message.speakerType != TheaterSpeakerType.role) {
     return false;

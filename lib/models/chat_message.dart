@@ -16,6 +16,7 @@ class ChatMessage {
     this.endpointName,
     this.model,
     this.variants = const [],
+    this.imagePaths = const [],
     int selectedVariantIndex = 0,
   }) : _selectedVariantIndex = selectedVariantIndex;
 
@@ -30,6 +31,7 @@ class ChatMessage {
   final String? endpointName;
   final String? model;
   final List<ChatReplyVariant> variants;
+  final List<String> imagePaths;
   final int _selectedVariantIndex;
 
   bool get isUser => role == 'user';
@@ -90,6 +92,7 @@ class ChatMessage {
     String? endpointName,
     String? model,
     List<ChatReplyVariant>? variants,
+    List<String>? imagePaths,
     int? selectedVariantIndex,
   }) => ChatMessage(
     id: id ?? this.id,
@@ -103,6 +106,7 @@ class ChatMessage {
     endpointName: endpointName ?? this.endpointName,
     model: model ?? this.model,
     variants: variants ?? this.variants,
+    imagePaths: imagePaths ?? this.imagePaths,
     selectedVariantIndex: selectedVariantIndex ?? _selectedVariantIndex,
   );
 
@@ -137,6 +141,7 @@ class ChatMessage {
       endpointName: json['endpointName'] as String?,
       model: json['model'] as String?,
       variants: variants,
+      imagePaths: (json['imagePaths'] as List?)?.cast<String>() ?? const [],
       selectedVariantIndex: json['selectedVariantIndex'] as int? ?? 0,
     );
   }
@@ -146,6 +151,7 @@ class ChatMessage {
     return {
       'id': id,
       'role': role,
+      if (imagePaths.isNotEmpty) 'imagePaths': imagePaths,
       'content': effectiveContent,
       'reasoningContent': effectiveReasoningContent,
       'replyState': effectiveReplyState == 'interrupted'

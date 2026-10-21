@@ -142,7 +142,8 @@ class StoryCheckpointService {
         }
       }
       if ((!target.isUser && !target.isAssistant) ||
-          target.effectiveContent.trim().isEmpty ||
+          (target.effectiveContent.trim().isEmpty &&
+              target.imagePaths.isEmpty) ||
           target.isAssistant && target.effectiveReplyState != 'completed') {
         throw StateError('请选择已保存的完整消息');
       }
@@ -151,7 +152,8 @@ class StoryCheckpointService {
           .where(
             (m) =>
                 (m.isUser || m.isAssistant) &&
-                m.effectiveContent.trim().isNotEmpty,
+                (m.effectiveContent.trim().isNotEmpty ||
+                    m.imagePaths.isNotEmpty),
           )
           .map(
             (m) => {

@@ -1,5 +1,12 @@
 # Whisnya
 
+## 1.5.6+2028
+
+- Added user-message edit/resend and compact regeneration actions to group chat, alongside copy and delete.
+- Added image attachments to regular and group chat, with preview, removal and background resizing. Requires a vision-capable model using the OpenAI-compatible API.
+- Placed the image button beside reply inspiration and reduced input-toolbar button sizes.
+- Android ARM64 versionCode is 2028 (previous release: 2027), using the existing signing certificate.
+
 ## 1.5.5+2027
 
 - Redesigned story creation: actor A defaults to your user profile, with optional actors B, C and more; compact actor cards open a dedicated editor.
@@ -111,7 +118,7 @@ The APK will be generated at:
 build/app/outputs/flutter-apk/app-release.apk
 ```
 
-Current source version is `1.5.5+2027`. Keep both `versionName` and the actual APK `versionCode` increasing for every public release, including historical ABI offsets. The Android package name is
+Current source version is `1.5.6+2028`. Keep both `versionName` and the actual APK `versionCode` increasing for every public release, including historical ABI offsets. The Android package name is
 `com.mkdjj.whisnya`.
 
 For public distribution, configure your own Android signing key first:
@@ -127,7 +134,7 @@ Then edit `android/key.properties` with your real passwords. Both
 Recommended release asset name:
 
 ```text
-Whisnya-android-v1.5.5-arm64-v8a-release.apk
+Whisnya-android-v1.5.6-arm64-v8a-release.apk
 ```
 
 ## Other Platforms

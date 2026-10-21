@@ -17,6 +17,8 @@ class _TheaterMessageBubble extends StatelessWidget {
     this.onMute,
     this.onSpeakAgain,
     this.onRetry,
+    this.onEditResend,
+    this.onRegenerate,
   });
 
   final TheaterMessage message;
@@ -34,6 +36,8 @@ class _TheaterMessageBubble extends StatelessWidget {
   final VoidCallback? onMute;
   final VoidCallback? onSpeakAgain;
   final VoidCallback? onRetry;
+  final VoidCallback? onEditResend;
+  final VoidCallback? onRegenerate;
 
   @override
   Widget build(BuildContext context) {
@@ -61,6 +65,8 @@ class _TheaterMessageBubble extends StatelessWidget {
               onMute: onMute,
               onSpeakAgain: onSpeakAgain,
               onRetry: onRetry,
+              onEditResend: onEditResend,
+              onRegenerate: onRegenerate,
             ),
         ],
       );
@@ -150,6 +156,7 @@ class _TheaterMessageBubble extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
               ],
+              if (showHeader) ChatImages(paths: message.imagePaths),
               MessageContent(
                 text: message.content,
                 highlightQuery: searchQuery,
@@ -192,18 +199,21 @@ class _TheaterMessageBubble extends StatelessWidget {
                         ),
                       ),
                     ],
-                    ...messageBubbleActions(
+                  ],
+                ),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: messageBubbleActions(
                       context,
                       onCopy: onCopy,
                       onDelete: onDelete,
+                      onEditResend: onEditResend,
+                      showMemoryAction: false,
+                      onRegenerate: onRegenerate ?? onRetry,
                     ),
-                    if (onRetry != null)
-                      TextButton.icon(
-                        onPressed: onRetry,
-                        icon: const Icon(Icons.refresh, size: 16),
-                        label: Text(context.t('重试')),
-                      ),
-                  ],
+                  ),
                 ),
                 if (message.isError &&
                     message.errorMessage.isNotEmpty &&

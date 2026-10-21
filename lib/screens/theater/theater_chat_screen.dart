@@ -20,6 +20,25 @@ class TheaterChatScreen extends StatefulWidget {
 
 class _TheaterChatScreenState extends State<TheaterChatScreen> {
   final _inputController = TextEditingController();
+  final _inputFocusNode = FocusNode();
+  var _pendingImages = <String>[];
+  var _isPickingImage = false;
+
+  Future<void> _pickImage() async {
+    if (_isPickingImage || _pendingImages.length >= 4) return;
+    _isPickingImage = true;
+    try {
+      final path = await pickChatImage(widget.storage, _session.id);
+      if (path != null && mounted) setState(() => _pendingImages.add(path));
+    } catch (error) {
+      if (mounted) context.showSnack(error.toString());
+    } finally {
+      _isPickingImage = false;
+    }
+  }
+
+  int get _lastUserIndex =>
+      _messages.lastIndexWhere((message) => message.isUser);
   final _scrollController = ScrollController();
   late final TheaterChatController _chat;
   TheaterSession get _session => _chat.session;
@@ -63,6 +82,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   void dispose() {
     _cancelToken?.cancel();
     _inputController.dispose();
+    _inputFocusNode.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -103,7 +123,10 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
 
   Future<void> _send() async {
     final text = _inputController.text.trim();
-    if (text.isEmpty || _isGenerating) return;
+    final images = [..._pendingImages];
+    if ((text.isEmpty && images.isEmpty) || _isGenerating || _isSummarizing) {
+      return;
+    }
     final now = DateTime.now();
     final userRole = _session.userParticipant;
     final round = _messages.isEmpty ? 1 : _messages.last.round + 1;
@@ -115,39 +138,46 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
       speakerId: userRole?.id ?? '',
       speakerName: userRole?.name ?? context.t('我'),
       content: text,
+      imagePaths: images,
       time: now,
     );
     final previousMessages = [..._messages];
+    final operationId = ++_generationId;
     setState(() {
       _chat.appendMessage(message);
       _isGenerating = true;
+      _pendingImages.removeWhere(images.contains);
     });
     _inputController.clear();
     try {
       await _saveMessages();
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || operationId != _generationId) return;
       setState(() {
         _chat.replaceMessages(previousMessages);
         _isGenerating = false;
+        _pendingImages = [...images, ..._pendingImages];
       });
       if (_inputController.text.isEmpty) _inputController.text = text;
       context.showSnack(error.toString());
       return;
     }
+    if (!mounted || operationId != _generationId) return;
     try {
       await _saveSession(_session.copyWith(updatedAt: now));
     } catch (error) {
       if (mounted) context.showSnack(error.toString());
     }
-    await _generateReplies(round, TheaterGenerationIntent.userReply);
+    if (mounted && operationId == _generationId) {
+      await _generateReplies(round, TheaterGenerationIntent.userReply);
+    }
   }
 
   Future<void> _continueOneRound() =>
       _beginContinuation(TheaterGenerationIntent.continueConversation);
 
   Future<void> _replyAsParticipant(String participantId) async {
-    if (_isGenerating) return;
+    if (_isGenerating || _isSummarizing) return;
     final selection = _chat.resolveParticipantReply(participantId);
     switch (selection.status) {
       case TheaterParticipantReplyStatus.missing:
@@ -197,7 +227,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   }
 
   Future<void> _beginContinuation(TheaterGenerationIntent intent) async {
-    if (_isGenerating) return;
+    if (_isGenerating || _isSummarizing) return;
     if (_messages.isEmpty) {
       context.showSnack('请先输入第一句话');
       return;
@@ -468,13 +498,14 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   }
 
   Future<void> _deleteTheaterMessage(String id) async {
+    if (_isGenerating || _isSummarizing) return;
     final confirmed = await showConfirmDialog(
       context: context,
       title: '删除消息',
       content: context.t('确定删除这条消息吗？'),
       confirmLabel: '删除',
     );
-    if (!confirmed) return;
+    if (!mounted || !confirmed || _isGenerating || _isSummarizing) return;
 
     final index = _messages.indexWhere((message) => message.id == id);
     if (index < 0) return;
@@ -550,7 +581,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   }
 
   Future<void> _retry(TheaterMessage message) async {
-    if (_isGenerating) return;
+    if (_isGenerating || _isSummarizing) return;
     final singleApiRetry = prepareSingleApiRetry(_messages, message);
     if (_session.apiMode == TheaterApiMode.singleApi &&
         singleApiRetry != null) {
@@ -758,13 +789,14 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   }
 
   Future<void> _clearMessages() async {
+    if (_isGenerating || _isSummarizing) return;
     final ok = await showConfirmDialog(
       context: context,
       title: '清空群聊消息',
       content: context.t('确定清空当前群聊消息吗？群聊总结也会清空。'),
       confirmLabel: '清空',
     );
-    if (!ok) return;
+    if (!mounted || !ok || _isGenerating || _isSummarizing) return;
     await widget.storage.clearTheaterMessages(_session.id);
     await _saveSession(
       _session.copyWith(
@@ -836,6 +868,7 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
   }
 
   Future<void> _showSummaryDialog() async {
+    if (_isGenerating || _isSummarizing) return;
     final controller = TextEditingController(text: _session.theaterSummary);
     await showDialog<void>(
       context: context,
@@ -1078,6 +1111,84 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
     context.showSnack('已复制消息');
   }
 
+  Future<void> _editAndResend(int index) async {
+    if (_isGenerating ||
+        _isSummarizing ||
+        index < 0 ||
+        index >= _messages.length) {
+      return;
+    }
+    final message = _messages[index];
+    if (!message.isUser) return;
+    final edited = await editChatMessage(
+      context: context,
+      text: message.content,
+      imagePaths: message.imagePaths,
+      hasFollowingMessages: index < _messages.length - 1,
+    );
+    if (!mounted || edited == null || _isGenerating || _isSummarizing) return;
+    if (index >= _messages.length || _messages[index].id != message.id) return;
+    final previous = [..._messages];
+    final operationId = ++_generationId;
+    setState(() {
+      _isGenerating = true;
+      _chat.replaceMessages([
+        ...previous.take(index),
+        message.copyWith(content: edited.text, imagePaths: edited.imagePaths),
+      ]);
+      _searchResults = findChatSearchResults(
+        _messages.map((item) => item.content),
+        _searchQuery,
+      );
+      _activeSearchResult = 0;
+    });
+    try {
+      await _saveMessages();
+    } catch (error) {
+      if (!mounted || operationId != _generationId) return;
+      setState(() {
+        _chat.replaceMessages(previous);
+        _isGenerating = false;
+      });
+      context.showSnack(error.toString());
+      return;
+    }
+    if (!mounted || operationId != _generationId) return;
+    try {
+      await _saveSession(
+        _session.copyWith(
+          theaterSummary: index < _session.summarizedMessageCount
+              ? ''
+              : _session.theaterSummary,
+          summarizedMessageCount: index < _session.summarizedMessageCount
+              ? 0
+              : _session.summarizedMessageCount,
+          nextSpeakerIndex: 0,
+          updatedAt: DateTime.now(),
+        ),
+      );
+      if (!mounted || operationId != _generationId) return;
+      await _generateReplies(message.round, TheaterGenerationIntent.userReply);
+    } catch (error) {
+      if (mounted) context.showSnack(error.toString());
+    } finally {
+      if (mounted && operationId == _generationId) {
+        setState(() => _isGenerating = false);
+      }
+    }
+  }
+
+  Future<void> _regenerateLast() async {
+    if (_isGenerating || _isSummarizing || _messages.isEmpty) return;
+    final last = _messages.last;
+    if (last.isUser) {
+      setState(() => _isGenerating = true);
+      await _generateReplies(last.round, TheaterGenerationIntent.userReply);
+    } else {
+      await _retry(last);
+    }
+  }
+
   void _scrollToSearchResult(int messageIndex) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollController.hasClients || _messages.isEmpty) return;
@@ -1160,12 +1271,16 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
               ),
               IconButton(
                 tooltip: context.t('群聊总结'),
-                onPressed: _showSummaryDialog,
+                onPressed: _isGenerating || _isSummarizing
+                    ? null
+                    : _showSummaryDialog,
                 icon: const Icon(Icons.summarize_outlined),
               ),
               IconButton(
                 tooltip: context.t('清空群聊消息'),
-                onPressed: _clearMessages,
+                onPressed: _isGenerating || _isSummarizing
+                    ? null
+                    : _clearMessages,
                 icon: const Icon(Icons.delete_sweep_outlined),
               ),
               IconButton(
@@ -1181,10 +1296,20 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
               Expanded(child: _buildMessages()),
               ChatInputComposer(
                 controller: _inputController,
+                focusNode: _inputFocusNode,
+                onPickImage: _pickImage,
+                imagePaths: _pendingImages,
+                onRemoveImage: (path) =>
+                    setState(() => _pendingImages.remove(path)),
                 isGenerating: _isGenerating,
+                enabled: !_isSummarizing,
                 hasBackground: hasBackground,
                 inputOpacity: _session.inputOpacity,
                 onContinue: _continueOneRound,
+                onRetry: _messages.isEmpty ? null : _regenerateLast,
+                onEditResend: _lastUserIndex < 0
+                    ? null
+                    : () => _editAndResend(_lastUserIndex),
                 onSend: _send,
                 onStop: _stopGeneration,
                 requireText: true,
@@ -1252,7 +1377,17 @@ class _TheaterChatScreenState extends State<TheaterChatScreen> {
                   widget.settings.splitRoleMessages && canControlRole,
               showReasoningContent: widget.settings.showReasoningContent,
               onCopy: () => _copy(message),
-              onDelete: _isGenerating
+              onEditResend: message.isUser && !_isGenerating && !_isSummarizing
+                  ? () => _editAndResend(messageIndex)
+                  : null,
+              onRegenerate:
+                  messageIndex == _messages.length - 1 &&
+                      !message.isUser &&
+                      !_isGenerating &&
+                      !_isSummarizing
+                  ? _regenerateLast
+                  : null,
+              onDelete: _isGenerating || _isSummarizing
                   ? null
                   : () => _deleteTheaterMessage(message.id),
               onMute: onMute,

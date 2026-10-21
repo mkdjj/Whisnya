@@ -47,6 +47,7 @@ import '../../utils/chat_context_policy.dart';
 import '../../utils/chat_search.dart';
 import '../../utils/chat_text_export.dart';
 import '../../utils/confirm_dialog.dart';
+import '../../utils/chat_image_picker.dart';
 import '../../utils/page_layout.dart';
 import '../../utils/snack.dart';
 import '../../utils/stream_text_buffer.dart';
@@ -55,6 +56,7 @@ import '../../widgets/app_background.dart';
 import '../../widgets/chat_bubble.dart';
 import '../../widgets/chat_appearance_settings.dart';
 import '../../widgets/chat_input_composer.dart';
+import '../../widgets/chat_images.dart';
 import '../../widgets/chat_header_panel.dart';
 import '../../widgets/chat/character_inner_voice_dialog.dart';
 import '../../widgets/chat/character_inner_voice_preview.dart';
@@ -486,6 +488,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       await _waitForActiveGeneration();
       if (mounted) {
         _session = selected;
+        _pendingImages = [];
         await _load();
       }
     }
@@ -534,6 +537,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         final branch = await _checkpoints.fork(checkpoint.id, title: title);
         if (mounted) {
           _session = branch;
+          _pendingImages = [];
           await _load();
         }
       }
@@ -617,6 +621,26 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   final _inputController = TextEditingController();
+  var _pendingImages = <String>[];
+  var _isPickingImage = false;
+
+  Future<void> _pickImage() async {
+    if (_isPickingImage || _pendingImages.length >= 4) return;
+    final epoch = widget.storage.datasetEpoch;
+    final sessionId = _session?.id;
+    _isPickingImage = true;
+    try {
+      final path = await pickChatImage(widget.storage, _currentSession.id);
+      if (path != null && _isCurrentConversation(epoch, sessionId)) {
+        setState(() => _pendingImages.add(path));
+      }
+    } catch (error) {
+      if (mounted) context.showSnack(error.toString());
+    } finally {
+      _isPickingImage = false;
+    }
+  }
+
   bool _inspirationOpen = false;
 
   Future<void> _openReplyInspiration() async {
@@ -801,6 +825,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       _isSummarizing = false;
       _hasUnsavedReply = false;
       _session = null;
+      _pendingImages = [];
       _conversation.clearMessages();
     });
     unawaited(_load());
@@ -1005,7 +1030,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     required String requestType,
     required String model,
     required AiUsage usage,
-    required List<Map<String, String>> messages,
+    required List<Map<String, dynamic>> messages,
     required bool summaryUpdated,
   }) async {
     final epoch = widget.storage.datasetEpoch;
@@ -1028,7 +1053,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final epoch = widget.storage.datasetEpoch;
     final entrySessionId = _session?.id;
     final text = _inputController.text.trim();
-    if (text.isEmpty || !_canMutateConversation) {
+    final images = [..._pendingImages];
+    if ((text.isEmpty && images.isEmpty) || !_canMutateConversation) {
       return;
     }
 
@@ -1044,6 +1070,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final userMessage = ChatMessage(
       role: 'user',
       content: text,
+      imagePaths: images,
       time: DateTime.now(),
     );
     final previousMessages = [..._messages];
@@ -1053,6 +1080,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       setState(() {
         _conversation.append(userMessage);
         _isSending = true;
+        _pendingImages.removeWhere(images.contains);
       });
       _inputController.clear();
       _scrollToEnd();
@@ -1064,6 +1092,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         setState(() {
           _conversation.replaceMessages(previousMessages);
           _isSending = false;
+          _pendingImages = [...images, ..._pendingImages];
         });
         if (_inputController.text.isEmpty) _inputController.text = text;
         context.showSnack(error.toString());
@@ -1861,6 +1890,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         _clearInnerVoiceFailures();
         _invalidateSummaryOperations();
         _session = target;
+        _pendingImages = [];
         await _load();
         return;
       }
@@ -2009,29 +2039,28 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _editLastUserMessageAndResend() async {
+  Future<void> _editLastUserMessageAndResend() =>
+      _editUserMessageAndResend(_conversation.lastUserMessageIndex);
+
+  Future<void> _editUserMessageAndResend(int index) async {
     _stopStoryEffects();
     if (!_canMutateConversation) return;
     final epoch = widget.storage.datasetEpoch;
     final entrySessionId = _session?.id;
     _invalidateSummaryOperations();
-    final index = _conversation.lastUserMessageIndex;
-    if (index == -1) {
+    if (index < 0 || index >= _messages.length || !_messages[index].isUser) {
       context.showSnack('没有可编辑的用户消息。');
       return;
     }
 
-    final edited = await showTextInputDialog(
+    final edited = await editChatMessage(
       context: context,
-      title: '编辑并重发',
-      initialText: _messages[index].content,
-      label: '输入消息',
-      confirmLabel: '重新生成',
-      minLines: 3,
-      maxLines: 8,
+      text: _messages[index].content,
+      imagePaths: _messages[index].imagePaths,
+      hasFollowingMessages: _conversation.hasMessagesAfter(index),
     );
     if (!_isCurrentConversation(epoch, entrySessionId)) return;
-    if (edited == null || edited.isEmpty) return;
+    if (edited == null) return;
     if (!_canMutateConversation) return;
 
     final endpoint = await _reloadEndpoint();
@@ -2043,19 +2072,27 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
     final sessionId = _currentSession.id;
     final previousMessages = [..._messages];
+    final previousSummary = _summary;
     final generationCompletion = _beginGenerationOperation();
     try {
       _cancelAllInnerVoiceOperations();
       setState(() {
-        _conversation.editUserMessageAndTruncate(index, edited, DateTime.now());
+        _conversation.editUserMessageAndTruncate(
+          index,
+          edited.text,
+          DateTime.now(),
+          imagePaths: edited.imagePaths,
+        );
         _isSending = true;
       });
       try {
+        if (!identical(_summary, previousSummary)) await _saveCurrentSummary();
         await _saveCurrentChat();
       } catch (error) {
         if (!mounted || !_isCurrentConversation(epoch, sessionId)) return;
         setState(() {
           _conversation.replaceMessages(previousMessages);
+          _conversation.setSummary(previousSummary);
           _isSending = false;
         });
         context.showSnack(error.toString());
@@ -2343,7 +2380,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
-  List<Map<String, String>> _buildChatRequestMessages(
+  List<Map<String, dynamic>> _buildChatRequestMessages(
     UserProfile userProfile, {
     required String memoryPrompt,
     required List<ChatMessage> messages,
@@ -3079,6 +3116,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               ),
               ChatInputComposer(
                 onInspiration: _openReplyInspiration,
+                onPickImage: _pickImage,
+                imagePaths: _pendingImages,
+                onRemoveImage: (path) =>
+                    setState(() => _pendingImages.remove(path)),
                 controller: _inputController,
                 focusNode: _inputFocusNode,
                 isGenerating: _isSending,
@@ -3184,6 +3225,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 ? () => _addMessageToMemory(message)
                 : null,
             onCopy: () => _copyMessage(message),
+            onEditResend: message.isUser && _canMutateConversation
+                ? () => _editUserMessageAndResend(messageIndex)
+                : null,
             onStoryActions:
                 _canMutateConversation &&
                     !_hasUnsavedReply &&
@@ -3328,6 +3372,7 @@ class _MessageBubble extends StatelessWidget {
     required this.isBusy,
     required this.onSelectVariant,
     this.onRegenerate,
+    this.onEditResend,
     this.onAddMemory,
     this.showFooter = true,
     this.controlMessage,
@@ -3354,6 +3399,7 @@ class _MessageBubble extends StatelessWidget {
   final bool isBusy;
   final ValueChanged<int>? onSelectVariant;
   final VoidCallback? onRegenerate;
+  final VoidCallback? onEditResend;
   final VoidCallback? onAddMemory;
   final bool showFooter;
   final ChatMessage? controlMessage;
@@ -3394,6 +3440,7 @@ class _MessageBubble extends StatelessWidget {
               isBusy: isBusy,
               onSelectVariant: onSelectVariant,
               onRegenerate: onRegenerate,
+              onEditResend: onEditResend,
               onAddMemory: onAddMemory,
               onCopy: onCopy,
               onDelete: onDelete,
@@ -3433,6 +3480,7 @@ class _MessageBubble extends StatelessWidget {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              ChatImages(paths: message.imagePaths),
               MessageContent(
                 text: message.effectiveContent,
                 textColor: appearance.textColor ?? chatTextColor,
@@ -3495,6 +3543,7 @@ class _MessageBubble extends StatelessWidget {
                       onRegenerate: controls.isAssistant ? onRegenerate : null,
                       canRegenerate: !isBusy,
                       onCopy: onCopy,
+                      onEditResend: onEditResend,
                       onDelete: onDelete,
                       onAddMemory: onAddMemory,
                       onStoryActions: onStoryActions,

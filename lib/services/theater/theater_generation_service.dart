@@ -19,7 +19,7 @@ class TheaterGenerationService {
 
   Stream<AiResponseDelta> _stream({
     required AiEndpointConfig endpoint,
-    required List<Map<String, String>> messages,
+    required List<Map<String, dynamic>> messages,
     AiCancelToken? cancelToken,
     void Function(AiUsage)? onUsage,
   }) async* {
@@ -47,7 +47,7 @@ class TheaterGenerationService {
     void Function(
       AiUsage usage,
       AiEndpointConfig endpoint,
-      List<Map<String, String>> request,
+      List<Map<String, dynamic>> request,
     )?
     onUsage,
   }) async* {
@@ -152,7 +152,7 @@ class TheaterGenerationService {
     required void Function(
       AiUsage usage,
       AiEndpointConfig endpoint,
-      List<Map<String, String>> request,
+      List<Map<String, dynamic>> request,
     )?
     onUsage,
   }) async* {
@@ -248,7 +248,7 @@ class TheaterGenerationService {
     required void Function(
       AiUsage usage,
       AiEndpointConfig endpoint,
-      List<Map<String, String>> request,
+      List<Map<String, dynamic>> request,
     )?
     onUsage,
   }) async* {

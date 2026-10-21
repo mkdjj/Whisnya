@@ -1,5 +1,12 @@
 # Whisnya
 
+## 1.5.6+2028
+
+- 群聊新增用户消息编辑重发、紧凑的重新生成按钮，与复制、删除操作统一排列。
+- 普通聊天和群聊支持图片附件，可预览、移除并在后台压缩；需所选模型及 OpenAI 兼容接口支持识图。
+- 图片按钮放在回复灵感右侧，缩小输入栏操作按钮。
+- ARM64 内部版本码为 2028（上个发布版为 2027），保留原签名用于覆盖更新。
+
 ## 1.5.5+2027
 
 - 重做新建故事：演员 A 默认使用用户设定作为主角，可自行添加 B、C 等演员；紧凑演员卡片点击后单独编辑。
@@ -110,7 +117,7 @@ APK 会生成在：
 build/app/outputs/flutter-apk/app-release.apk
 ```
 
-当前源码版本是 `1.5.5+2027`。每次公开发版都要比较历史 APK 的实际版本码（包括分架构偏移），并同时递增 `versionName`
+当前源码版本是 `1.5.6+2028`。每次公开发版都要比较历史 APK 的实际版本码（包括分架构偏移），并同时递增 `versionName`
 和 `versionCode`。Android 包名是 `com.mkdjj.whisnya`。
 
 如果要公开分发，请先配置自己的 Android 签名文件：
@@ -126,7 +133,7 @@ Copy-Item android/key.properties.example android/key.properties
 推荐发布文件名：
 
 ```text
-Whisnya-android-v1.5.5-arm64-v8a-release.apk
+Whisnya-android-v1.5.6-arm64-v8a-release.apk
 ```
 
 ## 其他平台

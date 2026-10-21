@@ -17,7 +17,7 @@ abstract class AiGateway {
 
   Future<String> sendMessage({
     required AiEndpointConfig endpoint,
-    required List<Map<String, String>> messages,
+    required List<Map<String, dynamic>> messages,
     double temperature = 0.8,
     AiCancelToken? cancelToken,
     void Function(AiUsage usage)? onUsage,
@@ -36,7 +36,7 @@ abstract class AiGateway {
 
   Stream<String> streamMessage({
     required AiEndpointConfig endpoint,
-    required List<Map<String, String>> messages,
+    required List<Map<String, dynamic>> messages,
     double temperature = 0.8,
     AiCancelToken? cancelToken,
     bool includeReasoning = false,

@@ -9,9 +9,11 @@ List<Widget> messageBubbleActions(
   required VoidCallback onCopy,
   VoidCallback? onDelete,
   VoidCallback? onAddMemory,
+  bool showMemoryAction = true,
   VoidCallback? onStoryActions,
   VoidCallback? onSpeak,
   VoidCallback? onRegenerate,
+  VoidCallback? onEditResend,
   bool canRegenerate = true,
   bool isSpeaking = false,
   double scale = 1,
@@ -38,8 +40,10 @@ List<Widget> messageBubbleActions(
     if (onRegenerate != null)
       action('重新生成', Icons.refresh, canRegenerate ? onRegenerate : null),
     action('复制消息', Icons.copy, onCopy),
+    if (onEditResend != null) action('编辑并重发', Icons.edit_note, onEditResend),
     action('删除消息', Icons.delete_outline, onDelete),
-    action('加入记忆', Icons.bookmark_add_outlined, onAddMemory),
+    if (showMemoryAction)
+      action('加入记忆', Icons.bookmark_add_outlined, onAddMemory),
     if (onStoryActions != null)
       action('剧情与回忆', Icons.bookmarks_outlined, onStoryActions),
     if (onSpeak != null)

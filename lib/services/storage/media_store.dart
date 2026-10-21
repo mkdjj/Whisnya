@@ -1,5 +1,44 @@
 import 'dart:io';
 
+Stream<File> chatImageJsonFiles(Directory root) async* {
+  for (final name in [
+    'chats',
+    'theater_messages',
+    'story/checkpoints',
+    'collection/items',
+  ]) {
+    final directory = Directory('${root.path}/$name');
+    if (!await directory.exists()) continue;
+    await for (final file in directory.list(
+      recursive: true,
+      followLinks: false,
+    )) {
+      if (file is File && file.path.endsWith('.json')) yield file;
+    }
+  }
+}
+
+/// Reuse the same traversal for media cleanup and cross-platform restoration.
+bool visitChatImages(dynamic value, String Function(String) visit) {
+  var changed = false;
+  if (value is List) {
+    for (final item in value) {
+      if (visitChatImages(item, visit)) changed = true;
+    }
+  } else if (value is Map) {
+    for (final key in value.keys) {
+      final item = value[key];
+      if (key == 'imagePaths' && item is List) {
+        value[key] = [for (final path in item.cast<String>()) visit(path)];
+        if (item.join('\n') != (value[key] as List).join('\n')) changed = true;
+      } else if (visitChatImages(item, visit)) {
+        changed = true;
+      }
+    }
+  }
+  return changed;
+}
+
 String imageFileExtension(List<int> bytes) => switch (bytes) {
   [0x89, 0x50, 0x4e, 0x47, ...] => '.png',
   [0xff, 0xd8, ...] => '.jpg',
@@ -47,6 +86,13 @@ Future<int> cleanupUnusedMedia(
     if (entity is! File) continue;
     final path = _normalizedPath(entity.path);
     if (path.startsWith(tempPrefix) || referenced.contains(path)) continue;
+    // A selected, unsent attachment has no message reference yet.
+    if (path.replaceAll('\\', '/').contains('/media/chat_images/') &&
+        (await entity.lastModified()).isAfter(
+          DateTime.now().subtract(const Duration(hours: 24)),
+        )) {
+      continue;
+    }
     try {
       await entity.delete();
       deleted++;

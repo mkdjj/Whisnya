@@ -236,13 +236,25 @@ final class ChatConversationController {
     return true;
   }
 
-  void editUserMessageAndTruncate(int index, String content, DateTime time) {
+  void editUserMessageAndTruncate(
+    int index,
+    String content,
+    DateTime time, {
+    List<String>? imagePaths,
+  }) {
     if (index < 0 || index >= _messages.length || !_messages[index].isUser) {
       return;
     }
+    if (summaryIncludesMessageAt(index)) {
+      _summary = ChatSummary.empty(_summary.characterId, _summary.sessionId);
+    }
     _messages = [
       ..._messages.take(index),
-      _messages[index].copyWith(content: content, time: time),
+      _messages[index].copyWith(
+        content: content,
+        time: time,
+        imagePaths: imagePaths,
+      ),
     ];
   }
 

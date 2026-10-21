@@ -80,7 +80,7 @@ ${historySummary.trim().isEmpty ? '暂无。' : historySummary.trim()}
 5. 如果总结与最近原始聊天冲突，以最近原始聊天为准。
 ''';
 
-  static List<Map<String, String>> buildChatRequestMessages({
+  static List<Map<String, dynamic>> buildChatRequestMessages({
     required AppCharacter character,
     UserProfile userProfile = const UserProfile(),
     String memoryPrompt = '',
@@ -109,7 +109,12 @@ ${historySummary.trim().isEmpty ? '暂无。' : historySummary.trim()}
       if (!useFullContext)
         {'role': 'system', 'content': buildChatMemoryPrompt(historySummary)},
       for (final message in requestMessages)
-        {'role': message.role, 'content': message.effectiveContent},
+        {
+          'role': message.role,
+          'content': message.effectiveContent,
+          if (message.isUser && message.imagePaths.isNotEmpty)
+            'imagePaths': message.imagePaths,
+        },
     ];
   }
 
@@ -270,7 +275,7 @@ $items
     );
   }
 
-  static List<Map<String, String>> buildTheaterSingleApiRequest({
+  static List<Map<String, dynamic>> buildTheaterSingleApiRequest({
     required TheaterSession session,
     required String novelSummary,
     required List<TheaterMessage> messages,
@@ -330,7 +335,7 @@ ${_theaterParticipantsText(session.participants)}
     ];
   }
 
-  static List<Map<String, String>> buildTheaterParticipantRequest({
+  static List<Map<String, dynamic>> buildTheaterParticipantRequest({
     required TheaterSession session,
     required TheaterParticipant participant,
     required String novelSummary,
@@ -550,7 +555,7 @@ ${_theaterIntentText(generationIntent)}
         .join('\n\n');
   }
 
-  static List<Map<String, String>> _theaterHistoryMessages(
+  static List<Map<String, dynamic>> _theaterHistoryMessages(
     List<TheaterMessage> messages,
   ) {
     return [
@@ -562,6 +567,8 @@ ${_theaterIntentText(generationIntent)}
               ? 'user'
               : 'assistant',
           'content': '[${message.speakerName}] ${message.content.trim()}',
+          if (message.isUser && message.imagePaths.isNotEmpty)
+            'imagePaths': message.imagePaths,
         },
     ];
   }

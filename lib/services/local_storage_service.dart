@@ -290,7 +290,7 @@ class LocalStorageService {
     required String requestType,
     required String model,
     required AiUsage usage,
-    required List<Map<String, String>> messages,
+    required List<Map<String, dynamic>> messages,
     required bool summaryUpdated,
   }) async {
     final record = AiUsageRecord.fromRequest(
@@ -853,6 +853,14 @@ class LocalStorageService {
       }
     }
     referenced.addAll(await autoStoryReferencedMedia(await appDataDirectory));
+    await for (final file in media_store.chatImageJsonFiles(
+      await appDataDirectory,
+    )) {
+      media_store.visitChatImages(await _readJson(file, null), (path) {
+        add(path);
+        return path;
+      });
+    }
     return media_store.cleanupUnusedMedia(await appDataDirectory, referenced);
   });
 
@@ -1371,6 +1379,18 @@ class LocalStorageService {
       }
     }
 
+    await for (final file in media_store.chatImageJsonFiles(directory)) {
+      await updateJson(file.path.substring(directory.path.length + 1), (
+        decoded,
+      ) {
+        final changed = media_store.visitChatImages(decoded, fixPath);
+        if (changed &&
+            decoded is Map<String, dynamic> &&
+            decoded.containsKey('contentHash')) {
+          decoded['contentHash'] = checkpointContentHash(decoded);
+        }
+      });
+    }
     await updateJson('settings.json', (decoded) {
       if (decoded is Map<String, dynamic>) {
         decoded['globalBackgroundImage'] = fixPath(

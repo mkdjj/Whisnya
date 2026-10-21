@@ -1012,4 +1012,6 @@ const _en = {
   '停止': 'Stop',
   '尚未生成': 'Not generated yet',
   '显示名': 'Display name',
+  '发送图片': 'Attach image',
+  '移除图片': 'Remove image',
 };

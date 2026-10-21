@@ -536,6 +536,7 @@ class TheaterMessage {
     this.isError = false,
     this.errorMessage = '',
     this.reasoningContent = '',
+    this.imagePaths = const [],
   });
 
   final String id;
@@ -551,6 +552,7 @@ class TheaterMessage {
   final bool isError;
   final String errorMessage;
   final String reasoningContent;
+  final List<String> imagePaths;
   final DateTime time;
 
   bool get isUser => speakerType == TheaterSpeakerType.user;
@@ -560,6 +562,7 @@ class TheaterMessage {
     bool? isError,
     String? errorMessage,
     String? reasoningContent,
+    List<String>? imagePaths,
   }) {
     return TheaterMessage(
       id: id,
@@ -575,6 +578,7 @@ class TheaterMessage {
       isError: isError ?? this.isError,
       errorMessage: errorMessage ?? this.errorMessage,
       reasoningContent: reasoningContent ?? this.reasoningContent,
+      imagePaths: imagePaths ?? this.imagePaths,
       time: time,
     );
   }
@@ -594,6 +598,7 @@ class TheaterMessage {
       isError: json['isError'] as bool? ?? false,
       errorMessage: json['errorMessage'] as String? ?? '',
       reasoningContent: json['reasoningContent'] as String? ?? '',
+      imagePaths: (json['imagePaths'] as List?)?.cast<String>() ?? const [],
       time: DateTime.tryParse(json['time'] as String? ?? '') ?? DateTime.now(),
     );
   }
@@ -613,6 +618,7 @@ class TheaterMessage {
       'isError': isError,
       'errorMessage': errorMessage,
       'reasoningContent': reasoningContent,
+      if (imagePaths.isNotEmpty) 'imagePaths': imagePaths,
       'time': time.toIso8601String(),
     };
   }

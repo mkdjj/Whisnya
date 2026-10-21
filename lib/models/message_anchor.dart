@@ -56,6 +56,13 @@ class MessageAnchor {
                     'selectedVariantId': logicalVariantId(m),
                     'role': m.role,
                     'effectiveContent': m.effectiveContent,
+                    if (m.imagePaths.isNotEmpty)
+                      'images': m.imagePaths
+                          .map(
+                            (path) =>
+                                path.replaceAll('\\', '/').split('/').last,
+                          )
+                          .toList(),
                     'effectiveReplyState': m.effectiveReplyState,
                   },
                 )

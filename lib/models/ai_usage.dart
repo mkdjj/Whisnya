@@ -122,16 +122,18 @@ class AiUsageRecord {
     required String requestType,
     required String model,
     required AiUsage usage,
-    required List<Map<String, String>> messages,
+    required List<Map<String, dynamic>> messages,
     required bool summaryUpdated,
     DateTime? createdAt,
   }) {
-    final fixed = messages.isEmpty ? 0 : messages.first['content']?.length ?? 0;
+    int textLength(Map<String, dynamic> message) =>
+        (message['content'] as String?)?.length ?? 0;
+    final fixed = messages.isEmpty ? 0 : textLength(messages.first);
     final hasMemory = messages.length > 1 && messages[1]['role'] == 'system';
-    final memory = hasMemory ? messages[1]['content']?.length ?? 0 : 0;
+    final memory = hasMemory ? textLength(messages[1]) : 0;
     final chat = messages
         .skip(hasMemory ? 2 : 1)
-        .fold<int>(0, (sum, item) => sum + (item['content']?.length ?? 0));
+        .fold<int>(0, (sum, item) => sum + textLength(item));
     return AiUsageRecord(
       requestType: requestType,
       model: model,
